@@ -141,3 +141,4 @@ databases:
     plan: basic-256mb
     region: frankfurt
     postgresMajorVersion: "16"
+    ipAllowList: []
