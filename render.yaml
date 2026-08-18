@@ -46,6 +46,8 @@ services:
         sync: false
       - key: BCGAME_DEPOSIT_URL
         sync: false
+      - key: BCGAME_UPDOWN_URL
+        sync: false
       - key: SUPPORT_URL
         sync: false
 
