@@ -103,7 +103,17 @@ class MarketDataService:
         if self._task and not self._task.done():
             return
         self._stop.clear()
-        await self.bootstrap(symbol)
+        # Bootstrap improves first-scan readiness, but a temporary REST failure
+        # must never crash the entire Render service. The background loops below
+        # recover automatically and health remains fail-closed until data is fresh.
+        try:
+            await self.bootstrap(symbol)
+            self.last_error = None
+            self.candle_last_error = None
+        except Exception as exc:
+            error = f'{type(exc).__name__}: {exc}'
+            self.last_error = error
+            self.candle_last_error = error
         self._task = asyncio.create_task(self._run_ticks(symbol), name=f'market-data-{symbol.lower()}')
         self._candle_task = asyncio.create_task(self._run_candles(symbol), name=f'candle-cache-{symbol.lower()}')
 
