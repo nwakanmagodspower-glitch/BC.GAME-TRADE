@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     signal_entry_alignment_seconds: int = 60
     signal_entry_window_seconds: int = 3
     signal_minimum_lead_seconds: int = 15
+    signal_settlement_window_seconds: int = 3
+    worker_heartbeat_max_age_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'
     market_data_rest_base_url: str = 'https://api.binance.com'
