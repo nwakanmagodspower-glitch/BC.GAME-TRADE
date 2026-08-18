@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     bcgame_registration_url: str | None = None
     bcgame_deposit_url: str | None = None
+    bcgame_updown_url: str | None = None
     support_url: str | None = None
 
     signal_mode: str = 'PAPER'
