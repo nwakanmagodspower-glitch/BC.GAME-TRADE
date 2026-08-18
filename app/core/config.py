@@ -31,12 +31,12 @@ class Settings(BaseSettings):
     default_stake_band: str = '1-50'
     strategy_version: str = 'BTC_UPDOWN_5S_V1.1'
 
-    # MANUAL_SYNC is the deployable V1 contract. The user taps the button that
-    # matches BC.GAME's visible 15/14/13/12-second countdown. AUTO_SYNC is the
-    # later DeTrade/BC.GAME structured-round upgrade.
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
     manual_sync_min_remaining_after_scan: float = 7.0
+    # Compatibility/readability aliases used by existing health/admin views.
+    signal_minimum_action_lead_seconds: int = 12
+    signal_maximum_action_lead_seconds: int = 15
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
 
