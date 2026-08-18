@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.entities import Signal, SignalStatus
 from app.services.signal_lifecycle import SignalLifecycleService
 from app.services.signal_notifications import SignalNotificationService
+
+settings = get_settings()
 
 
 class SignalLifecycleWorker:
@@ -59,16 +62,22 @@ class SignalLifecycleWorker:
                 if signal.status != previous and signal.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE, SignalStatus.CANCELLED}:
                     await notifications.notify_status(signal)
 
-            # Retry any terminal/current state notification that previously failed.
+            # Retry recent states whose Telegram delivery may have failed. Do not
+            # revisit signals older than the notification-retention window: their
+            # delivery receipts may already have been intentionally cleaned.
+            retry_cutoff = now - timedelta(days=settings.temporary_retention_days)
             retryable = db.scalars(
                 select(Signal)
-                .where(Signal.status.in_([
-                    SignalStatus.ACTIVE,
-                    SignalStatus.CANCELLED,
-                    SignalStatus.WIN,
-                    SignalStatus.LOSS,
-                    SignalStatus.TIE,
-                ]))
+                .where(
+                    Signal.created_at >= retry_cutoff,
+                    Signal.status.in_([
+                        SignalStatus.ACTIVE,
+                        SignalStatus.CANCELLED,
+                        SignalStatus.WIN,
+                        SignalStatus.LOSS,
+                        SignalStatus.TIE,
+                    ]),
+                )
                 .order_by(Signal.id.desc())
                 .limit(100)
             ).all()
