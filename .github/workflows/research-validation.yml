@@ -1,0 +1,49 @@
+name: Strategy Research Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'UTC start, e.g. 2026-05-01T00:00:00Z'
+        required: true
+      end:
+        description: 'UTC exclusive end, e.g. 2026-08-01T00:00:00Z'
+        required: true
+      train_days:
+        description: 'Training days per fold'
+        required: false
+        default: '14'
+      validation_days:
+        description: 'Validation days per fold'
+        required: false
+        default: '7'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: pytest -q
+      - name: Run walk-forward research
+        run: |
+          mkdir -p research-output
+          python scripts/run_walk_forward.py \
+            --start '${{ inputs.start }}' \
+            --end '${{ inputs.end }}' \
+            --train-days '${{ inputs.train_days }}' \
+            --validation-days '${{ inputs.validation_days }}' \
+            | tee research-output/walk-forward.txt
+      - name: Upload research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: walk-forward-research
+          path: research-output/walk-forward.txt
+          retention-days: 30
