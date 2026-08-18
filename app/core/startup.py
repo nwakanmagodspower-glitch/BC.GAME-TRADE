@@ -39,7 +39,6 @@ def validate_settings(settings: Settings) -> StartupCheck:
         if not settings.telegram_bot_token: errors.append('Production requires TELEGRAM_BOT_TOKEN')
         if not settings.telegram_webhook_secret: errors.append('Production requires TELEGRAM_WEBHOOK_SECRET')
         if not settings.owner_telegram_id: errors.append('Production requires OWNER_TELEGRAM_ID')
-        if not settings.admin_chat_id: errors.append('Production requires ADMIN_CHAT_ID')
         if not _valid_https_url(settings.bcgame_registration_url): errors.append('Production requires a valid HTTPS BCGAME_REGISTRATION_URL')
         if not _valid_https_url(settings.bcgame_deposit_url): errors.append('Production requires a valid HTTPS BCGAME_DEPOSIT_URL')
         if not _valid_https_url(settings.bcgame_updown_url): errors.append('Production requires a valid HTTPS BCGAME_UPDOWN_URL')
