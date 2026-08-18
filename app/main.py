@@ -8,6 +8,7 @@ from app.bot.application import build_telegram_application
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
+from app.services.market_data import market_data_service
 from app.services.webhook_receipts import WebhookReceiptService
 
 settings = get_settings()
@@ -17,12 +18,14 @@ telegram_app = build_telegram_application()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await market_data_service.start(settings.default_pair)
     if telegram_app is not None:
         await telegram_app.initialize()
         await telegram_app.start()
     try:
         yield
     finally:
+        await market_data_service.stop()
         if telegram_app is not None:
             await telegram_app.stop()
             await telegram_app.shutdown()
@@ -32,7 +35,11 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
 @app.get('/health')
-def health():
+async def health():
+    snapshot = await market_data_service.cache.get_snapshot(
+        settings.default_pair,
+        settings.market_data_max_age_seconds,
+    )
     return {
         'status': 'ok',
         'app': settings.app_name,
@@ -42,6 +49,13 @@ def health():
         'telegram_configured': bool(settings.telegram_bot_token),
         'startup_ok': startup_check.ok,
         'startup_warnings': startup_check.warnings,
+        'market_data': {
+            'provider': market_data_service.provider.name,
+            'connected': market_data_service.connected,
+            'fresh': bool(snapshot and snapshot.fresh),
+            'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
+            'last_error': market_data_service.last_error,
+        },
     }
 
 
@@ -57,6 +71,24 @@ def ready():
         raise HTTPException(status_code=503, detail='database_unavailable') from exc
 
     return {'status': 'ready'}
+
+
+@app.get('/market/status')
+async def market_status():
+    snapshot = await market_data_service.cache.get_snapshot(
+        settings.default_pair,
+        settings.market_data_max_age_seconds,
+    )
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail='market_data_unavailable')
+    return {
+        'symbol': snapshot.symbol,
+        'price': snapshot.price,
+        'event_time': snapshot.event_time,
+        'provider': snapshot.provider,
+        'age_seconds': round(snapshot.age_seconds, 3),
+        'fresh': snapshot.fresh,
+    }
 
 
 @app.post('/telegram/webhook')
