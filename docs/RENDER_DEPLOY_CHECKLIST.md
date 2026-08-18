@@ -19,15 +19,17 @@ Create from root `render.yaml`. Expected paid resources:
 1. `bcgame-trade-api` Starter web service — Frankfurt.
 2. `bcgame-trade-db` PostgreSQL 16 Basic-256MB — Frankfurt, 1 GB disk.
 
-There is no separate paid background worker in this stage. `RUN_BACKGROUND_JOBS=true` makes the web process also run the already-separated signal lifecycle worker, broadcast worker, and 10-day retention cleanup task.
+There is no separate paid background worker in this stage. `RUN_BACKGROUND_JOBS=true` makes the web process host the already-separated signal lifecycle worker, broadcast worker, and 10-day retention cleanup task.
 
 The web service runs migrations using `alembic upgrade head` as the pre-deploy command. PostgreSQL external access is disabled (`ipAllowList: []`).
 
-### Combined-topology scaling rule
+### Combined-topology coordination and scaling rule
 
-While `RUN_BACKGROUND_JOBS=true`, keep the Render web service at exactly one running instance. Multiple web instances would each start the same background loops and could duplicate lifecycle/broadcast processing.
+Render zero-downtime deploys temporarily overlap the old and new web instances. The combined topology therefore uses a PostgreSQL advisory leader lock: only the lock holder may run signal lifecycle, broadcast delivery, and retention cleanup. A replacement instance keeps retrying and takes leadership after the previous instance shuts down.
 
-When concurrency justifies horizontal web scaling, switch to the existing dedicated `app.worker` topology: set `RUN_BACKGROUND_JOBS=false` on web and provision one separate background worker. This requires configuration change, not a rewrite of business logic.
+For the 0–250-user cost plan, keep one steady-state web instance. The leader lock protects correctness during deploy/maintenance overlap, but running multiple permanent web instances would unnecessarily duplicate market-feed/API compute and increase cost.
+
+When sustained concurrency justifies horizontal web scaling, switch to the existing dedicated `app.worker` topology: set `RUN_BACKGROUND_JOBS=false` on web and provision one separate background worker. This requires configuration change, not a rewrite of business logic.
 
 ## Required production values
 
@@ -49,11 +51,12 @@ Do not enable signals or broadcasts during first deployment.
 1. Web deployment succeeds.
 2. Pre-deploy migration succeeds against PostgreSQL.
 3. `/health` returns HTTP 200 and reports `topology=combined`.
-4. `/health` reports background jobs enabled with no worker/cleanup errors.
-5. `/ready` returns HTTP 200.
-6. `/market/status` reports fresh BTCUSDT data.
-7. An unauthenticated POST to `/telegram/webhook` is rejected.
-8. Run:
+4. `/health` reports background jobs enabled with no coordinator/worker/cleanup errors.
+5. In steady state, `/health` reports `background_jobs.leader=true` on the single running web instance.
+6. `/ready` returns HTTP 200.
+7. `/market/status` reports fresh BTCUSDT data.
+8. An unauthenticated POST to `/telegram/webhook` is rejected.
+9. Run:
 
 ```bash
 python scripts/render_smoke_test.py --base-url https://YOUR-SERVICE.onrender.com
@@ -92,6 +95,7 @@ With signals and broadcasts still disabled:
 - `TEMPORARY_RETENTION_DAYS=10`.
 - `CLEANUP_INTERVAL_SECONDS=86400`.
 - temporary webhook receipts, signal-notification delivery records, and completed broadcast-delivery rows older than 10 days are removable;
+- terminal signals older than the retention window are not re-notified merely because their old delivery receipt was cleaned;
 - users, verification history, signals/results, broadcast summaries, runtime settings, and audit history are not part of temporary cleanup.
 
 ## Paper-validation transition
@@ -109,8 +113,8 @@ Stop deployment validation and repair before proceeding if any of these occur:
 - database migration error;
 - stale/unavailable market data recorded as strategy `NO_TRADE`;
 - webhook secret failure;
-- duplicate lifecycle/broadcast processing;
-- more than one web instance while `RUN_BACKGROUND_JOBS=true`;
+- no background-job leader in steady state;
+- duplicate lifecycle/broadcast processing despite leader coordination;
 - onboarding bypass;
 - resubmission overwrites old verification evidence;
 - unauthorized admin access;
