@@ -1,51 +1,60 @@
 # BC.GAME TRADE
 
-Production-focused Telegram signal platform for **BC.GAME BTC/USDT Up/Down**.
+Telegram signal platform specialized for **BC.GAME BTC/USD 5-second Up/Down rounds**.
 
 ## V1 Scope
 
-- One product: **BC.GAME Up/Down**
-- One market: **BTC/USDT**
-- On-demand scans only
-- Outputs: `UP`, `DOWN`, or `NO_TRADE`
-- Exact planned entry time and expiry time
-- Manual BC.GAME execution by the user
+- Product: BC.GAME Up/Down
+- Game market: BTC/USD
+- External analysis feed: BTCUSDT initially
+- Duration: 5 seconds
+- Initial stake band: $1-50
+- On-demand `Scan Next Round`
+- Outputs: `UP`, `DOWN`, `NO_TRADE`, `UNAVAILABLE`
+- Manual user execution only
 - Manual affiliate verification before access
-- Render-first deployment
-- Telegram as the user/admin interface
-- PostgreSQL as persistent memory
+- Render Web + Background Worker + PostgreSQL
 
-## Non-goals for V1
+## Real Round Contract
 
-- No automatic BC.GAME trade execution
-- No Martingale or recovery doubling
-- No guaranteed-win claims
-- No additional coins or BC.GAME trading products without an explicit milestone
-- No scheduled public signal broadcasting
+Users place UP/DOWN orders during BC.GAME's countdown. When the countdown ends BC.GAME records Start Rate at the first flag. Five seconds later it records End Rate at the second flag. End > Start means UP wins; otherwise DOWN wins according to the supplied How to Trade instructions.
 
-## Core Flow
+The countdown is the **order window**, not the five-second measurement itself.
 
-1. User starts bot.
-2. Bot starts guided onboarding; no main-menu buttons are shown yet.
-3. User is guided to registration.
-4. User is guided to deposit.
-5. User submits BC.GAME profile/user ID evidence and deposit screenshot(s).
-6. Submission is sent immediately to admin.
-7. Admin manually checks the affiliate dashboard and approves/rejects.
-8. Approved user is remembered in PostgreSQL.
-9. Main menu becomes available.
-10. User requests a BTC signal on demand.
-11. Intelligence engine returns `UP`, `DOWN`, or `NO_TRADE`.
-12. Valid signals include exact entry and expiry times.
-13. Outcomes are recorded automatically for strategy evaluation.
+## Signal Philosophy
 
-## Architecture Principles
+The engine focuses on immediate BTC microstructure: tick velocity, acceleration, aggressive buy/sell flow and micro-volatility, with slower candle indicators used only as context. It deliberately supports `NO_TRADE` and does not force a signal every round.
 
-- Telegram is an interface, not the strategy engine.
-- Market-data providers are replaceable adapters.
-- BC.GAME-specific integrations are isolated behind a BC.GAME adapter.
-- Strategy versions are immutable and measurable.
-- Stale or unhealthy data fails closed: no signal is better than a bad signal.
-- Frontend stays simple and visual; backend carries state, validation, auditability, and reliability.
+LIVE actionable delivery requires trustworthy BC.GAME round synchronization. Until that integration exists, the product remains PAPER/research and must not invent round timing from minute boundaries.
 
-See `AGENTS.md` and the documents under `docs/` before writing production code.
+## User Flow
+
+1. `/start`
+2. Registration
+3. Deposit
+4. BC.GAME User ID
+5. Profile screenshot
+6. Deposit screenshot(s)
+7. Packet goes directly to bot owner's private chat
+8. Owner approves/rejects/resubmits after affiliate-dashboard check
+9. Approved menu opens
+10. User selects `⚡ BTC 5s Signal`
+11. Bot explains the Start Rate → 5s → End Rate target
+12. User taps `🔍 Scan Next Round`
+13. Backend checks access, worker, market data, round timing and strategy quality
+14. Returns UP/DOWN/NO_TRADE/UNAVAILABLE
+15. Outcomes are measured against BC.GAME Start/End Rate when reliable round-result ingestion is available
+
+## Non-goals
+
+- no automated BC.GAME trade placement
+- no Martingale/recovery logic
+- no guaranteed-win claims
+- no automatic copying of leaderboard traders
+- no additional coins, durations or products without explicit approval
+
+## GitHub Actions
+
+GitHub Actions workflows are intentionally disabled at the owner's request while the monthly Actions allowance is unavailable. Repository review/editing may continue, but validation is performed through local/Render/runtime checks rather than Actions.
+
+See `AGENTS.md` and `docs/` for the permanent contract.
