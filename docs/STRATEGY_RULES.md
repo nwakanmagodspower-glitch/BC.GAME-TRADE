@@ -104,4 +104,22 @@ The initial historical source is external `BTCUSDT` market data. A backtest resu
 
 Before production claims are made, compare external entry/expiry prices with BC.GAME's actual live Up/Down reference/settlement behavior and complete live paper forward-testing.
 
-Backtest reports should include at least overall win/loss/tie counts, signal coverage/no-trade rate, and breakdowns by direction, quality, market structure, and entry hour. Parameter changes selected after looking at test results must be validated on unseen time periods rather than repeatedly optimized on the same sample.
+Backtest reports should include at least overall win/loss/tie counts, signal coverage/no-trade rate, and breakdowns by direction, quality, market structure, and entry hour.
+
+## Walk-Forward Validation Contract
+
+Parameter research must not select and judge parameters on the same historical period.
+
+The walk-forward engine therefore:
+
+- divides history into chronological training and validation windows;
+- evaluates candidate `min_score` / `min_margin` combinations on the training window only;
+- requires a minimum number of training signals before a candidate can be selected;
+- selects the training candidate using declared ranking rules;
+- applies the selected parameters unchanged to the immediately following unseen validation window;
+- advances chronologically and repeats the process across multiple folds;
+- reports aggregate validation performance separately from training performance.
+
+Default research windows are 14 training days followed by 7 unseen validation days. These are research defaults and may be changed deliberately, but they must not be tuned repeatedly just to improve one historical report.
+
+A parameter set should be considered more credible when validation performance remains reasonably stable across multiple market periods, directions, and signal counts. One exceptionally strong fold is not sufficient evidence of a durable edge.
