@@ -24,6 +24,18 @@ class UserRole(str, enum.Enum):
     OWNER = 'OWNER'
 
 
+class OnboardingStep(str, enum.Enum):
+    START = 'START'
+    REGISTRATION = 'REGISTRATION'
+    DEPOSIT = 'DEPOSIT'
+    BC_ID = 'BC_ID'
+    PROFILE_PROOF = 'PROFILE_PROOF'
+    DEPOSIT_PROOF = 'DEPOSIT_PROOF'
+    REVIEW = 'REVIEW'
+    APPROVED = 'APPROVED'
+    RESUBMIT = 'RESUBMIT'
+
+
 class VerificationStatus(str, enum.Enum):
     COLLECTING = 'COLLECTING'
     SUBMITTED = 'SUBMITTED'
@@ -59,6 +71,7 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.PENDING, index=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
+    onboarding_step: Mapped[OnboardingStep] = mapped_column(Enum(OnboardingStep), default=OnboardingStep.START, index=True)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
