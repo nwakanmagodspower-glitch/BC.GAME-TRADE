@@ -62,6 +62,7 @@ def _worker_heartbeat_status() -> dict:
 async def health():
     snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
     cleanup_result = retention_cleanup_service.last_result
+    round_status = bcgame_round_service.status()
     return {
         'status': 'ok',
         'app': settings.app_name,
@@ -82,9 +83,12 @@ async def health():
         'startup_ok': startup_check.ok,
         'startup_warnings': startup_check.warnings,
         'round_sync': {
-            'enabled': settings.bcgame_round_sync_enabled,
-            'healthy': settings.bcgame_round_sync_enabled and bcgame_round_service.last_error is None,
-            'last_error': bcgame_round_service.last_error,
+            'enabled': round_status.enabled,
+            'seen': round_status.seen,
+            'fresh': round_status.fresh,
+            'age_seconds': round(round_status.age_seconds, 3) if round_status.age_seconds is not None else None,
+            'round_id': round_status.round_id,
+            'last_error': round_status.last_error,
             'action_window_seconds': [settings.signal_minimum_action_lead_seconds, settings.signal_maximum_action_lead_seconds],
         },
         'market_data': {
