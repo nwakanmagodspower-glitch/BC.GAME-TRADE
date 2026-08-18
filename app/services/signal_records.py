@@ -48,11 +48,21 @@ class SignalRecordService:
         if is_trade and round_snapshot is None:
             raise ValueError('Directional five-second signals require a timing snapshot.')
 
-        round_row = self._persist_round(round_snapshot) if round_snapshot is not None else None
+        # Manual countdown snapshots are per-user timing estimates, not genuine
+        # BC.GAME round IDs. Keep them in the signal metadata only. The round
+        # table is reserved for future structured DeTrade/BC.GAME round IDs.
+        round_row = None
+        if round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
+            round_row = self._persist_round(round_snapshot)
+
         status = SignalStatus.WAITING_ENTRY if is_trade else SignalStatus.NO_TRADE
         feature_data = result.features.to_dict() if result.features is not None else {}
         if result.decision is not None:
-            feature_data['_decision'] = {'quality': result.quality, 'bull_score': result.decision.bull_score, 'bear_score': result.decision.bear_score}
+            feature_data['_decision'] = {
+                'quality': result.quality,
+                'bull_score': result.decision.bull_score,
+                'bear_score': result.decision.bear_score,
+            }
         feature_data['_market'] = {
             'game_market': settings.game_market,
             'analysis_pair': result.market,
