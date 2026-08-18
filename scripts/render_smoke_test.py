@@ -40,12 +40,12 @@ async def main() -> None:
         if webhook.status_code not in {403, 503}:
             raise SystemExit(f'Webhook accepted an unauthenticated request: {webhook.status_code}')
 
-    if health_data.get('signal_mode') != 'PAPER':
-        raise SystemExit('Deployment is not in PAPER mode')
-    if health_data.get('signals_enabled_default') is not False:
-        raise SystemExit('SIGNALS_ENABLED default is not false')
-    if health_data.get('broadcasts_enabled_default') is not False:
-        raise SystemExit('BROADCASTS_ENABLED default is not false')
+    if health_data.get('signal_mode') != 'LIVE':
+        raise SystemExit('Deployment is not in LIVE mode')
+    if health_data.get('signals_enabled_default') is not True:
+        raise SystemExit('SIGNALS_ENABLED default is not true')
+    if health_data.get('broadcasts_enabled_default') is not True:
+        raise SystemExit('BROADCASTS_ENABLED default is not true')
     if health_data.get('topology') != 'web-plus-dedicated-worker':
         raise SystemExit(f"Unexpected topology: {health_data.get('topology')}")
 
@@ -56,7 +56,7 @@ async def main() -> None:
         'product': 'BC_UPDOWN_5S',
         'duration_seconds': 5,
         'stake_band': '1-50',
-        'strategy_version': 'BTC_UPDOWN_5S_V1.0',
+        'strategy_version': 'BTC_UPDOWN_5S_V1.1',
     }
     for key, value in expected.items():
         if product.get(key) != value:
@@ -66,15 +66,11 @@ async def main() -> None:
     if not worker.get('seen') or not worker.get('fresh'):
         raise SystemExit(f'Dedicated worker heartbeat is not fresh: {worker}')
 
-    round_sync = health_data.get('round_sync') or {}
-    # Initial infrastructure deployment is intentionally fail-closed until the
-    # real BC.GAME round provider is integrated.
-    if round_sync.get('enabled') is not False:
-        raise SystemExit(f'Initial deployment unexpectedly enabled BC.GAME round sync: {round_sync}')
-    if round_sync.get('fresh'):
-        raise SystemExit('Round sync cannot be fresh while intentionally disabled')
+    timing = health_data.get('round_sync') or {}
+    if not timing.get('enabled') or not timing.get('fresh') or timing.get('round_id') != 'MANUAL_SYNC':
+        raise SystemExit(f'Manual timing mode is not healthy: {timing}')
 
-    print('Render five-second safe-deployment smoke tests passed.')
+    print('Render active manual-sync smoke tests passed.')
     print(json.dumps({'health': health_data, 'market': market_data}, indent=2, default=str))
 
 
