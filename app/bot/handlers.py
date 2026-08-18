@@ -1,10 +1,15 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.bot.signal_views import build_signal_keyboard, format_signal
+from app.bot.signal_views import (
+    build_scan_prompt_keyboard,
+    build_signal_keyboard,
+    format_scan_context,
+    format_signal,
+)
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models.entities import OnboardingStep, Signal, SignalStatus, UserStatus
+from app.models.entities import OnboardingStep, Signal, UserStatus
 from app.services.onboarding import OnboardingService
 from app.services.user_signals import UserSignalService
 
@@ -17,7 +22,7 @@ def _button(label: str, data: str) -> InlineKeyboardMarkup:
 
 def _approved_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('📊 BTC Signal', callback_data='menu:signal')],
+        [InlineKeyboardButton('⚡ BTC 5s Signal', callback_data='menu:signal')],
         [InlineKeyboardButton('📈 My Results', callback_data='menu:results')],
         [InlineKeyboardButton('ℹ️ How It Works', callback_data='menu:help')],
         [InlineKeyboardButton('🆘 Support', callback_data='menu:support')],
@@ -36,53 +41,70 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         service = OnboardingService(db)
         user = service.get_or_create_user(tg_user)
         if user.is_blocked:
-            await update.effective_chat.send_message('Your bot access is currently blocked. Please contact support.')
+            await update.effective_chat.send_message('Your access is blocked. Please contact support.')
             return
         if user.status == UserStatus.APPROVED:
-            await update.effective_chat.send_message('Welcome back. Your access is active. Choose an option below.', reply_markup=_approved_menu())
+            await update.effective_chat.send_message(
+                '⚡ BC.GAME BTC 5s Signals\n\nYour access is active. Choose an option.',
+                reply_markup=_approved_menu(),
+            )
             return
         if user.status == UserStatus.SUSPENDED:
-            await update.effective_chat.send_message('Your access is currently suspended. Please contact support.')
+            await update.effective_chat.send_message('Your access is suspended. Please contact support.')
             return
         if user.status == UserStatus.REJECTED:
-            await update.effective_chat.send_message('Your verification was not approved. Please contact support if you believe this is an error.')
+            await update.effective_chat.send_message('Your verification was not approved. Please contact support if needed.')
             return
+
         step = user.onboarding_step
         if step == OnboardingStep.START:
             service.set_step(user, OnboardingStep.REGISTRATION)
             step = OnboardingStep.REGISTRATION
+
         if step == OnboardingStep.REGISTRATION:
             keyboard = []
             if settings.bcgame_registration_url:
-                keyboard.append([InlineKeyboardButton('Open BC.GAME Registration', url=settings.bcgame_registration_url)])
-            keyboard.append([InlineKeyboardButton('I Have Registered', callback_data='onboard:registered')])
-            await update.effective_chat.send_message('Step 1 of 5 — Registration\n\nCreate your BC.GAME account using the registration link below. When finished, return here and continue.', reply_markup=InlineKeyboardMarkup(keyboard))
+                keyboard.append([InlineKeyboardButton('🔗 Register on BC.GAME', url=settings.bcgame_registration_url)])
+            keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
+            await update.effective_chat.send_message(
+                'Welcome to BC.GAME BTC 5s Signals.\n\n'
+                'Access is verified manually so signals remain limited to approved users.\n\n'
+                'Step 1 of 5 — Registration\n'
+                'Create your BC.GAME account using the link below, then return here.',
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
             return
         if step == OnboardingStep.DEPOSIT:
             await _send_deposit_step(update)
             return
         if step == OnboardingStep.BC_ID:
-            await update.effective_chat.send_message('Step 3 of 5 — BC.GAME User ID\n\nSend your BC.GAME User ID as a text message.')
+            await update.effective_chat.send_message('Step 3 of 5 — BC.GAME User ID\n\nSend your BC.GAME User ID as text.')
             return
         if step == OnboardingStep.PROFILE_PROOF:
             await update.effective_chat.send_message('Step 4 of 5 — Profile Proof\n\nSend a clear screenshot of your BC.GAME profile showing the User ID.')
             return
         if step == OnboardingStep.DEPOSIT_PROOF:
-            await update.effective_chat.send_message('Step 5 of 5 — Deposit Proof\n\nSend one or more clear screenshots showing your deposit. When all screenshots have been sent, tap Finish Verification.', reply_markup=_button('Finish Verification', 'onboard:submit'))
+            await update.effective_chat.send_message(
+                'Step 5 of 5 — Deposit Proof\n\nSend one or more clear deposit screenshots. When finished, tap Finish Verification.',
+                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
+            )
             return
         if step == OnboardingStep.REVIEW:
-            await update.effective_chat.send_message('Your verification has been submitted and is waiting for admin review.')
+            await update.effective_chat.send_message('⏳ Verification submitted. Your request is waiting for manual review.')
             return
         if step == OnboardingStep.RESUBMIT:
-            await update.effective_chat.send_message('Your verification needs to be submitted again. Send your BC.GAME User ID to begin the new verification packet.')
+            await update.effective_chat.send_message('🔄 Resubmission requested. Send your BC.GAME User ID to start a new evidence packet.')
 
 
 async def _send_deposit_step(update: Update):
     keyboard = []
     if settings.bcgame_deposit_url:
-        keyboard.append([InlineKeyboardButton('Open Deposit Page', url=settings.bcgame_deposit_url)])
-    keyboard.append([InlineKeyboardButton('I Have Deposited', callback_data='onboard:deposited')])
-    await update.effective_chat.send_message('Step 2 of 5 — Deposit\n\nMake your deposit on BC.GAME. When the deposit is complete, return here and continue.', reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard.append([InlineKeyboardButton('💳 Open Deposit Page', url=settings.bcgame_deposit_url)])
+    keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
+    await update.effective_chat.send_message(
+        'Step 2 of 5 — Deposit\n\nMake your deposit on BC.GAME. When complete, return here and continue.',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,16 +116,16 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         service = OnboardingService(db)
         user = service.get_or_create_user(query.from_user)
         if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
-            await query.answer('This onboarding action is not available for your account.', show_alert=True)
+            await query.answer('This onboarding action is not available.', show_alert=True)
             return
         if query.data == 'onboard:registered' and user.onboarding_step == OnboardingStep.REGISTRATION:
             service.set_step(user, OnboardingStep.DEPOSIT)
-            await query.edit_message_text('Registration step saved ✅')
+            await query.edit_message_text('Registration saved ✅')
             await _send_deposit_step(update)
             return
         if query.data == 'onboard:deposited' and user.onboarding_step == OnboardingStep.DEPOSIT:
             service.set_step(user, OnboardingStep.BC_ID)
-            await query.edit_message_text('Deposit step saved ✅\n\nStep 3 of 5 — Send your BC.GAME User ID as a text message.')
+            await query.edit_message_text('Deposit step saved ✅\n\nStep 3 of 5 — Send your BC.GAME User ID as text.')
             return
         if query.data == 'onboard:submit' and user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
@@ -111,7 +133,7 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except ValueError as exc:
                 await query.answer(str(exc), show_alert=True)
                 return
-            await query.edit_message_text('Verification submitted ✅\n\nYour access is now waiting for manual admin review.')
+            await query.edit_message_text('Verification submitted ✅\n\nYou will receive a message after manual review.')
             await _send_admin_packet(context, user, request)
             return
         await query.answer('That step is no longer active.', show_alert=True)
@@ -131,7 +153,7 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text('Please send a valid BC.GAME User ID.')
                 return
             service.set_bcgame_user_id(user, value)
-            await update.message.reply_text('User ID saved ✅\n\nNow send a clear screenshot of your BC.GAME profile showing this User ID.')
+            await update.message.reply_text('User ID saved ✅\n\nNow send a profile screenshot showing that User ID.')
 
 
 async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,12 +167,18 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if user.onboarding_step == OnboardingStep.PROFILE_PROOF:
             service.set_profile_proof(user, file_id)
-            await update.message.reply_text('Profile screenshot saved ✅\n\nNow send your deposit screenshot(s). You can send more than one. When finished, tap the button below.', reply_markup=_button('Finish Verification', 'onboard:submit'))
+            await update.message.reply_text(
+                'Profile screenshot saved ✅\n\nNow send your deposit screenshot(s).',
+                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
+            )
             return
         if user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             request = service.add_deposit_proof(user, file_id)
             count = len(request.deposit_proof_file_ids or [])
-            await update.message.reply_text(f'Deposit screenshot saved ✅ ({count})\n\nSend another if needed, or finish verification.', reply_markup=_button('Finish Verification', 'onboard:submit'))
+            await update.message.reply_text(
+                f'Deposit screenshot saved ✅ ({count})\n\nSend another if needed, or finish verification.',
+                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
+            )
 
 
 async def _send_admin_packet(context: ContextTypes.DEFAULT_TYPE, user, request):
@@ -158,8 +186,20 @@ async def _send_admin_packet(context: ContextTypes.DEFAULT_TYPE, user, request):
     if not owner_chat:
         return
     username = f'@{user.telegram_username}' if user.telegram_username else 'None'
-    text = ('🔐 NEW VERIFICATION REQUEST\n\n' f'Request ID: {request.id}\n' f'Name: {user.first_name or "Unknown"}\n' f'Username: {username}\n' f'Telegram ID: {user.telegram_user_id}\n' f'BC.GAME User ID: {request.bcgame_user_id}\n\n' 'Check this ID in the affiliate dashboard and verify the profile/deposit proof before approving.')
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}')], [InlineKeyboardButton('🔄 Resubmit', callback_data=f'admin:resubmit:{request.id}')], [InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}')]])
+    text = (
+        '🔐 NEW VERIFICATION REQUEST\n\n'
+        f'Request ID: {request.id}\n'
+        f'Name: {user.first_name or "Unknown"}\n'
+        f'Username: {username}\n'
+        f'Telegram ID: {user.telegram_user_id}\n'
+        f'BC.GAME User ID: {request.bcgame_user_id}\n\n'
+        'Check the BC.GAME affiliate dashboard and the submitted evidence before deciding.'
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}')],
+        [InlineKeyboardButton('🔄 Resubmit', callback_data=f'admin:resubmit:{request.id}')],
+        [InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}')],
+    ])
     await context.bot.send_message(owner_chat, text, reply_markup=keyboard)
     await context.bot.send_photo(owner_chat, request.profile_proof_file_id, caption='BC.GAME profile proof')
     for index, file_id in enumerate(request.deposit_proof_file_ids or [], start=1):
@@ -192,13 +232,13 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer('Saved')
     await query.edit_message_reply_markup(reply_markup=None)
     if action == 'approve':
-        await context.bot.send_message(user.telegram_user_id, 'Verification approved ✅\n\nYour access is now active.', reply_markup=_approved_menu())
+        await context.bot.send_message(user.telegram_user_id, 'Verification approved ✅\n\nYour BTC 5s signal access is active.', reply_markup=_approved_menu())
         await query.message.reply_text(f'Approved request #{request.id}.')
     elif action == 'resubmit':
-        await context.bot.send_message(user.telegram_user_id, 'Your verification needs to be submitted again.\n\nPlease send your BC.GAME User ID to begin again.')
+        await context.bot.send_message(user.telegram_user_id, 'Your verification needs new evidence. Send your BC.GAME User ID to begin the new packet.')
         await query.message.reply_text(f'Resubmission requested for #{request.id}.')
     else:
-        await context.bot.send_message(user.telegram_user_id, 'Verification was not approved. Please contact support if you believe this is an error.')
+        await context.bot.send_message(user.telegram_user_id, 'Verification was not approved. Please contact support if needed.')
         await query.message.reply_text(f'Rejected request #{request.id}.')
 
 
@@ -211,14 +251,24 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         onboarding = OnboardingService(db)
         user = onboarding.get_or_create_user(query.from_user)
         if user.status != UserStatus.APPROVED or user.is_blocked:
-            await query.answer('Your approved access is required.', show_alert=True)
+            await query.answer('Approved access is required.', show_alert=True)
+            return
+
+        if query.data == 'menu:home':
+            await query.answer()
+            await query.message.reply_text('Choose an option:', reply_markup=_approved_menu())
             return
 
         if query.data == 'menu:signal':
-            await query.answer('Scanning BTC/USDT…')
+            await query.answer()
+            await query.message.reply_text(format_scan_context(), reply_markup=build_scan_prompt_keyboard())
+            return
+
+        if query.data == 'menu:scan_now':
+            await query.answer('Checking the next BC.GAME round…')
             result = await UserSignalService(db).request_scan(user.id)
             if not result.available:
-                await query.message.reply_text(result.reason, reply_markup=_approved_menu())
+                await query.message.reply_text(result.reason, reply_markup=build_scan_prompt_keyboard())
                 return
             signal = result.signal
             await query.message.reply_text(format_signal(signal), reply_markup=build_signal_keyboard(signal.direction))
@@ -228,20 +278,32 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer()
             recent = db.query(Signal).filter(Signal.requested_by_user_id == user.id).order_by(Signal.id.desc()).limit(10).all()
             if not recent:
-                await query.message.reply_text('You do not have any signal results yet.')
+                await query.message.reply_text('You do not have any signal results yet.', reply_markup=_approved_menu())
                 return
-            lines = ['📈 MY RECENT SIGNALS', '']
+            lines = ['📈 MY RECENT 5s SIGNALS', '']
             for signal in recent:
                 lines.append(f'#{signal.id}  {signal.direction.value} — {signal.status.value}')
             await query.message.reply_text('\n'.join(lines), reply_markup=_approved_menu())
             return
 
+        if query.data == 'menu:help':
+            await query.answer()
+            await query.message.reply_text(
+                'ℹ️ HOW IT WORKS\n\n'
+                'BC.GAME accepts UP/DOWN orders during its countdown. When the countdown ends, BC.GAME records the Start Rate at the first flag. Five seconds later it records the End Rate at the second flag.\n\n'
+                'UP wins when End Rate is above Start Rate. DOWN wins otherwise according to the game instructions.\n\n'
+                'This bot analyzes short-term BTC market pressure and can return UP, DOWN, NO TRADE, or UNAVAILABLE. It does not guarantee outcomes and does not place trades automatically.',
+                reply_markup=_approved_menu(),
+            )
+            return
+
+        if query.data == 'menu:support':
+            await query.answer()
+            if settings.support_url:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('🆘 Open Support', url=settings.support_url)]])
+                await query.message.reply_text('Need help?', reply_markup=keyboard)
+            else:
+                await query.message.reply_text('Support contact has not been configured yet.', reply_markup=_approved_menu())
+            return
+
     await query.answer()
-    if query.data == 'menu:help':
-        await query.message.reply_text('This bot provides on-demand BTC/USDT analysis for BC.GAME Up/Down. A scan can return UP, DOWN, or NO TRADE. Signals can be cancelled before entry if conditions become invalid. No outcome is guaranteed.', reply_markup=_approved_menu())
-    elif query.data == 'menu:support':
-        if settings.support_url:
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('🆘 Open Support', url=settings.support_url)]])
-            await query.message.reply_text('Need help? Use the support button below.', reply_markup=keyboard)
-        else:
-            await query.message.reply_text('Support contact has not been configured yet.', reply_markup=_approved_menu())
