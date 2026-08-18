@@ -62,6 +62,20 @@ class SignalStatus(str, enum.Enum):
     NO_TRADE = 'NO_TRADE'
 
 
+class BroadcastStatus(str, enum.Enum):
+    DRAFT = 'DRAFT'
+    QUEUED = 'QUEUED'
+    SENDING = 'SENDING'
+    COMPLETE = 'COMPLETE'
+    FAILED = 'FAILED'
+
+
+class DeliveryStatus(str, enum.Enum):
+    PENDING = 'PENDING'
+    SENT = 'SENT'
+    FAILED = 'FAILED'
+
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -136,7 +150,43 @@ class Broadcast(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     message: Mapped[str] = mapped_column(Text)
     created_by: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[BroadcastStatus] = mapped_column(Enum(BroadcastStatus), default=BroadcastStatus.DRAFT, index=True)
     recipient_count: Mapped[int] = mapped_column(Integer, default=0)
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BroadcastDelivery(Base):
+    __tablename__ = 'broadcast_deliveries'
+    __table_args__ = (UniqueConstraint('broadcast_id', 'user_id', name='uq_broadcast_delivery_user'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    broadcast_id: Mapped[int] = mapped_column(ForeignKey('broadcasts.id'), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    status: Mapped[DeliveryStatus] = mapped_column(Enum(DeliveryStatus), default=DeliveryStatus.PENDING, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RuntimeSetting(Base):
+    __tablename__ = 'runtime_settings'
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = 'audit_logs'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(120), index=True)
+    target: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
