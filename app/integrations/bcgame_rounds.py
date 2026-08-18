@@ -39,18 +39,15 @@ class BCGameRoundStatus:
 
 
 class BCGameRoundService:
-    """Boundary for automatic BC.GAME/DeTrade structured round data.
-
-    AUTO_SYNC intentionally fails closed until a trustworthy structured source
-    is integrated. MANUAL_SYNC does not call this provider; it builds an
-    estimated round from the countdown value the user confirms in Telegram.
-    """
+    """Timing boundary for manual V1 and future automatic round sync."""
 
     def __init__(self) -> None:
         self.last_error: str | None = None
         self.last_snapshot: BCGameRoundSnapshot | None = None
 
     def status(self, now: datetime | None = None) -> BCGameRoundStatus:
+        if settings.signal_timing_mode.upper() == 'MANUAL_SYNC':
+            return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_SYNC', 'Manual 15/14/13/12 countdown confirmation is active.')
         if not settings.bcgame_round_sync_enabled:
             return BCGameRoundStatus(False, False, False, None, None, 'Automatic BC.GAME round synchronization is not connected.')
         snapshot = self.last_snapshot
@@ -75,10 +72,8 @@ class BCGameRoundService:
         now = observed_at or datetime.now(timezone.utc)
         start_at = now + timedelta(seconds=countdown_seconds)
         end_at = start_at + timedelta(seconds=settings.default_expiry_seconds)
-        # This ID is deliberately labelled manual; it is not represented as a
-        # BC.GAME-issued round identifier.
         round_id = f'manual-{int(now.timestamp() * 1000)}-{countdown_seconds}'
-        return BCGameRoundSnapshot(
+        snapshot = BCGameRoundSnapshot(
             round_id=round_id,
             observed_at=now,
             order_closes_at=start_at,
@@ -87,6 +82,9 @@ class BCGameRoundService:
             stake_band=settings.default_stake_band,
             source='MANUAL_SYNC',
         )
+        self.last_snapshot = snapshot
+        self.last_error = None
+        return snapshot
 
 
 bcgame_round_service = BCGameRoundService()
