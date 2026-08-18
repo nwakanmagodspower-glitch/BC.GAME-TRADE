@@ -33,29 +33,12 @@ class SignalRecordService:
                 down_pool_amount=snapshot.down_pool_amount,
                 up_players=snapshot.up_players,
                 down_players=snapshot.down_players,
-                source='BCGAME_ROUND_SYNC',
+                source=snapshot.source,
             )
-            self.db.add(row)
-            self.db.flush()
-        else:
-            row.observed_at = snapshot.observed_at
-            row.order_closes_at = snapshot.order_closes_at
-            row.start_rate_at = snapshot.start_rate_at
-            row.end_rate_at = snapshot.end_rate_at
-            row.up_payout_pct = snapshot.up_payout_pct
-            row.down_payout_pct = snapshot.down_payout_pct
-            row.up_pool_amount = snapshot.up_pool_amount
-            row.down_pool_amount = snapshot.down_pool_amount
-            row.up_players = snapshot.up_players
-            row.down_players = snapshot.down_players
+            self.db.add(row); self.db.flush()
         return row
 
-    def record_scan(
-        self,
-        result: IntelligenceResult,
-        requested_by_user_id: int | None = None,
-        round_snapshot: BCGameRoundSnapshot | None = None,
-    ) -> Signal:
+    def record_scan(self, result: IntelligenceResult, requested_by_user_id: int | None = None, round_snapshot: BCGameRoundSnapshot | None = None) -> Signal:
         if not result.service_available:
             raise ValueError('Unavailable market/service states cannot be persisted as strategy signals.')
         if result.market.upper() != settings.analysis_pair.upper():
@@ -63,17 +46,13 @@ class SignalRecordService:
 
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
         if is_trade and round_snapshot is None:
-            raise ValueError('Directional five-second signals require a synchronized BC.GAME round.')
+            raise ValueError('Directional five-second signals require a timing snapshot.')
 
         round_row = self._persist_round(round_snapshot) if round_snapshot is not None else None
         status = SignalStatus.WAITING_ENTRY if is_trade else SignalStatus.NO_TRADE
         feature_data = result.features.to_dict() if result.features is not None else {}
         if result.decision is not None:
-            feature_data['_decision'] = {
-                'quality': result.quality,
-                'bull_score': result.decision.bull_score,
-                'bear_score': result.decision.bear_score,
-            }
+            feature_data['_decision'] = {'quality': result.quality, 'bull_score': result.decision.bull_score, 'bear_score': result.decision.bear_score}
         feature_data['_market'] = {
             'game_market': settings.game_market,
             'analysis_pair': result.market,
@@ -85,6 +64,7 @@ class SignalRecordService:
         if round_snapshot is not None:
             feature_data['_bcgame_round'] = {
                 'round_id': round_snapshot.round_id,
+                'source': round_snapshot.source,
                 'order_closes_at': round_snapshot.order_closes_at.isoformat(),
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
@@ -115,6 +95,5 @@ class SignalRecordService:
             features_snapshot=feature_data,
             decision_reason=result.reason,
         )
-        self.db.add(signal)
-        self.db.commit(); self.db.refresh(signal)
+        self.db.add(signal); self.db.commit(); self.db.refresh(signal)
         return signal
