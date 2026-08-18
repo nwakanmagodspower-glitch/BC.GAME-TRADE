@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.integrations.bcgame_rounds import BCGameRoundSnapshot
-from app.models.entities import Signal, SignalDirection, SignalStatus, utcnow
+from app.models.entities import BCGameRound, Signal, SignalDirection, SignalStatus, utcnow
 from app.services.signal_intelligence import IntelligenceResult
 
 settings = get_settings()
@@ -13,6 +14,41 @@ settings = get_settings()
 class SignalRecordService:
     def __init__(self, db: Session):
         self.db = db
+
+    def _persist_round(self, snapshot: BCGameRoundSnapshot) -> BCGameRound:
+        row = self.db.scalar(select(BCGameRound).where(BCGameRound.external_round_id == snapshot.round_id))
+        if row is None:
+            row = BCGameRound(
+                external_round_id=snapshot.round_id,
+                game_market=settings.game_market,
+                duration_seconds=settings.default_expiry_seconds,
+                stake_band=snapshot.stake_band,
+                observed_at=snapshot.observed_at,
+                order_closes_at=snapshot.order_closes_at,
+                start_rate_at=snapshot.start_rate_at,
+                end_rate_at=snapshot.end_rate_at,
+                up_payout_pct=snapshot.up_payout_pct,
+                down_payout_pct=snapshot.down_payout_pct,
+                up_pool_amount=snapshot.up_pool_amount,
+                down_pool_amount=snapshot.down_pool_amount,
+                up_players=snapshot.up_players,
+                down_players=snapshot.down_players,
+                source='BCGAME_ROUND_SYNC',
+            )
+            self.db.add(row)
+            self.db.flush()
+        else:
+            row.observed_at = snapshot.observed_at
+            row.order_closes_at = snapshot.order_closes_at
+            row.start_rate_at = snapshot.start_rate_at
+            row.end_rate_at = snapshot.end_rate_at
+            row.up_payout_pct = snapshot.up_payout_pct
+            row.down_payout_pct = snapshot.down_payout_pct
+            row.up_pool_amount = snapshot.up_pool_amount
+            row.down_pool_amount = snapshot.down_pool_amount
+            row.up_players = snapshot.up_players
+            row.down_players = snapshot.down_players
+        return row
 
     def record_scan(
         self,
@@ -29,6 +65,7 @@ class SignalRecordService:
         if is_trade and round_snapshot is None:
             raise ValueError('Directional five-second signals require a synchronized BC.GAME round.')
 
+        round_row = self._persist_round(round_snapshot) if round_snapshot is not None else None
         status = SignalStatus.WAITING_ENTRY if is_trade else SignalStatus.NO_TRADE
         feature_data = result.features.to_dict() if result.features is not None else {}
         if result.decision is not None:
@@ -62,6 +99,7 @@ class SignalRecordService:
 
         signal = Signal(
             requested_by_user_id=requested_by_user_id,
+            bcgame_round_id=round_row.id if round_row else None,
             market=settings.game_market,
             product=settings.default_product,
             direction=result.direction,
@@ -78,6 +116,5 @@ class SignalRecordService:
             decision_reason=result.reason,
         )
         self.db.add(signal)
-        self.db.commit()
-        self.db.refresh(signal)
+        self.db.commit(); self.db.refresh(signal)
         return signal
