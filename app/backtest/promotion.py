@@ -34,7 +34,7 @@ def evaluate_promotion(
         reasons.append('candidate version must remain within BTC Up/Down scope')
 
     qualification = qualify_walk_forward(report)
-    if not qualification.qualified:
+    if not qualification.qualified_for_forward_test:
         reasons.extend(qualification.reasons)
 
     return PromotionDecision(
