@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None
     owner_telegram_id: int | None = None
-    admin_chat_id: int | None = None
 
     bcgame_registration_url: str | None = None
     bcgame_deposit_url: str | None = None
