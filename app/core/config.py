@@ -21,7 +21,9 @@ class Settings(BaseSettings):
 
     signal_mode: str = 'PAPER'
     signals_enabled: bool = False
+    broadcasts_enabled: bool = False
     default_pair: str = 'BTCUSDT'
+    default_product: str = 'BC_UPDOWN'
     default_expiry_seconds: int = 300
     strategy_version: str = 'BTC_UPDOWN_V1.0'
     signal_min_score: int = 6
