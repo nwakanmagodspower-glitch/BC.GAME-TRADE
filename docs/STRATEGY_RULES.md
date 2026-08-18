@@ -89,3 +89,19 @@ Track at minimum:
 - data-provider health at decision time
 
 Backtests must match the actual entry/expiry semantics as closely as possible. Live paper forward-testing is required before production signal mode.
+
+## Historical Backtest Contract
+
+The M6 candle backtest follows strict no-lookahead rules:
+
+- Features are calculated only from closed 1-minute candles available at decision time.
+- Entry uses the next 1-minute candle open, approximating the next synchronized minute boundary.
+- A 5-minute expiry uses the open price exactly five one-minute intervals after entry.
+- Future candles are used only for labeling the already-created historical signal, never for feature calculation.
+- Historical trade-flow/order-book inputs are not fabricated when tick-level history is unavailable.
+
+The initial historical source is external `BTCUSDT` market data. A backtest result therefore measures the strategy against that external reference feed; it is **not** proof that BC.GAME would have settled every contract identically.
+
+Before production claims are made, compare external entry/expiry prices with BC.GAME's actual live Up/Down reference/settlement behavior and complete live paper forward-testing.
+
+Backtest reports should include at least overall win/loss/tie counts, signal coverage/no-trade rate, and breakdowns by direction, quality, market structure, and entry hour. Parameter changes selected after looking at test results must be validated on unseen time periods rather than repeatedly optimized on the same sample.
