@@ -28,6 +28,11 @@ def validate_settings(settings: Settings) -> StartupCheck:
     if settings.default_expiry_seconds != 300: errors.append('V1 requires DEFAULT_EXPIRY_SECONDS=300')
     if not settings.strategy_version.startswith('BTC_UPDOWN_V1'): errors.append('V1 strategy identity must remain BTC_UPDOWN_V1.x')
     if settings.market_data_max_age_seconds <= 0: errors.append('MARKET_DATA_MAX_AGE_SECONDS must be greater than zero')
+    if settings.signal_entry_window_seconds < 0: errors.append('SIGNAL_ENTRY_WINDOW_SECONDS cannot be negative')
+    if settings.signal_settlement_window_seconds <= 0: errors.append('SIGNAL_SETTLEMENT_WINDOW_SECONDS must be greater than zero')
+    if settings.worker_heartbeat_max_age_seconds <= 0: errors.append('WORKER_HEARTBEAT_MAX_AGE_SECONDS must be greater than zero')
+    if settings.temporary_retention_days <= 0: errors.append('TEMPORARY_RETENTION_DAYS must be greater than zero')
+    if settings.cleanup_interval_seconds <= 0: errors.append('CLEANUP_INTERVAL_SECONDS must be greater than zero')
 
     if settings.signals_enabled and mode != 'LIVE':
         errors.append('SIGNALS_ENABLED=true requires SIGNAL_MODE=LIVE')
