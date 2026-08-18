@@ -41,3 +41,18 @@ def test_market_data_cache_marks_fresh_and_stale_ticks():
         assert stale.age_seconds >= 9
 
     asyncio.run(run())
+
+
+def test_market_data_cache_keeps_only_recent_trade_window():
+    async def run():
+        cache = MarketDataCache(trade_buffer_size=10)
+        now = datetime.now(timezone.utc)
+        await cache.set_tick(MarketTick('BTCUSDT', 60000, 1.0, now - timedelta(seconds=20), 'TEST', True))
+        await cache.set_tick(MarketTick('BTCUSDT', 60010, 2.0, now - timedelta(seconds=4), 'TEST', False))
+        await cache.set_tick(MarketTick('BTCUSDT', 60020, 3.0, now - timedelta(seconds=1), 'TEST', False))
+
+        ticks = await cache.get_recent_ticks('BTCUSDT', lookback_seconds=5)
+        assert len(ticks) == 2
+        assert [tick.price for tick in ticks] == [60010, 60020]
+
+    asyncio.run(run())
