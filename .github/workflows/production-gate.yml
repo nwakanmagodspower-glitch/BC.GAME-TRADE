@@ -1,0 +1,69 @@
+name: Production Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: development
+      DATABASE_URL: sqlite:///./gate.db
+      SIGNAL_MODE: PAPER
+      SIGNALS_ENABLED: 'false'
+      BROADCASTS_ENABLED: 'false'
+      DEFAULT_PAIR: BTCUSDT
+      DEFAULT_PRODUCT: BC_UPDOWN
+      DEFAULT_EXPIRY_SECONDS: '300'
+      STRATEGY_VERSION: BTC_UPDOWN_V1.0
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest -q
+
+      - name: Apply all migrations from empty database
+        run: alembic upgrade head
+
+      - name: Verify migration head
+        run: alembic current
+
+      - name: Assert safe release defaults
+        run: |
+          python - <<'PY'
+          from app.core.config import get_settings
+          from app.core.startup import validate_settings
+          s = get_settings()
+          assert s.signal_mode == 'PAPER'
+          assert s.signals_enabled is False
+          assert s.broadcasts_enabled is False
+          assert s.default_pair == 'BTCUSDT'
+          assert s.default_product == 'BC_UPDOWN'
+          assert s.default_expiry_seconds == 300
+          assert s.strategy_version.startswith('BTC_UPDOWN_V1')
+          result = validate_settings(s)
+          assert result.ok, result.errors
+          print('Safe release defaults verified.')
+          PY
+
+      - name: Validate production fail-closed contract
+        run: |
+          python - <<'PY'
+          from app.core.config import Settings
+          from app.core.startup import validate_settings
+          bad = Settings(_env_file=None, app_env='production', database_url='sqlite:///bad.db')
+          result = validate_settings(bad)
+          assert not result.ok
+          print('Invalid production configuration correctly rejected.')
+          PY
