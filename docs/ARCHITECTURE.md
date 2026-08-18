@@ -6,105 +6,171 @@
 Telegram
    ↓
 Web/API Service (Render)
-   ├─ Telegram webhook / onboarding / admin
-   ├─ On-demand scan orchestration
-   └─ Lightweight BTC market feed/cache
+   ├─ Telegram webhook / onboarding / owner verification
+   ├─ On-demand "Scan Next Round" orchestration
+   ├─ Lightweight BTCUSDT analysis feed/cache
+   └─ Health/readiness + worker/round-sync status
         ↓
 PostgreSQL ← dedicated worker heartbeat
         ↑
 Background Worker (Render)
-   ├─ Lightweight BTC market feed/cache
-   ├─ Entry-time revalidation
-   ├─ Signal activation/cancellation
-   ├─ Exact-window settlement
-   ├─ Lifecycle notifications
+   ├─ Lightweight BTCUSDT analysis feed/cache
+   ├─ BC.GAME round-state integration boundary
+   ├─ Start-Rate-time revalidation
+   ├─ 5-second lifecycle/reference settlement
+   ├─ Notifications
    ├─ Broadcast delivery
-   └─ Retention cleanup
+   └─ 10-day temporary-record cleanup
 ```
 
-Signal intelligence remains an application/core service used by the web for the initial scan and by the worker for pre-entry revalidation.
+## Real BC.GAME Product Contract
+
+The target product is BC.GAME Up/Down displayed as **BTC/USD** with a **5-second** duration. V1 initially targets the visible `$1-50` band.
+
+Round flow:
+
+```text
+BC.GAME order countdown
+        ↓
+orders lock / first flag
+        ↓
+BC.GAME records Start Rate
+        ↓
+5 seconds
+        ↓
+second flag
+        ↓
+BC.GAME records End Rate
+        ↓
+End > Start => UP wins
+otherwise => DOWN wins per supplied game instructions
+```
+
+The order-countdown period is an analysis/action window; it is not the 5-second result-measurement period.
 
 ## Permanent Boundaries
 
 ### Telegram Layer
 
-Owns commands, callback handling, message formatting, media intake, and admin controls. It must not contain trading logic.
+Commands, callbacks, messages, evidence intake, owner controls. It must never implement trading logic. Time-sensitive signal messages stay concise.
 
 ### Application Layer
 
-Owns user state transitions, permissions, verification workflow, scan orchestration, broadcast orchestration, and idempotency.
+User state, permissions, verification workflow, scan orchestration, idempotency, worker-health gating, human-action lead-time checks, broadcasts.
 
 ### Signal Intelligence Layer
 
-Owns BTC/USDT Up/Down analysis only. It receives normalized market snapshots and returns structured decisions.
+Predicts the immediate BTC direction relevant to the 5-second target. Primary inputs are tick momentum/acceleration, aggressive trade flow, micro-volatility and later order-book/microprice data. Slower 1-minute indicators provide context only.
 
-### Integration Layer
+### BC.GAME Round Layer
 
-- Market data providers: Binance first, with replaceable interfaces.
-- BC.GAME adapter: product identity and configurable registration/deposit/Up-Down destinations; future live BC.GAME reference-price/payout/pool/timing integration belongs here.
-- Telegram adapter/application boundary.
+Owns structured BC.GAME round data when a legitimate reliable source is integrated:
+
+- round ID
+- order-close timestamp/countdown
+- Start Rate timestamp/value
+- End Rate timestamp/value
+- stake band
+- UP/DOWN payout
+- pool amounts/player counts
+
+No other layer may invent round timing from wall-clock minute boundaries. Screen scraping is not the default architecture when a structured source can be integrated.
+
+### Market Data Layer
+
+Binance BTCUSDT is the initial external analysis/reference provider. Provider interfaces remain replaceable. External prices must never be described as BC.GAME settlement truth until measured against BC.GAME Start/End Rate.
 
 ## On-Demand Design
 
-Signals are not generated continuously per user. The Web/API maintains one process-local BTC market feed/cache used by all on-demand scan requests handled by that process. The dedicated worker maintains its own lightweight process-local feed/cache for entry revalidation and expiry settlement. Redis/shared cross-process cache is deliberately deferred for V1.
+There is no continuous signal generation per user. One process-local BTC feed serves all scan requests on the web process; the worker has its own lightweight feed for revalidation/reference lifecycle work.
 
-The web must not create a directional waiting signal in the separated production topology when the dedicated-worker heartbeat is stale.
-
-## Signal Decision Contract
+A user request is:
 
 ```text
-UP | DOWN | NO_TRADE | UNAVAILABLE
+BTC 5s Signal
+   ↓
+show game context
+   ↓
+Scan Next Round
+   ↓
+access + kill switch + worker + market + round-sync checks
+   ↓
+UP / DOWN / NO_TRADE / UNAVAILABLE
 ```
 
-A directional signal must include signal ID, pair, product, strategy version, creation time, planned entry, entry validity window, expiry, direction, quality metadata, and invalidation policy/evidence.
+## Actionability Contract
 
-## Lifecycle Contract
+A directional signal is actionable only when:
 
-1. Initial on-demand scan creates a directional candidate only when data and strategy gates pass.
-2. The worker must never activate it before the exact planned `entry_at` timestamp.
-3. Before activation, the worker reruns V1 intelligence. `UNAVAILABLE`, `NO_TRADE`, or a direction change cancels the candidate.
-4. Entry must occur no later than `entry_window_end`; otherwise cancel.
-5. At expiry, settlement may use only a fresh reference event at or after `expiry_at` and inside the configured small settlement window.
-6. If an exact-enough reference cannot be captured, mark the signal `EXPIRED`/unresolved rather than fabricating WIN/LOSS/TIE from a materially late price.
+1. the user is approved and active;
+2. signals are enabled;
+3. worker heartbeat is fresh;
+4. BTC market data is fresh;
+5. BC.GAME round state is trustworthy/fresh;
+6. the round matches `BTC/USD`, `5s`, `$1-50` V1 scope;
+7. enough time remains before BC.GAME closes the order window for a human to act;
+8. quality thresholds are met.
+
+If any of these fail, do not generate an actionable direction.
+
+## Signal Lifecycle
+
+1. During BC.GAME order countdown, user requests next-round scan.
+2. Candidate uses the synchronized round's first-flag timestamp as `entry_at` and second-flag timestamp as `expiry_at`.
+3. Before Start Rate time, the worker may revalidate/cancel if direction quality changes.
+4. At Start Rate time, external BTC data may be recorded as a diagnostic reference; BC.GAME Start Rate remains product truth.
+5. Five seconds later, external reference may be recorded for PAPER diagnostics.
+6. When reliable BC.GAME Start/End Rate ingestion exists, BC.GAME values become the outcome label.
+7. Missing trustworthy result data => unresolved/EXPIRED, never guessed.
+
+## Payout / Pool Architecture
+
+Direction prediction and economics stay separate:
+
+```text
+Direction model => probability/quality of UP or DOWN
+Payout model    => whether displayed return makes the opportunity worthwhile
+```
+
+UP/DOWN pool amounts, player counts and leaderboard data are collected only for research until evidence shows predictive value. Leaderboard copying is not part of V1 signal logic.
 
 ## Render Topology
 
-### Web Service
+### Web — Starter
 
-- Telegram webhook endpoint
-- onboarding/admin/application requests
-- on-demand BTC scans
-- health/readiness endpoints
-- lightweight market feed/cache
+Telegram, onboarding, owner verification, scan orchestration, web health, lightweight BTC feed.
 
-### Background Worker
+### Worker — Starter
 
-- independent lightweight market feed/cache
-- candidate revalidation before entry
-- outcome settlement
-- lifecycle notifications
-- broadcast queue delivery
-- 10-day temporary-record cleanup
-
-A PostgreSQL advisory leader lock protects singleton background jobs during Render deployment overlap. The worker writes a heartbeat to PostgreSQL; the web checks that heartbeat before accepting production signal requests.
+Round/lifecycle coordination, revalidation, notifications, broadcasts and cleanup. PostgreSQL advisory locking prevents duplicate singleton jobs during deployment overlap.
 
 ### PostgreSQL
 
-Persistent source of truth for users, onboarding/evidence metadata, admin actions, signals, outcomes, broadcasts, runtime settings, worker heartbeat, and audit state. Raw market streams are not stored indefinitely.
+Persistent users, verification history, signals/results, round metadata snapshots, settings, broadcasts and audit state. Raw tick/order-book streams are not retained indefinitely.
 
-Redis is optional for V1. Add it only when queue/cache pressure or horizontal scaling justifies it.
+### Database plan
+
+First month may use Render Free PostgreSQL for PAPER/research. Upgrade before expiry once production history becomes valuable.
+
+## Scaling
+
+0-250 users: current Web + Worker + PostgreSQL topology is sufficient for the planned on-demand model.
+
+Later scale triggers:
+
+- Redis/shared cache only when needed;
+- more web instances only with stateless request handling;
+- worker scaling only with explicit job partitioning/locks;
+- high-frequency data should stay in memory/specialized storage rather than bloating main PostgreSQL.
 
 ## Failure Philosophy
 
 Fail closed:
 
-- stale data → no signal
-- provider unhealthy → no signal
-- dedicated worker unhealthy → no new directional signal
-- strategy disabled → no signal
-- unsupported pair/product → no signal
-- onboarding incomplete → no access
-- verification uncertain → remain pending
-- missed reliable expiry reference → unresolved/EXPIRED, not guessed result
-
-Do not substitute stale decisions or materially late prices when timing/freshness guarantees fail.
+- stale analysis feed => UNAVAILABLE
+- stale/missing BC.GAME round sync => no actionable signal
+- worker unhealthy => no new signal
+- insufficient action lead time => skip round
+- ambiguous microstructure => NO_TRADE
+- missing trustworthy Start/End Rate => unresolved, not fabricated
+- PAPER mode => no execution button/instruction
