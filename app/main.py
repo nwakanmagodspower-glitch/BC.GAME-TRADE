@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from sqlalchemy import text
@@ -9,14 +8,13 @@ from app.bot.application import build_telegram_application
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
-from app.models.entities import RuntimeSetting
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
 from app.services.webhook_receipts import WebhookReceiptService
-from app.services.worker_heartbeat import WorkerHeartbeatService
+from app.services.worker_status import get_worker_status
 
 settings = get_settings()
 startup_check = validate_settings(settings)
@@ -49,21 +47,21 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 def _worker_heartbeat_status() -> dict:
     try:
         with SessionLocal() as db:
-            record = db.get(RuntimeSetting, WorkerHeartbeatService.KEY)
-            if record is None:
-                return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None}
-            heartbeat = datetime.fromisoformat(record.value)
-            if heartbeat.tzinfo is None:
-                heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-            age = max(0.0, (datetime.now(timezone.utc) - heartbeat.astimezone(timezone.utc)).total_seconds())
+            status = get_worker_status(db)
             return {
-                'seen': True,
-                'fresh': age <= 30.0,
-                'age_seconds': round(age, 3),
-                'last_heartbeat': heartbeat,
+                'seen': status.seen,
+                'fresh': status.fresh,
+                'age_seconds': round(status.age_seconds, 3) if status.age_seconds is not None else None,
+                'last_heartbeat': status.last_heartbeat,
             }
     except Exception as exc:
-        return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None, 'error': f'{type(exc).__name__}: {exc}'}
+        return {
+            'seen': False,
+            'fresh': False,
+            'age_seconds': None,
+            'last_heartbeat': None,
+            'error': f'{type(exc).__name__}: {exc}',
+        }
 
 
 @app.get('/health')
