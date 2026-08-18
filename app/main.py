@@ -8,10 +8,11 @@ from app.bot.application import build_telegram_application
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
-from app.services.broadcast_worker import broadcast_worker
+from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
+from app.services.broadcast_worker import broadcast_worker
 from app.services.webhook_receipts import WebhookReceiptService
 
 settings = get_settings()
@@ -21,11 +22,14 @@ telegram_app = build_telegram_application()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail the deploy before any market feed, Telegram processing, or singleton
+    # background job can start with an invalid production configuration.
+    if not startup_check.ok:
+        raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
+
     await market_data_service.start(settings.default_pair)
     if settings.run_background_jobs:
-        await signal_lifecycle_worker.start()
-        await broadcast_worker.start()
-        await retention_cleanup_service.start()
+        await background_job_coordinator.start()
     if telegram_app is not None:
         await telegram_app.initialize(); await telegram_app.start()
     try:
@@ -34,9 +38,7 @@ async def lifespan(app: FastAPI):
         if telegram_app is not None:
             await telegram_app.stop(); await telegram_app.shutdown()
         if settings.run_background_jobs:
-            await retention_cleanup_service.stop()
-            await broadcast_worker.stop()
-            await signal_lifecycle_worker.stop()
+            await background_job_coordinator.stop()
         await market_data_service.stop()
 
 
@@ -67,6 +69,8 @@ async def health():
         },
         'background_jobs': {
             'enabled': settings.run_background_jobs,
+            'leader': background_job_coordinator.is_leader if settings.run_background_jobs else False,
+            'coordinator_error': background_job_coordinator.last_error,
             'signal_worker_error': signal_lifecycle_worker.last_error,
             'broadcast_worker_error': broadcast_worker.last_error,
             'cleanup_error': retention_cleanup_service.last_error,
