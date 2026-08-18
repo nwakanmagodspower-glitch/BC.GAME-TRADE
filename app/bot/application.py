@@ -7,7 +7,6 @@ from app.bot.admin_handlers import (
 from app.bot.handlers import (
     admin_review_callback, menu_callback, onboarding_callback, photo_input, start, text_input,
 )
-from app.bot.signal_handlers import signal_menu_callback
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -27,7 +26,8 @@ def build_telegram_application() -> Application | None:
     application.add_handler(CallbackQueryHandler(admin_ops_callback, pattern=r'^adminops:'))
     application.add_handler(CallbackQueryHandler(admin_review_callback, pattern=r'^admin:'))
     application.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r'^onboard:'))
-    application.add_handler(CallbackQueryHandler(signal_menu_callback, pattern=r'^menu:(signal|scan_now|home)$'))
+    # One authoritative menu route. Do not register a second signal handler ahead
+    # of this callback: the five-second UX lives in handlers.menu_callback.
     application.add_handler(CallbackQueryHandler(menu_callback, pattern=r'^menu:'))
     application.add_handler(MessageHandler(filters.PHOTO, photo_input))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input))
