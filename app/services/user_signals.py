@@ -6,10 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import Signal, SignalStatus
+from app.models.entities import Signal, SignalStatus, User, UserStatus
 from app.services.admin_ops import AdminOpsService
 from app.services.signal_intelligence import signal_intelligence_service
 from app.services.signal_records import SignalRecordService
+from app.services.worker_status import get_worker_status
 
 settings = get_settings()
 
@@ -26,12 +27,24 @@ class UserSignalService:
         self.db = db
 
     async def request_scan(self, user_id: int) -> UserSignalResult:
+        user = self.db.get(User, user_id)
+        if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
+            return UserSignalResult(None, False, 'Approved access is required.')
+
         enabled = AdminOpsService(self.db).get_bool(
             AdminOpsService.SIGNALS_ENABLED_KEY,
             default=settings.signals_enabled,
         )
         if not enabled:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
+
+        # In the production separated topology a healthy background worker is a
+        # hard dependency: it owns entry revalidation, settlement and lifecycle
+        # notifications. Do not create a waiting signal when that worker is down.
+        if settings.app_env.lower() == 'production' and not settings.run_background_jobs:
+            worker = get_worker_status(self.db)
+            if not worker.fresh:
+                return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
         existing = self.db.scalar(
             select(Signal)
@@ -46,8 +59,6 @@ class UserSignalService:
 
         intelligence = await signal_intelligence_service.scan(settings.default_pair)
         if not intelligence.service_available:
-            # UNAVAILABLE is a request/runtime state, not a strategy NO_TRADE.
-            # Do not contaminate strategy statistics with provider failures.
             return UserSignalResult(None, False, intelligence.reason)
 
         signal = SignalRecordService(self.db).record_scan(intelligence, requested_by_user_id=user_id)
