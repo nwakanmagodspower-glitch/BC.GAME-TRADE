@@ -17,7 +17,10 @@ class SignalNotificationService:
     async def notify_status(self, signal: Signal) -> bool:
         if not settings.telegram_bot_token or signal.requested_by_user_id is None:
             return False
-        if signal.status not in {SignalStatus.ACTIVE, SignalStatus.CANCELLED, SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE}:
+        if signal.status not in {
+            SignalStatus.ACTIVE, SignalStatus.CANCELLED, SignalStatus.EXPIRED,
+            SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
+        }:
             return False
 
         user = self.db.get(User, signal.requested_by_user_id)
@@ -72,6 +75,16 @@ class SignalNotificationService:
         if signal.status == SignalStatus.CANCELLED:
             prefix = '🧪 PAPER SIGNAL CANCELLED' if mode == 'PAPER' else '⚠️ SIGNAL CANCELLED'
             return (f'{prefix}\n\nDo not enter this signal. {signal.decision_reason or "Market conditions or timing invalidated the setup."}', None)
+
+        if signal.status == SignalStatus.EXPIRED:
+            prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNRESOLVED'
+            return (
+                f'{prefix}\n\n'
+                'The system could not capture a reliable reference price inside the exact expiry window, '
+                'so no WIN/LOSS/TIE result was assigned.\n\n'
+                f'{signal.decision_reason or "Exact settlement reference unavailable."}',
+                None,
+            )
 
         entry = f'{signal.reference_entry_price:,.2f}' if signal.reference_entry_price is not None else 'Unavailable'
         expiry = f'{signal.reference_expiry_price:,.2f}' if signal.reference_expiry_price is not None else 'Unavailable'
