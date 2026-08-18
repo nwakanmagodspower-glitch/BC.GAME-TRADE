@@ -1,69 +1,114 @@
 # BC.GAME Trading Reference
 
-This document separates verified product facts from assumptions. Future agents must not convert unconfirmed details into hard-coded behavior.
+This document separates facts observed from the live BC.GAME Up/Down product / supplied How to Trade text from assumptions. Future agents must not convert unknowns into hard-coded behavior.
 
-## Verified From BC.GAME Sources
+## Verified From The Supplied Live Up/Down Interface
 
-### Up/Down / High Low
+Target page: `https://bc.game/trading/up-down`
 
-BC.GAME describes Up/Down / High Low as a short-duration directional product: the user predicts whether price will be higher or lower than the starting price when the selected countdown/timeframe ends. BC.GAME examples mention short windows such as 1 minute and 5 minutes.
+Observed product identity:
 
-Reference:
-- https://blog.bc.game/a-complete-guide-to-bc-games-crypto-futures-trading/
-- https://blog.bc.game/long-vs-short-explaining-the-simple-up-or-down-bet/
+- displayed pair: **BTC/USD**;
+- contract duration shown: **5s**;
+- visible stake bands include `5s $1-50`, `5s $50-100`, and `5s $100-200`;
+- V1 intentionally targets `$1-50` first;
+- user enters an amount and manually chooses `UP` or `DOWN`;
+- order controls are enabled during the countdown and disabled while the round settles/transitions;
+- interface shows live price/chart, recent UP/DOWN outcomes, pool/player information, Positions, History, Leaderboard, and Copy Top Trade;
+- interface shows dynamic UP/DOWN payout/return percentages that can differ between sides and rounds;
+- live chart shows a Detrade mark; the exact underlying settlement/reference feed still requires technical confirmation.
 
-### Separate Leveraged Futures Product
+## Verified From Supplied How to Trade Text
 
-BC.GAME also documents a conventional leveraged futures product with trading pairs such as BTC/USDT and ETH/USDT, leverage, Up/Down positions, stop-loss, take-profit, manual closing, funding for sufficiently long-held positions, and a single trading price.
+The supplied page instructions state:
 
-This is **not** the V1 product targeted by this repository.
+1. Choose upward or downward direction within the specified countdown time.
+2. The interface shows total order amount in UP and DOWN pools and user/order status.
+3. When countdown ends, the system enters settlement preparation and records the **starting price at the first flag**.
+4. After the K-line runs for the selected period, the system records the **ending price at the second flag**.
+5. Compare End Rate with Start Rate.
+6. If End Rate is greater than Start Rate, UP wins.
+7. Otherwise DOWN wins according to the supplied instructions.
+8. The system then displays winning/losing pool results and the user's profit when applicable.
 
-Reference:
-- https://help.bc.game/en/articles/10722034-future-trading-how-it-works
+This means the visible countdown is an **order window**. The selected 5 seconds is the **measurement period after Start Rate is recorded**.
 
-### Trading/Futures Reward Treatment
+## Verified From Supplied Result Screens
 
-BC.GAME Help Center states that wagers in Trading/Futures do not currently contribute to XP/wager-based bonus unlocking in the same way as traditional game wagers.
+The live page exposes exact result values in a Start Rate / End Rate panel. Supplied examples include both outcomes:
 
-Reference:
-- https://help.bc.game/en/articles/7831369-deposit-bonus-and-locked-bcd-rakeback-all-your-questions-answered
+```text
+Start 64565.15683
+End   64564.7861
+=> DOWN
+```
+
+```text
+Start 64565.80479
+End   64566.03266
+=> UP
+```
+
+This confirms that BC.GAME's displayed Start/End Rate is the target product label our model should ultimately be evaluated against.
+
+## Separate Leveraged Futures Product
+
+BC.GAME also has conventional leveraged futures. That product is not this repository's V1 target. Do not add leverage, stop loss, take profit, liquidation or position-management logic to the Up/Down signal engine.
 
 ## V1 Product Interpretation
 
-For this repository, `BC_UPDOWN` means the short-duration directional contract described above, not the separate leveraged futures position product.
-
-The intelligence objective is therefore approximately:
+The prediction objective is:
 
 ```text
-Given BTC reference price at planned entry T,
-estimate whether the settlement/reference price at T + expiry
-will be above or below entry.
+Using only information available before BC.GAME records Start Rate,
+estimate whether BC.GAME End Rate approximately 5 seconds later
+will be above or below BC.GAME Start Rate.
 ```
 
-## Still Unconfirmed / Must Remain Configurable
+The external analysis provider may use BTCUSDT, but the product display/label is BTC/USD and BC.GAME Start/End Rate remains outcome truth.
 
-The following must not be treated as verified until observed from the live product or confirmed by authoritative documentation:
+## Dynamic Payout / Pool Facts
 
-- complete current Up/Down pair list;
-- exact BTC/USDT expiry choices available to the target account/region;
-- exact live payout/pool formula and how it varies;
-- exact settlement/tie behavior;
-- exact reference-price provider/index used by BC.GAME Up/Down;
-- exact timestamp rounding/latency behavior at entry and settlement;
-- current minimum/maximum stake limits;
-- stable public BC.GAME Trading/Up-Down API availability;
-- stability of any undocumented/internal BC.GAME endpoint discovered later.
+The interface visibly exposes:
 
-## Engineering Consequence
+- UP payout/return;
+- DOWN payout/return;
+- UP pool amount;
+- DOWN pool amount;
+- number of players on each side.
 
-These unknowns are **adapter/configuration concerns**, not reasons to rewrite the architecture.
+Engineering rule: store these when a reliable structured source is integrated, but do not assume they predict direction. Direction and expected-value/payout filtering remain separate research questions.
 
-- Expiry remains configurable.
-- Market provider remains replaceable.
-- BC.GAME-specific reference/payout/pool data goes through `BCGameAdapter`.
-- Any undocumented endpoint must have health checks and graceful degradation.
-- V1 signal intelligence can be researched using independent BTC market data while BC.GAME-specific settlement matching is measured separately.
+## Leaderboard / Copy Top Trade
+
+The interface exposes trader `Winning/Order`, win rate, PnL and profit plus a Copy Top Trade feature.
+
+Engineering rule: leaderboard/copy-trade data is **not V1 signal evidence**. Historical leaderboard percentages can be selection-biased and do not establish a repeatable predictive edge.
+
+## Still Unconfirmed
+
+Must remain research/integration questions:
+
+- exact structured API/WebSocket used by the live Up/Down page for round state;
+- stable round identifier format;
+- exact Detrade/BC.GAME price source/index composition;
+- timestamp precision and network latency for Start Rate/End Rate;
+- tie/equality handling beyond the supplied wording that otherwise assigns DOWN;
+- whether stake bands differ only economically or also by pool/round behavior;
+- exact payout formula, fees/house allocation and pool mathematics;
+- whether any internal endpoint is public/stable/permitted for third-party integration;
+- regional/account differences.
+
+## Engineering Consequences
+
+- Duration is locked to 5s for V1.
+- The old 300-second/minute-boundary architecture is retired.
+- `BCGameRoundService` owns round synchronization.
+- No wall-clock approximation may substitute for real round timing in LIVE mode.
+- Binance BTCUSDT is analysis/reference only.
+- External-reference outcomes remain PAPER diagnostics until BC.GAME Start/End Rate ingestion is integrated.
+- Unknown internal endpoints must not be relied on silently; use health checks and fail closed.
 
 ## Rule for Future Agents
 
-If a value is not listed under Verified From BC.GAME Sources or confirmed by a newer authoritative source/live measurement, do not hard-code it as a BC.GAME fact. Add it as configuration, an experiment, or a documented assumption.
+When uncertain, preserve the uncertainty. Do not turn an observed UI pattern or undocumented network call into a permanent BC.GAME fact without measurement and documentation.
