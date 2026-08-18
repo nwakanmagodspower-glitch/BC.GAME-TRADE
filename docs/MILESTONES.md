@@ -1,154 +1,186 @@
-# Milestones
+# Milestones — Five-Second Product Rebaseline
 
-No milestone may silently expand V1 scope beyond BTC/USDT + BC.GAME Up/Down.
+The live BC.GAME Up/Down interface and supplied How to Trade instructions changed the trading contract from the earlier assumed 300-second model to the actual target: **BTC/USD, 5-second Start Rate → End Rate rounds**.
 
-## M0 — Architecture and Rules
+Infrastructure already built is retained. Old timing/backtest milestones are superseded where they conflict with this contract.
 
-- README
-- AGENTS rules
-- product specification
-- architecture
-- database model
-- security rules
-- strategy rules
-- Render deployment plan
+## M0 — Product Rules and Architecture — REBASELINED
 
-**Exit:** repository has an agreed source of truth before code.
-
-## M1 — Application Foundation
-
-- Python application skeleton
-- configuration validation
-- PostgreSQL connection
-- migrations
-- logging
-- `/health` and `/ready`
-- Render-compatible Docker/runtime packaging
-
-**Exit:** service boots safely with signals disabled.
-
-## M2 — Telegram + Guided Onboarding
-
-- webhook handler
-- `/start`
-- sequential registration flow
-- deposit guidance
-- profile/user-ID capture
-- deposit screenshot capture
-- no normal menu before approval
-
-**Exit:** complete verification request persists correctly.
-
-## M3 — Admin Verification
-
-- immediate admin verification packet
-- approve/reject/resubmission callbacks
-- affiliate-check workflow support
-- persistent approval memory
-- role/access enforcement
-- audit log
-
-**Exit:** approved users unlock normal menu; all other states remain gated.
-
-## M4 — Market Data Foundation
-
-- BTC/USDT provider abstraction
-- initial provider implementation
-- shared fresh market snapshot/cache
-- provider health and freshness checks
-
-**Exit:** no stale snapshot can pass readiness for signal generation.
-
-## M5 — Signal Intelligence V1
-
-- feature engine: trend, momentum, structure, volume, volatility, support/resistance
-- market regime gate
-- scoring/decision contract
-- `UP`, `DOWN`, `NO_TRADE`, `UNAVAILABLE`
-- immutable strategy version
-
-**Exit:** deterministic paper decisions can be reproduced from stored feature snapshots.
-
-## M6 — Timing and Invalidation
-
-- planned entry calculation
-- entry window
-- expiry calculation
-- pre-entry revalidation
-- cancellation state
-
-**Exit:** stale/invalidated candidates cannot become active signals.
-
-## M7 — Outcome and Evaluation
-
-- reference entry/expiry price capture
-- automatic outcome resolver
-- immutable outcome records
-- strategy statistics
-
-**Exit:** paper signals settle automatically and performance is queryable.
-
-## M8 — Approved User Signal UX
-
-- minimal main menu
-- BTC signal request
-- scan status
-- formatted signal/no-trade result
-- user result history
-- support/how-it-works
-
-**Exit:** approved beta user can complete the full on-demand flow without seeing backend complexity.
-
-## M9 — Broadcast and Admin Operations
-
-- approved-user broadcast
-- controlled batching/retries
-- delivery records
-- user suspension
-- system/strategy status
-- owner kill switch controls
-
-**Exit:** broadcasts do not interfere with signal latency or availability.
-
-## M10 — Render Production Packaging
-
-- web service
-- background worker
-- PostgreSQL
-- environment-variable contract
-- health/readiness
-- migration/startup procedure
-- smoke tests
-
-**Exit:** Render production deployment runs with `SIGNAL_MODE=PAPER` and `SIGNALS_ENABLED=false` until explicitly enabled.
-
-## M11 — Paper Production Validation
-
-- real live market feed
-- on-demand paper scans
-- entry/expiry timing validation
-- outcome reconciliation
-- failure/latency observations
-
-**Exit:** technical correctness is demonstrated under real runtime conditions.
-
-## M12 — Controlled Live Beta
-
-- explicitly enable live signal presentation
+- BTC/USD game display
+- BTCUSDT external analysis feed initially
+- 5-second duration
+- `$1-50` initial stake band
+- order countdown is separate from five-second measurement
+- first flag = Start Rate
+- second flag = End Rate
 - manual execution only
-- small manually verified user cohort
-- monitor data health, no-trade rate, timing, outcomes, and support issues
+- no guaranteed-win/Martingale behavior
 
-**Exit:** stable production operation with evidence sufficient to decide next strategy iteration.
+**Exit:** permanent docs agree on the real game contract.
 
-## M13 — Refinement, Not Scope Explosion
+## M1 — Application / Database / Render Foundation — RETAIN
 
-Possible improvements only after evidence:
+- FastAPI web service
+- dedicated worker
+- PostgreSQL + migrations
+- config validation
+- health/readiness
+- Telegram webhook security
+- worker heartbeat/advisory-lock protection
+- 10-day temporary cleanup
 
-- order flow/order book
-- better probability calibration
-- BC.GAME reference-price adapter
-- payout/pool/EV gate
-- improved timing model
+**Exit:** deployable infrastructure runs safely with signals off.
 
-Additional coins or products require a separate explicit milestone and should not be bundled into ordinary refinement.
+## M2 — Verification Funnel — RETAIN
+
+- guided registration/deposit flow
+- User ID + profile screenshot + deposit screenshots
+- packet sent directly to owner private bot chat
+- approve/reject/resubmit
+- resubmission history preservation
+- approved user memory
+
+**Exit:** onboarding works end to end without a separate admin group.
+
+## M3 — Telegram Five-Second UX — DESIGNED
+
+- `⚡ BTC 5s Signal`
+- game explanation before scanning
+- `🔍 Scan Next Round`
+- minimal UP/DOWN/NO_TRADE/UNAVAILABLE card
+- result history
+- How It Works
+- Support
+
+**Exit:** interface matches the real game mechanics and does not expose backend complexity.
+
+## M4 — External High-Frequency Market Foundation — ACTIVE
+
+- Binance trade stream
+- 1s/3s/5s price velocity
+- tick acceleration
+- aggressive buy/sell flow
+- micro-volatility
+- slower candle context
+- freshness checks
+
+Next extensions after evidence:
+
+- bid/ask spread
+- order-book imbalance
+- microprice
+- cross-exchange confirmation
+
+**Exit:** five-second feature snapshots are reproducible and fresh.
+
+## M5 — BC.GAME Round/Data Discovery — NEXT HARD GATE
+
+Discover and validate a legitimate reliable structured source used by/available for the Up/Down page for as many of these as possible:
+
+- round ID
+- countdown/order-close timestamp
+- Start Rate timestamp/value
+- End Rate timestamp/value
+- payout percentages
+- pool amounts/player counts
+- stake band
+
+Do not use guessed minute timing. Do not make fragile screen scraping the permanent default if a structured source exists.
+
+**Exit:** `BCGameRoundService` can return a fresh actionable round and observed results reliably.
+
+## M6 — Round-Aware Signal Engine
+
+- scan during BC.GAME order window
+- enforce human-action lead time
+- predict Start Rate → +5s End Rate direction
+- revalidate before Start Rate
+- cancel stale/opposite setups
+- NO_TRADE weak rounds
+- UNAVAILABLE bad data/round state
+
+**Exit:** directional candidates are tied to real BC.GAME rounds, not local clock approximations.
+
+## M7 — BC.GAME Outcome Labelling
+
+- capture BC.GAME Start Rate / End Rate
+- actual UP/DOWN label
+- external reference start/end for comparison
+- disagreement measurement
+- immutable strategy/round evidence
+
+**Exit:** model performance is measured against the game itself.
+
+## M8 — Five-Second Research / Calibration
+
+- enough real rounds across market regimes
+- directional accuracy
+- NO_TRADE rate
+- unresolved rate
+- timing/latency distribution
+- feature ablation
+- threshold/walk-forward calibration using sufficiently granular data
+
+Old 1-minute-candle / 5-minute-expiry results are not evidence for this contract.
+
+**Exit:** research shows whether a repeatable edge exists; no profitability claim is assumed.
+
+## M9 — Payout / Expected-Value Research
+
+Once reliable payout data exists:
+
+- keep direction prediction separate from payout
+- calculate whether displayed return is adequate for calibrated probability
+- permit payout to veto a direction to NO_TRADE
+- test pool/player data independently before using it
+
+**Exit:** economic filtering is evidence-based rather than assumed.
+
+## M10 — Render PAPER Deployment
+
+- Web Starter
+- Worker Starter
+- Free PostgreSQL initially
+- PAPER
+- signals off by default
+- broadcasts off by default
+- round sync off until M5 passes
+- smoke checks via Render/runtime, not GitHub Actions
+
+**Exit:** stable deployment without actionable signals.
+
+## M11 — Controlled PAPER Round Validation
+
+- real round synchronization
+- model decisions before Start Rate
+- BC.GAME actual Start/End labels
+- Telegram latency measurements
+- no execution button/instruction
+
+**Exit:** technical behavior is proven with real five-second rounds.
+
+## M12 — Controlled LIVE Beta
+
+Only after explicit owner approval and all earlier gates:
+
+- round sync healthy
+- measured signal quality
+- enough human-action lead time
+- LIVE presentation
+- direct BC.GAME Up/Down link
+- manual execution only
+- small approved user cohort
+
+**Exit:** stable manual beta; continue monitoring rather than claiming guaranteed performance.
+
+## M13 — Scale / Refinement
+
+Evidence-driven only:
+
+- order-book/microprice
+- better calibration
+- payout EV gate
+- shared Redis/cache if concurrency requires it
+- additional stake bands
+
+Additional coins, durations or BC.GAME products require explicit new scope.
