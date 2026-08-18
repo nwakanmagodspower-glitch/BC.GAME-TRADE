@@ -15,6 +15,11 @@ class SignalRecordService:
         self.db = db
 
     def record_scan(self, result: IntelligenceResult, requested_by_user_id: int | None = None) -> Signal:
+        if not result.service_available:
+            raise ValueError('Unavailable market/service states cannot be persisted as strategy signals.')
+        if result.market.upper() != settings.default_pair.upper():
+            raise ValueError('Unsupported V1 market cannot be persisted.')
+
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
         timing = None
         if is_trade:
@@ -42,7 +47,7 @@ class SignalRecordService:
         signal = Signal(
             requested_by_user_id=requested_by_user_id,
             market=result.market,
-            product='BC_UPDOWN',
+            product=settings.default_product,
             direction=result.direction,
             status=status,
             strategy_version=settings.strategy_version,
