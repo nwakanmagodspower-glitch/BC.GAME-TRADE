@@ -30,6 +30,10 @@ services:
         value: "300"
       - key: STRATEGY_VERSION
         value: BTC_UPDOWN_V1.0
+      - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
+        value: "3"
+      - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
+        value: "30"
       - key: MARKET_DATA_PROVIDER
         value: BINANCE_SPOT
       - key: MARKET_DATA_REST_BASE_URL
@@ -91,6 +95,10 @@ services:
         value: "300"
       - key: STRATEGY_VERSION
         value: BTC_UPDOWN_V1.0
+      - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
+        value: "3"
+      - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
+        value: "30"
       - key: MARKET_DATA_PROVIDER
         value: BINANCE_SPOT
       - key: MARKET_DATA_REST_BASE_URL
