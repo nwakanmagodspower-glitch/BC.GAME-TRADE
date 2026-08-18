@@ -17,11 +17,17 @@ services:
           name: bcgame-trade-db
           property: connectionString
       - key: SIGNAL_MODE
-        value: PAPER
+        value: LIVE
       - key: SIGNALS_ENABLED
-        value: "false"
+        value: "true"
       - key: BROADCASTS_ENABLED
-        value: "false"
+        value: "true"
+      - key: SIGNAL_TIMING_MODE
+        value: MANUAL_SYNC
+      - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
+        value: "15,14,13,12"
+      - key: MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN
+        value: "7"
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -35,13 +41,19 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.0
+        value: BTC_UPDOWN_5S_V1.1
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "false"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
-      - key: SIGNAL_MINIMUM_ACTION_LEAD_SECONDS
-        value: "5"
+      - key: SIGNAL_MIN_SCORE
+        value: "6"
+      - key: SIGNAL_MIN_MARGIN
+        value: "3"
+      - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
+        value: "15"
+      - key: SIGNAL_SCAN_COALESCE_MS
+        value: "750"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
         value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
@@ -58,6 +70,8 @@ services:
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
         value: "120"
+      - key: MARKET_CANDLE_REFRESH_SECONDS
+        value: "15"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
@@ -94,11 +108,17 @@ services:
           name: bcgame-trade-db
           property: connectionString
       - key: SIGNAL_MODE
-        value: PAPER
+        value: LIVE
       - key: SIGNALS_ENABLED
-        value: "false"
+        value: "true"
       - key: BROADCASTS_ENABLED
-        value: "false"
+        value: "true"
+      - key: SIGNAL_TIMING_MODE
+        value: MANUAL_SYNC
+      - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
+        value: "15,14,13,12"
+      - key: MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN
+        value: "7"
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -112,13 +132,19 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.0
+        value: BTC_UPDOWN_5S_V1.1
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "false"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
-      - key: SIGNAL_MINIMUM_ACTION_LEAD_SECONDS
-        value: "5"
+      - key: SIGNAL_MIN_SCORE
+        value: "6"
+      - key: SIGNAL_MIN_MARGIN
+        value: "3"
+      - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
+        value: "15"
+      - key: SIGNAL_SCAN_COALESCE_MS
+        value: "750"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
         value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
@@ -135,6 +161,8 @@ services:
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
         value: "120"
+      - key: MARKET_CANDLE_REFRESH_SECONDS
+        value: "15"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
