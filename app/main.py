@@ -8,6 +8,7 @@ from app.bot.application import build_telegram_application
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
+from app.integrations.bcgame_rounds import bcgame_round_service
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
@@ -25,8 +26,7 @@ telegram_app = build_telegram_application()
 async def lifespan(app: FastAPI):
     if not startup_check.ok:
         raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
-
-    await market_data_service.start(settings.default_pair)
+    await market_data_service.start(settings.analysis_pair)
     if settings.run_background_jobs:
         await background_job_coordinator.start()
     if telegram_app is not None:
@@ -55,36 +55,45 @@ def _worker_heartbeat_status() -> dict:
                 'last_heartbeat': status.last_heartbeat,
             }
     except Exception as exc:
-        return {
-            'seen': False,
-            'fresh': False,
-            'age_seconds': None,
-            'last_heartbeat': None,
-            'error': f'{type(exc).__name__}: {exc}',
-        }
+        return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None, 'error': f'{type(exc).__name__}: {exc}'}
 
 
 @app.get('/health')
 async def health():
-    snapshot = await market_data_service.cache.get_snapshot(settings.default_pair, settings.market_data_max_age_seconds)
+    snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
     cleanup_result = retention_cleanup_service.last_result
     return {
         'status': 'ok',
         'app': settings.app_name,
         'env': settings.app_env,
         'topology': 'combined' if settings.run_background_jobs else 'web-plus-dedicated-worker',
+        'product': {
+            'game_market': settings.game_market,
+            'analysis_pair': settings.analysis_pair,
+            'product': settings.default_product,
+            'duration_seconds': settings.default_expiry_seconds,
+            'stake_band': settings.default_stake_band,
+            'strategy_version': settings.strategy_version,
+        },
         'signal_mode': settings.signal_mode,
         'signals_enabled_default': settings.signals_enabled,
         'broadcasts_enabled_default': settings.broadcasts_enabled,
         'telegram_configured': bool(settings.telegram_bot_token),
         'startup_ok': startup_check.ok,
         'startup_warnings': startup_check.warnings,
+        'round_sync': {
+            'enabled': settings.bcgame_round_sync_enabled,
+            'healthy': settings.bcgame_round_sync_enabled and bcgame_round_service.last_error is None,
+            'last_error': bcgame_round_service.last_error,
+            'action_window_seconds': [settings.signal_minimum_action_lead_seconds, settings.signal_maximum_action_lead_seconds],
+        },
         'market_data': {
             'provider': market_data_service.provider.name,
             'connected': market_data_service.connected,
             'fresh': bool(snapshot and snapshot.fresh),
             'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
             'last_error': market_data_service.last_error,
+            'external_reference_only': True,
         },
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
         'background_jobs': {
@@ -114,16 +123,18 @@ def ready():
 
 @app.get('/market/status')
 async def market_status():
-    snapshot = await market_data_service.cache.get_snapshot(settings.default_pair, settings.market_data_max_age_seconds)
+    snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
     if snapshot is None:
         raise HTTPException(status_code=503, detail='market_data_unavailable')
     return {
-        'symbol': snapshot.symbol,
+        'game_market': settings.game_market,
+        'analysis_symbol': snapshot.symbol,
         'price': snapshot.price,
         'event_time': snapshot.event_time,
         'provider': snapshot.provider,
         'age_seconds': round(snapshot.age_seconds, 3),
         'fresh': snapshot.fresh,
+        'external_reference_only': True,
     }
 
 
