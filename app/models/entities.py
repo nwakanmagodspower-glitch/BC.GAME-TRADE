@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -115,6 +115,19 @@ class Signal(Base):
     reference_expiry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     features_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SignalNotification(Base):
+    __tablename__ = 'signal_notifications'
+    __table_args__ = (UniqueConstraint('signal_id', 'event', name='uq_signal_notification_event'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    signal_id: Mapped[int] = mapped_column(ForeignKey('signals.id'), index=True)
+    event: Mapped[str] = mapped_column(String(40), index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Broadcast(Base):
