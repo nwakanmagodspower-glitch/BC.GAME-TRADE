@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.integrations.bcgame import bcgame_adapter
 from app.models.entities import Signal, SignalNotification, SignalStatus, User, utcnow
 
 settings = get_settings()
@@ -68,8 +69,8 @@ class SignalNotificationService:
                 f'Expiry: {expiry}'
             )
             rows = []
-            if settings.bcgame_updown_url:
-                rows.append([InlineKeyboardButton('🚀 Open BC.GAME Up/Down', url=settings.bcgame_updown_url)])
+            if bcgame_adapter.updown_url:
+                rows.append([InlineKeyboardButton('🚀 Open BC.GAME Up/Down', url=bcgame_adapter.updown_url)])
             return text, InlineKeyboardMarkup(rows) if rows else None
 
         if signal.status == SignalStatus.CANCELLED:
