@@ -154,24 +154,23 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _send_admin_packet(context: ContextTypes.DEFAULT_TYPE, user, request):
-    admin_chat = settings.admin_chat_id or settings.owner_telegram_id
-    if not admin_chat:
+    owner_chat = settings.owner_telegram_id
+    if not owner_chat:
         return
     username = f'@{user.telegram_username}' if user.telegram_username else 'None'
     text = ('🔐 NEW VERIFICATION REQUEST\n\n' f'Request ID: {request.id}\n' f'Name: {user.first_name or "Unknown"}\n' f'Username: {username}\n' f'Telegram ID: {user.telegram_user_id}\n' f'BC.GAME User ID: {request.bcgame_user_id}\n\n' 'Check this ID in the affiliate dashboard and verify the profile/deposit proof before approving.')
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}')], [InlineKeyboardButton('🔄 Resubmit', callback_data=f'admin:resubmit:{request.id}')], [InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}')]])
-    await context.bot.send_message(admin_chat, text, reply_markup=keyboard)
-    await context.bot.send_photo(admin_chat, request.profile_proof_file_id, caption='BC.GAME profile proof')
+    await context.bot.send_message(owner_chat, text, reply_markup=keyboard)
+    await context.bot.send_photo(owner_chat, request.profile_proof_file_id, caption='BC.GAME profile proof')
     for index, file_id in enumerate(request.deposit_proof_file_ids or [], start=1):
-        await context.bot.send_photo(admin_chat, file_id, caption=f'Deposit proof {index}')
+        await context.bot.send_photo(owner_chat, file_id, caption=f'Deposit proof {index}')
 
 
 async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
-    admin_ids = {value for value in (settings.owner_telegram_id, settings.admin_chat_id) if value is not None}
-    if query.from_user.id not in admin_ids:
+    if not settings.owner_telegram_id or query.from_user.id != settings.owner_telegram_id:
         await query.answer('Not authorized.', show_alert=True)
         return
     try:
