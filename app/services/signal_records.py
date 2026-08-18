@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import Signal, SignalDirection, SignalStatus
+from app.models.entities import Signal, SignalDirection, SignalStatus, utcnow
 from app.services.signal_intelligence import IntelligenceResult
 from app.signals.timing import plan_timing
 
@@ -43,7 +43,7 @@ class SignalRecordService:
             status=status,
             strategy_version=settings.strategy_version,
             confidence=None,
-            created_at=timing.created_at if timing else None,
+            created_at=timing.created_at if timing else utcnow(),
             entry_at=timing.entry_at if timing else None,
             entry_window_start=timing.entry_window_start if timing else None,
             entry_window_end=timing.entry_window_end if timing else None,
