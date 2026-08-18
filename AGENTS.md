@@ -4,14 +4,19 @@ These rules govern every coding agent, developer, automation, and deployment cha
 
 ## Product Boundary
 
-V1 is intentionally narrow:
+V1 is intentionally narrow and is based on the observed BC.GAME Up/Down interface and its published How to Trade flow:
 
 - BC.GAME product: **Up/Down**
-- Market: **BTC/USDT**
-- User action: **on-demand scan**
-- Outputs: `UP`, `DOWN`, `NO_TRADE`
-- Manual user execution on BC.GAME
+- Game display market: **BTC/USD**
+- External analysis market: **BTCUSDT initially**, treated only as a reference/analysis feed until BC.GAME price-source matching is validated
+- Contract duration: **5 seconds**
+- Initial stake band: **5s $1-50**; other stake bands are research-only until explicitly approved
+- User action: **on-demand scan for an actionable upcoming BC.GAME round**
+- Outputs: `UP`, `DOWN`, `NO_TRADE`, `UNAVAILABLE`
+- Manual user execution on BC.GAME only
 - Manual affiliate verification before access
+
+The BC.GAME game contract is round-based: users place orders during a countdown; when the countdown ends BC.GAME records the Start Rate at the first flag; after the selected 5-second period BC.GAME records the End Rate at the second flag. End > Start means UP wins; otherwise DOWN wins according to the supplied game instructions.
 
 Do not expand scope unless an explicit milestone authorizes it.
 
@@ -19,76 +24,80 @@ Do not expand scope unless an explicit milestone authorizes it.
 
 Every implementation MUST:
 
-- preserve BTC/USDT Up/Down as V1 scope;
+- preserve BTC/USD 5-second BC.GAME Up/Down as V1 product scope;
+- treat BTCUSDT/Binance as an analysis feed, not BC.GAME settlement truth;
 - keep Telegram separate from signal intelligence;
 - keep market-data providers replaceable;
-- keep BC.GAME-specific logic behind an adapter;
+- keep BC.GAME-specific round/product logic behind an adapter;
 - version every production strategy;
-- record every generated signal and final result;
-- use exact timestamps for creation, planned entry, entry window, and expiry;
-- fail closed when market data is stale or unhealthy;
+- record every generated directional/no-trade decision and final result when a trustworthy result source exists;
+- use exact timestamps for scan time, BC.GAME order-window timing, Start Rate time, and End Rate time when available;
+- require reliable round synchronization before presenting a LIVE actionable signal;
+- fail closed when market data, round timing, or worker health is stale/unhealthy;
 - preserve `NO_TRADE` as a first-class outcome;
 - keep secrets out of GitHub;
 - use database migrations for schema changes;
 - keep Render compatibility;
-- preserve paper/live-signal mode separation;
-- preserve owner/admin kill switches;
-- make onboarding state persistent so approved users remain approved after restarts;
-- keep the Telegram UI minimal while backend validation and audit trails remain complete.
+- preserve PAPER/LIVE separation and owner kill switches;
+- keep onboarding state persistent;
+- keep Telegram UI minimal while backend validation and audit trails remain complete;
+- keep latency visible: a signal that cannot reach a human with enough time to act before the BC.GAME order window closes is not actionable.
 
 ## Prohibited Changes
 
 Do NOT:
 
-- add coins or BC.GAME products without approval;
+- add coins, durations, or BC.GAME products without approval;
 - implement automatic BC.GAME trade placement in V1;
 - add Martingale, loss chasing, or forced recovery logic;
 - fabricate confidence scores;
 - claim guaranteed accuracy or guaranteed profit;
+- treat leaderboard win rates or crowd/pool direction as predictive without measured evidence;
+- treat Binance settlement as identical to BC.GAME settlement without validation;
 - bypass manual access approval;
 - expose the main menu before onboarding/approval is complete;
 - hardcode admin IDs throughout business logic;
-- silently change thresholds, weights, expiry rules, or strategy parameters;
+- silently change thresholds, feature weights, duration rules, or timing rules;
 - overwrite historical strategy results after a new version is deployed;
-- allow stale market data to produce signals;
+- allow stale market data or stale round timing to produce actionable signals;
 - allow broadcasts to block signal requests;
-- store unnecessary raw market streams indefinitely in the main PostgreSQL database.
+- store unnecessary raw market streams indefinitely in PostgreSQL;
+- re-enable GitHub Actions while the owner has asked that Actions not be used.
 
 ## Verification Funnel Contract
 
-Before approval, the bot must behave as a guided workflow, not a menu-driven bot.
-
-Required onboarding sequence:
+Before approval, the bot is a guided workflow, not a menu-driven bot:
 
 1. Registration guidance.
 2. Deposit guidance.
-3. Request BC.GAME profile/user ID evidence.
-4. Request deposit screenshot(s).
-5. Validate that required evidence is present.
-6. Forward the complete verification packet immediately to admin.
-7. Persist status as `PENDING_REVIEW`.
-8. Admin manually checks the affiliate dashboard.
-9. Admin chooses approve, reject, or request resubmission.
-10. Only `APPROVED` users receive the normal bot menu.
+3. BC.GAME User ID.
+4. Profile screenshot.
+5. Deposit screenshot(s).
+6. Validate completeness.
+7. Forward the complete packet directly to the bot owner's private Telegram chat.
+8. Persist `PENDING_REVIEW`.
+9. Owner checks affiliate dashboard manually.
+10. Owner chooses approve, reject, or request resubmission.
+11. Only `APPROVED` users receive the normal bot menu.
 
-The backend must associate all submitted evidence with the correct Telegram user and verification request. Duplicate submissions must be idempotent or explicitly versioned.
+Resubmission must preserve the previous reviewed packet as history.
 
 ## Signal Safety Contract
 
-A signal may be returned only when:
+An actionable directional signal may be returned only when:
 
-- market data passes freshness/health checks;
+- approved user access is valid;
+- signals are enabled;
+- dedicated worker health is fresh;
+- external market data is fresh;
 - the configured strategy is active;
-- the requested product and pair match supported scope;
+- the BC.GAME product/duration/stake band match supported V1 scope;
+- BC.GAME round/order-window synchronization is trustworthy;
+- enough human-action lead time remains;
 - quality thresholds are met;
-- planned entry is still actionable;
-- the signal has not been invalidated before entry.
+- the signal has not been invalidated before the relevant round locks.
 
-Otherwise return `NO_TRADE` or service-unavailable status.
-
-## Deployment Gates
-
-No production deployment may bypass the milestone gates in `docs/MILESTONES.md` and `docs/DEPLOYMENT.md`.
+Otherwise return `NO_TRADE` or `UNAVAILABLE`. In PAPER/research mode, the system may evaluate reference outcomes without presenting an execution instruction.
 
 ## Source of Truth
 
@@ -98,7 +107,6 @@ When instructions conflict, use this precedence:
 2. `AGENTS.md`.
 3. `docs/PRODUCT_SPEC.md`.
 4. `docs/ARCHITECTURE.md`.
-5. Other repository documentation.
-6. Existing implementation details.
-
-If implementation conflicts with the documented product boundary, fix the implementation rather than silently changing the product definition.
+5. `docs/STRATEGY_RULES.md`.
+6. Other repository documentation.
+7. Existing implementation details.
