@@ -1,159 +1,168 @@
 # Render Deployment Checklist
 
-This checklist is subordinate to `AGENTS.md`, `ARCHITECTURE.md`, `DEPLOYMENT.md`, `STRATEGY_RULES.md`, and `MILESTONES.md`.
+## Before Creating Resources
 
-## Before creating Render resources
+- main contains intended release;
+- migration chain includes `0006_bcgame_rounds`;
+- `SIGNAL_MODE=PAPER`;
+- `SIGNALS_ENABLED=false`;
+- `BROADCASTS_ENABLED=false`;
+- `BCGAME_ROUND_SYNC_ENABLED=false` until a real structured provider is integrated;
+- V1 identity: `BTC/USD` game market + `BTCUSDT` analysis + `BC_UPDOWN_5S` + 5 seconds + `$1-50`;
+- no GitHub Actions dependency.
 
-- Confirm `main` contains the intended release.
-- Confirm migrations are present for every schema change.
-- Confirm `SIGNAL_MODE=PAPER`.
-- Confirm `SIGNALS_ENABLED=false`.
-- Confirm `BROADCASTS_ENABLED=false`.
-- Confirm V1 identity remains `BTCUSDT` + `BC_UPDOWN` + 300-second expiry.
-- Prepare secrets outside GitHub.
+## Blueprint — First Month
 
-## Render Blueprint — first month
+Expected:
 
-Create from root `render.yaml`. Expected resources:
+1. `bcgame-trade-api` — Starter web, Frankfurt.
+2. `bcgame-trade-worker` — Starter worker, Frankfurt.
+3. `bcgame-trade-db` — Free PostgreSQL 16 initially.
 
-1. `bcgame-trade-api` — Starter web service, Frankfurt.
-2. `bcgame-trade-worker` — Starter background worker, Frankfurt.
-3. `bcgame-trade-db` — Free PostgreSQL 16, Frankfurt.
+First-month base compute: the two paid Starter services. Upgrade the same Free PostgreSQL before expiry once history is valuable.
 
-Expected first-month base service cost is the two paid Starter services; the database uses Render's Free Postgres tier for the initial PAPER-validation month.
-
-The web service has `RUN_BACKGROUND_JOBS=false`. It handles Telegram webhooks, onboarding/admin requests, on-demand BTC scans, health/readiness endpoints, and its own lightweight BTC market feed.
-
-The worker runs `python -m app.worker`. It maintains its own lightweight BTC market feed and owns signal lifecycle, entry/expiry settlement, lifecycle notifications, broadcast delivery, and 10-day retention cleanup.
-
-The worker uses the PostgreSQL advisory-lock coordinator before starting singleton jobs. This protects against duplicate processing when Render briefly overlaps old and new worker instances during a zero-downtime deployment.
-
-The web service runs `alembic upgrade head` as its pre-deploy command. PostgreSQL external access is disabled with `ipAllowList: []`; web and worker use the same-region internal database connection.
-
-## Free PostgreSQL first-month limits
-
-Render Free Postgres is for the initial testing/PAPER period only:
-
-- fixed 1 GB storage;
-- expires 30 days after creation;
-- no managed backups;
-- no managed connection pooling;
-- Render may restart it for maintenance;
-- after expiry there is a 14-day grace period to upgrade before deletion.
-
-Do **not** plan to wait until expiry. Target upgrade around day 25–28 to a paid Postgres plan. Confirm the upgrade is complete and the database remains accessible before day 30.
-
-## Required production values
-
-During initial Blueprint creation, provide these `sync: false` values on `bcgame-trade-api`:
+## Required Values
 
 - `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET` (minimum 16 characters)
+- `TELEGRAM_WEBHOOK_SECRET` (>=16 chars)
 - `OWNER_TELEGRAM_ID`
 - `BCGAME_REGISTRATION_URL`
 - `BCGAME_DEPOSIT_URL`
-- `BCGAME_UPDOWN_URL`
+- `BCGAME_UPDOWN_URL` — target `https://bc.game/trading/up-down`
 - `SUPPORT_URL`
 
-`OWNER_TELEGRAM_ID` is both the owner authorization identity and the private Telegram chat destination for verification packets. No separate admin group/chat is required. The owner must have opened/started the bot at least once so Telegram allows the bot to message that private chat.
+`OWNER_TELEGRAM_ID` is the private verification inbox. No separate `ADMIN_CHAT_ID`. Owner must start the bot once before the bot can deliver private verification packets.
 
-The worker inherits these values from the web service with Render `fromService` references. Do not create separate conflicting copies.
+## Product Defaults
 
-Do not enable signals or broadcasts during first deployment.
+Confirm Render shows:
 
-## First boot verification
-
-1. Free PostgreSQL is created successfully.
-2. Web pre-deploy migration succeeds against PostgreSQL.
-3. `bcgame-trade-api` deployment succeeds.
-4. `bcgame-trade-worker` deployment succeeds.
-5. `/health` returns HTTP 200 and reports `topology=web-plus-dedicated-worker`.
-6. `/health` reports a fresh dedicated-worker heartbeat (normally <=30 seconds old).
-7. `/ready` returns HTTP 200.
-8. `/market/status` reports fresh BTCUSDT data.
-9. An unauthenticated POST to `/telegram/webhook` is rejected.
-10. Run:
-
-```bash
-python scripts/render_smoke_test.py --base-url https://YOUR-SERVICE.onrender.com
+```text
+GAME_MARKET=BTC/USD
+ANALYSIS_PAIR=BTCUSDT
+DEFAULT_PRODUCT=BC_UPDOWN_5S
+DEFAULT_EXPIRY_SECONDS=5
+DEFAULT_STAKE_BAND=1-50
+STRATEGY_VERSION=BTC_UPDOWN_5S_V1.0
+BCGAME_ROUND_SYNC_ENABLED=false
+SIGNAL_MINIMUM_ACTION_LEAD_SECONDS=5
+SIGNAL_MAXIMUM_ACTION_LEAD_SECONDS=10 (application default unless explicitly set)
 ```
 
-The smoke test must pass before webhook registration.
+Do not change these to make a deployment pass.
 
-If the worker heartbeat is missing immediately after first boot, wait briefly and recheck while viewing worker logs. It must become fresh before proceeding.
+## First Boot
 
-## Telegram webhook registration
+1. database created;
+2. `alembic upgrade head` reaches `0006_bcgame_rounds`;
+3. web deploy succeeds;
+4. worker deploy succeeds;
+5. `/ready` = 200;
+6. `/health` shows:
+   - topology `web-plus-dedicated-worker`;
+   - product BTC/USD / BC_UPDOWN_5S / 5s / 1-50;
+   - PAPER;
+   - signals off;
+   - fresh BTCUSDT external feed;
+   - fresh worker heartbeat;
+   - round sync disabled/not healthy yet;
+7. `/market/status` explicitly labels BTCUSDT as external reference;
+8. unauthenticated webhook POST rejected.
 
-After the web service and worker are healthy, run from an environment containing the same production variables:
+## Telegram Smoke Test — Signals Still Off
 
-```bash
-python scripts/setup_telegram_webhook.py --base-url https://YOUR-SERVICE.onrender.com
-```
+- `/start` new user sees guided registration, not main menu;
+- registration → deposit → User ID → profile screenshot → deposit screenshot(s);
+- verification packet reaches owner's private bot chat;
+- owner approve/resubmit/reject controls work;
+- resubmission preserves old packet;
+- approved user menu contains:
+  - `⚡ BTC 5s Signal`
+  - `📈 My Results`
+  - `ℹ️ How It Works`
+  - `🆘 Support`;
+- selecting BTC signal shows Start Rate → 5s → End Rate explanation first;
+- `Scan Next Round` refuses because signals are off;
+- no button wall before approval;
+- no separate admin group requirement.
 
-Then verify `/start` reaches the bot and onboarding remains gated.
+## Round-Sync Safety Test
 
-## Functional smoke checks
+After controlled signal gate is enabled for research but before a provider is integrated:
 
-With signals and broadcasts still disabled:
+- `Scan Next Round` must say round timing is not synchronized;
+- it must not create a directional waiting signal;
+- it must not fall back to next-minute timing;
+- it must not show BC.GAME execution button.
 
-- owner has started the bot once so the bot can message the owner's private chat;
-- new user sees registration step, not main menu;
-- registration/deposit/profile/deposit-proof flow resumes after interruption;
-- verification packet reaches the owner's private bot chat;
-- packet contains BC.GAME User ID, profile proof, deposit proof(s), and Approve / Resubmit / Reject controls;
-- resubmission preserves the reviewed packet and creates a new evidence packet;
-- owner approval unlocks main menu;
-- non-owner cannot use `/admin` or verification-review controls;
-- owner `/admin` reports PAPER and signals OFF;
-- BTC Signal opens context first and requires explicit `Scan Now`;
-- BTC Signal action refuses because signals are disabled;
-- broadcast can be drafted/previewed but cannot queue while `BROADCASTS_ENABLED=false`;
-- support link opens configured support destination.
+This is a **pass**, not a failure: fail-closed behavior is required.
 
-## Retention verification
+## After BC.GAME Round Provider Is Integrated
 
-- `TEMPORARY_RETENTION_DAYS=10`.
-- `CLEANUP_INTERVAL_SECONDS=86400`.
-- temporary webhook receipts, signal-notification delivery records, and completed broadcast-delivery rows older than 10 days are removable;
-- terminal signals older than the retention window are not re-notified merely because their old delivery receipt was cleaned;
-- users, verification history, signals/results, broadcast summaries, runtime settings, and audit history are not part of temporary cleanup.
+Validate against live page before enabling LIVE:
 
-## Paper-validation transition
+- countdown/order-close timestamp;
+- first flag Start Rate time;
+- 5-second second flag End Rate time;
+- exact Start/End values;
+- stake band;
+- payouts/pools where available;
+- snapshot freshness;
+- round IDs do not duplicate;
+- round rows persist in `bcgame_rounds`;
+- signal row links to correct round;
+- Telegram direction arrives only with 5-10 seconds remaining (initial research window);
+- activation notification occurs after lock and never says `ENTER NOW`.
 
-Do not change to LIVE for M11. Keep `SIGNAL_MODE=PAPER`.
+## PAPER Presentation
 
-When M11 is intentionally started, enable only the runtime signal gate required for controlled paper testing according to the documented test procedure. PAPER messages must remain explicitly non-actionable: no `ENTER NOW` language and no BC.GAME execution button.
+PAPER must never show:
 
-Automated BC.GAME trade placement remains prohibited.
+- `ENTER NOW`;
+- actionable BC.GAME button;
+- claim that Binance reference result equals BC.GAME result.
 
-## Database upgrade before expiry
+PAPER may show external-reference result only with explicit diagnostic wording.
 
-Around day 25–28:
+## Database / Retention
 
-1. Open `bcgame-trade-db` in Render.
-2. Upgrade the same database from Free to the chosen paid Postgres instance type.
-3. Confirm the database becomes Available.
-4. Confirm `bcgame-trade-api` `/ready` remains HTTP 200.
-5. Confirm `/health` still shows a fresh worker heartbeat.
-6. Confirm users, approvals, verification history, and paper signal history remain intact.
-7. Repeat `scripts/render_smoke_test.py`.
+10-day cleanup applies to temporary webhook receipts, notification receipts and completed broadcast deliveries.
 
-Do not create a second production database unless a migration plan explicitly requires it.
+Do not clean automatically:
 
-## Stop conditions
+- users/approval;
+- verification history;
+- `bcgame_rounds`;
+- signals/results;
+- broadcast summaries;
+- meaningful audit history.
 
-Stop deployment validation and repair before proceeding if any of these occur:
+## GitHub Actions
 
-- database migration error;
-- stale/unavailable market data recorded as strategy `NO_TRADE`;
-- webhook secret failure;
-- dedicated worker heartbeat stale/missing after startup settles;
-- duplicate lifecycle/broadcast processing despite worker leader coordination;
-- onboarding bypass;
-- verification packet goes to any destination other than the configured owner's private bot chat;
-- resubmission overwrites old verification evidence;
-- unauthorized admin access;
-- PAPER mode shows a BC.GAME execution button or `ENTER NOW` instruction;
-- signal delivery while a required kill switch is off;
-- broadcast delivery while `BROADCASTS_ENABLED=false`;
-- unexpected strategy version/pair/product/expiry.
+Both repository workflows are intentionally removed/disabled. Do not recreate them while the owner has asked not to use GitHub Actions. Use Render logs, migrations, health endpoints and manual/runtime smoke tests.
+
+## Free Database Upgrade
+
+Upgrade the same database before expiry (target around day 25-28), then recheck:
+
+- `/ready`;
+- worker heartbeat;
+- user approvals;
+- verification history;
+- BC.GAME round rows;
+- signal history.
+
+## Stop Conditions
+
+Stop and repair if:
+
+- migration error;
+- old 300-second/next-minute timing appears anywhere in runtime behavior;
+- stale worker/market/round data allows a signal;
+- direction arrives too early or too late outside action window;
+- activation message encourages a late order;
+- BC.GAME Start/End Rate is replaced by external price data;
+- PAPER becomes actionable;
+- verification goes anywhere except owner private bot chat;
+- unauthorized user/admin access occurs;
+- duplicate worker lifecycle processing occurs.
