@@ -29,19 +29,22 @@ class Settings(BaseSettings):
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
-    strategy_version: str = 'BTC_UPDOWN_5S_V1.0'
+    strategy_version: str = 'BTC_UPDOWN_5S_V1.1'
 
+    # MANUAL_SYNC is the deployable V1 contract. The user taps the button that
+    # matches BC.GAME's visible 15/14/13/12-second countdown. AUTO_SYNC is the
+    # later DeTrade/BC.GAME structured-round upgrade.
+    signal_timing_mode: str = 'MANUAL_SYNC'
+    manual_sync_allowed_countdowns: str = '15,14,13,12'
+    manual_sync_min_remaining_after_scan: float = 7.0
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
-    # Initial safe research window: do not signal too early and do not signal so
-    # late that a human cannot act. Calibrate from measured Telegram latency.
-    signal_minimum_action_lead_seconds: int = 5
-    signal_maximum_action_lead_seconds: int = 10
 
     signal_min_score: int = 6
     signal_min_margin: int = 3
     signal_trade_flow_lookback_seconds: int = 15
     signal_settlement_window_seconds: int = 2
+    signal_scan_coalesce_ms: int = 750
     worker_heartbeat_max_age_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'
@@ -50,9 +53,18 @@ class Settings(BaseSettings):
     market_data_max_age_seconds: int = 2
     market_data_reconnect_seconds: int = 3
     market_data_kline_limit: int = 120
+    market_candle_refresh_seconds: int = 15
 
     temporary_retention_days: int = 10
     cleanup_interval_seconds: int = 86400
+
+    def manual_countdowns(self) -> tuple[int, ...]:
+        values: list[int] = []
+        for raw in self.manual_sync_allowed_countdowns.split(','):
+            raw = raw.strip()
+            if raw:
+                values.append(int(raw))
+        return tuple(values)
 
 
 @lru_cache
