@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.models.entities import Signal, SignalDirection, SignalStatus
+from app.services import signal_notifications
 from app.services.signal_notifications import SignalNotificationService
 
 
@@ -22,7 +23,18 @@ def make_signal(status: SignalStatus) -> Signal:
     )
 
 
-def test_active_notification_is_enter_now():
+def test_paper_active_notification_is_non_actionable(monkeypatch):
+    monkeypatch.setattr(signal_notifications.settings, 'signal_mode', 'PAPER')
+    service = SignalNotificationService(None)
+    text, keyboard = service._render(make_signal(SignalStatus.ACTIVE))
+    assert 'PAPER ENTRY MARKER' in text
+    assert 'do not place a trade' in text
+    assert 'ENTER NOW' not in text
+    assert keyboard is None
+
+
+def test_live_active_notification_is_enter_now(monkeypatch):
+    monkeypatch.setattr(signal_notifications.settings, 'signal_mode', 'LIVE')
     service = SignalNotificationService(None)
     text, _ = service._render(make_signal(SignalStatus.ACTIVE))
     assert 'ENTER NOW' in text
