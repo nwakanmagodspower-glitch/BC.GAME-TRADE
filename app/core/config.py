@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = 'BC.GAME TRADE'
     app_env: str = 'development'
     database_url: str = 'sqlite:///./bcgame_trade.db'
+    run_background_jobs: bool = False
 
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None
@@ -40,8 +41,6 @@ class Settings(BaseSettings):
     market_data_reconnect_seconds: int = 3
     market_data_kline_limit: int = 300
 
-    # Temporary operational records are retained for 10 days. Cleanup runs
-    # daily and deletes only records whose individual age exceeds this limit.
     temporary_retention_days: int = 10
     cleanup_interval_seconds: int = 86400
 
