@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     market_data_reconnect_seconds: int = 3
     market_data_kline_limit: int = 300
 
+    # Temporary operational records are retained for 10 days. Cleanup runs
+    # daily and deletes only records whose individual age exceeds this limit.
+    temporary_retention_days: int = 10
+    cleanup_interval_seconds: int = 86400
+
 
 @lru_cache
 def get_settings() -> Settings:
