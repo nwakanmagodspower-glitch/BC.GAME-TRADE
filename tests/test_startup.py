@@ -25,16 +25,26 @@ def test_safe_defaults_are_valid():
     assert settings.signal_mode == 'PAPER'
     assert settings.signals_enabled is False
     assert settings.broadcasts_enabled is False
+    assert settings.signal_timing_mode == 'MANUAL_SYNC'
+    assert settings.manual_countdowns() == (15, 14, 13, 12)
     assert settings.game_market == 'BTC/USD'
     assert settings.analysis_pair == 'BTCUSDT'
     assert settings.default_product == 'BC_UPDOWN_5S'
     assert settings.default_expiry_seconds == 5
     assert settings.default_stake_band == '1-50'
-    assert settings.bcgame_round_sync_enabled is False
 
 
 def test_safe_production_configuration_passes():
     assert validate_settings(production()).ok
+
+
+def test_live_manual_sync_is_allowed():
+    assert validate_settings(production(signal_mode='LIVE', signals_enabled=True, signal_timing_mode='MANUAL_SYNC', bcgame_round_sync_enabled=False)).ok
+
+
+def test_auto_sync_requires_real_provider_switch():
+    assert not validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=False)).ok
+    assert validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=True)).ok
 
 
 def test_production_rejects_sqlite():
@@ -45,11 +55,6 @@ def test_signals_cannot_enable_in_paper_mode():
     assert not validate_settings(production(signals_enabled=True, signal_mode='PAPER')).ok
 
 
-def test_live_requires_round_sync_enabled():
-    assert not validate_settings(production(signal_mode='LIVE', bcgame_round_sync_enabled=False)).ok
-    assert validate_settings(production(signal_mode='LIVE', bcgame_round_sync_enabled=True)).ok
-
-
 def test_v1_product_contract_is_locked():
     assert not validate_settings(production(game_market='ETH/USD')).ok
     assert not validate_settings(production(analysis_pair='ETHUSDT')).ok
@@ -58,8 +63,10 @@ def test_v1_product_contract_is_locked():
     assert not validate_settings(production(default_stake_band='50-100')).ok
 
 
-def test_action_window_is_bounded():
-    assert not validate_settings(production(signal_minimum_action_lead_seconds=10, signal_maximum_action_lead_seconds=5)).ok
+def test_manual_countdown_contract_is_locked():
+    assert not validate_settings(production(manual_sync_allowed_countdowns='15,14,13')).ok
+    assert not validate_settings(production(manual_sync_allowed_countdowns='15,14,13,12,11')).ok
+    assert not validate_settings(production(manual_sync_min_remaining_after_scan=0)).ok
 
 
 def test_missing_production_secret_fails():
