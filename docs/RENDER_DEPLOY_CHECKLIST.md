@@ -50,11 +50,12 @@ During initial Blueprint creation, provide these `sync: false` values on `bcgame
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET` (minimum 16 characters)
 - `OWNER_TELEGRAM_ID`
-- `ADMIN_CHAT_ID`
 - `BCGAME_REGISTRATION_URL`
 - `BCGAME_DEPOSIT_URL`
 - `BCGAME_UPDOWN_URL`
 - `SUPPORT_URL`
+
+`OWNER_TELEGRAM_ID` is both the owner authorization identity and the private Telegram chat destination for verification packets. No separate admin group/chat is required. The owner must have opened/started the bot at least once so Telegram allows the bot to message that private chat.
 
 The worker inherits these values from the web service with Render `fromService` references. Do not create separate conflicting copies.
 
@@ -95,12 +96,14 @@ Then verify `/start` reaches the bot and onboarding remains gated.
 
 With signals and broadcasts still disabled:
 
+- owner has started the bot once so the bot can message the owner's private chat;
 - new user sees registration step, not main menu;
 - registration/deposit/profile/deposit-proof flow resumes after interruption;
-- verification packet reaches admin;
+- verification packet reaches the owner's private bot chat;
+- packet contains BC.GAME User ID, profile proof, deposit proof(s), and Approve / Resubmit / Reject controls;
 - resubmission preserves the reviewed packet and creates a new evidence packet;
-- admin approve unlocks main menu;
-- non-owner cannot use `/admin` controls;
+- owner approval unlocks main menu;
+- non-owner cannot use `/admin` or verification-review controls;
 - owner `/admin` reports PAPER and signals OFF;
 - BTC Signal opens context first and requires explicit `Scan Now`;
 - BTC Signal action refuses because signals are disabled;
@@ -147,6 +150,7 @@ Stop deployment validation and repair before proceeding if any of these occur:
 - dedicated worker heartbeat stale/missing after startup settles;
 - duplicate lifecycle/broadcast processing despite worker leader coordination;
 - onboarding bypass;
+- verification packet goes to any destination other than the configured owner's private bot chat;
 - resubmission overwrites old verification evidence;
 - unauthorized admin access;
 - PAPER mode shows a BC.GAME execution button or `ENTER NOW` instruction;
