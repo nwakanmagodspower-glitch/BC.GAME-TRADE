@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import httpx
 import websockets
@@ -21,7 +22,6 @@ class BinanceSpotProvider(MarketDataProvider):
             response = await client.get(f'{self.rest_base_url}/api/v3/ticker/price', params={'symbol': symbol.upper()})
             response.raise_for_status()
             payload = response.json()
-        from datetime import datetime, timezone
         return MarketTick(
             symbol=payload['symbol'],
             price=float(payload['price']),
@@ -30,15 +30,7 @@ class BinanceSpotProvider(MarketDataProvider):
             provider=self.name,
         )
 
-    async def fetch_candles(self, symbol: str, interval: str, limit: int) -> list[Candle]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.get(
-                f'{self.rest_base_url}/api/v3/klines',
-                params={'symbol': symbol.upper(), 'interval': interval, 'limit': limit},
-            )
-            response.raise_for_status()
-            rows = response.json()
-
+    def _rows_to_candles(self, symbol: str, interval: str, rows: list) -> list[Candle]:
         candles: list[Candle] = []
         for row in rows:
             candles.append(
@@ -61,6 +53,64 @@ class BinanceSpotProvider(MarketDataProvider):
                 )
             )
         return candles
+
+    async def fetch_candles(self, symbol: str, interval: str, limit: int) -> list[Candle]:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.get(
+                f'{self.rest_base_url}/api/v3/klines',
+                params={'symbol': symbol.upper(), 'interval': interval, 'limit': limit},
+            )
+            response.raise_for_status()
+            rows = response.json()
+        return self._rows_to_candles(symbol, interval, rows)
+
+    async def fetch_historical_candles(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: datetime,
+        end_time: datetime,
+        page_limit: int = 1000,
+    ) -> list[Candle]:
+        """Fetch a bounded historical range without silently using future data."""
+        if start_time.tzinfo is None or end_time.tzinfo is None:
+            raise ValueError('start_time and end_time must be timezone-aware')
+        if end_time <= start_time:
+            raise ValueError('end_time must be after start_time')
+
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        cursor = start_ms
+        rows: list = []
+
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            while cursor < end_ms:
+                response = await client.get(
+                    f'{self.rest_base_url}/api/v3/klines',
+                    params={
+                        'symbol': symbol.upper(),
+                        'interval': interval,
+                        'startTime': cursor,
+                        'endTime': end_ms,
+                        'limit': page_limit,
+                    },
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not page:
+                    break
+                rows.extend(page)
+                next_cursor = int(page[-1][0]) + 1
+                if next_cursor <= cursor:
+                    break
+                cursor = next_cursor
+                if len(page) < page_limit:
+                    break
+
+        # Deduplicate boundary rows while preserving chronological order.
+        by_open_time = {int(row[0]): row for row in rows if int(row[0]) < end_ms}
+        ordered = [by_open_time[key] for key in sorted(by_open_time)]
+        return self._rows_to_candles(symbol, interval, ordered)
 
     async def stream_ticks(self, symbol: str):
         stream = f'{symbol.lower()}@trade'
