@@ -42,10 +42,12 @@ class OnboardingService:
         return user
 
     def current_request(self, user: User) -> VerificationRequest:
+        # Only COLLECTING requests are mutable. Reviewed/resubmission requests
+        # remain immutable history and a new packet is created for the retry.
         request = self.db.scalar(
             select(VerificationRequest)
             .where(VerificationRequest.user_id == user.id)
-            .where(VerificationRequest.status.in_([VerificationStatus.COLLECTING, VerificationStatus.RESUBMIT]))
+            .where(VerificationRequest.status == VerificationStatus.COLLECTING)
             .order_by(VerificationRequest.id.desc())
         )
         if request is None:
@@ -61,7 +63,6 @@ class OnboardingService:
 
     def set_bcgame_user_id(self, user: User, value: str) -> VerificationRequest:
         request = self.current_request(user)
-        request.status = VerificationStatus.COLLECTING
         request.bcgame_user_id = value.strip()
         user.onboarding_step = OnboardingStep.PROFILE_PROOF
         self.db.commit()
@@ -146,10 +147,8 @@ class OnboardingService:
             request.status = VerificationStatus.RESUBMIT
             user.status = UserStatus.PENDING
             user.onboarding_step = OnboardingStep.BC_ID
-            request.bcgame_user_id = None
-            request.profile_proof_file_id = None
-            request.deposit_proof_file_ids = []
-            request.submitted_at = None
+            # Do not clear old evidence. The reviewed packet remains a historical
+            # record and current_request() creates a new COLLECTING packet later.
         else:
             raise ValueError('Unknown review action')
 
