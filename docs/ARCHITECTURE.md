@@ -7,170 +7,148 @@ Telegram
    ↓
 Web/API Service (Render)
    ├─ Telegram webhook / onboarding / owner verification
-   ├─ On-demand "Scan Next Round" orchestration
-   ├─ Lightweight BTCUSDT analysis feed/cache
-   └─ Health/readiness + worker/round-sync status
+   ├─ Manual 15/14/13/12 countdown confirmation
+   ├─ On-demand five-second signal orchestration
+   ├─ Continuous BTCUSDT tick cache + cached 1m context
+   └─ Health/readiness + worker/timing status
         ↓
 PostgreSQL ← dedicated worker heartbeat
         ↑
 Background Worker (Render)
-   ├─ Lightweight BTCUSDT analysis feed/cache
-   ├─ BC.GAME round-state integration boundary
-   ├─ Start-Rate-time revalidation
-   ├─ 5-second lifecycle/reference settlement
-   ├─ Notifications
-   ├─ Broadcast delivery
+   ├─ Independent lightweight BTCUSDT feed/cache
+   ├─ diagnostic Start/End reference lifecycle
+   ├─ future AUTO_SYNC integration boundary
+   ├─ broadcast delivery
    └─ 10-day temporary-record cleanup
 ```
 
 ## Real BC.GAME Product Contract
 
-The target product is BC.GAME Up/Down displayed as **BTC/USD** with a **5-second** duration. V1 initially targets the visible `$1-50` band.
-
-Round flow:
+Target: **BTC/USD • Up/Down • 5 seconds • initial $1-50 band**.
 
 ```text
-BC.GAME order countdown
+15-second order countdown
         ↓
 orders lock / first flag
         ↓
-BC.GAME records Start Rate
+BC.GAME Start Rate
         ↓
 5 seconds
         ↓
 second flag
         ↓
-BC.GAME records End Rate
+BC.GAME End Rate
         ↓
 End > Start => UP wins
-otherwise => DOWN wins per supplied game instructions
+otherwise => DOWN wins per supplied rules
 ```
 
-The order-countdown period is an analysis/action window; it is not the 5-second result-measurement period.
+The order countdown is the human analysis/action period; the subsequent five seconds is the result-measurement period.
+
+## Timing Architecture
+
+### MANUAL_SYNC — active V1
+
+The user prepares BC.GAME and enters the stake first. When the fresh countdown displays 15, 14, 13, or 12 seconds, the user taps the matching Telegram button. The web process timestamps the tap and creates a synthetic timing snapshot:
+
+```text
+observed tap time
++ confirmed remaining countdown
+= estimated Start Rate time
++ 5 seconds
+= estimated End Rate time
+```
+
+These are estimates and must never be represented as BC.GAME-issued timestamps or round IDs. The backend performs a post-computation remaining-time check and refuses the current round if too little time remains.
+
+### AUTO_SYNC — future upgrade
+
+The BC.GAME/DeTrade adapter is reserved for a verified structured round source containing real countdown/round IDs/Start-End data. It can replace MANUAL_SYNC without changing Telegram onboarding, signal intelligence, database ownership or service topology.
 
 ## Permanent Boundaries
 
 ### Telegram Layer
 
-Commands, callbacks, messages, evidence intake, owner controls. It must never implement trading logic. Time-sensitive signal messages stay concise.
+Commands, callbacks, messages, evidence intake and owner controls. It never owns trading logic. Countdown buttons are user timing input, not strategy decisions.
 
 ### Application Layer
 
-User state, permissions, verification workflow, scan orchestration, idempotency, worker-health gating, human-action lead-time checks, broadcasts.
+User state, permissions, verification, scan orchestration, idempotency, worker-health gating, timing checks and broadcasts.
 
 ### Signal Intelligence Layer
 
-Predicts the immediate BTC direction relevant to the 5-second target. Primary inputs are tick momentum/acceleration, aggressive trade flow, micro-volatility and later order-book/microprice data. Slower 1-minute indicators provide context only.
-
-### BC.GAME Round Layer
-
-Owns structured BC.GAME round data when a legitimate reliable source is integrated:
-
-- round ID
-- order-close timestamp/countdown
-- Start Rate timestamp/value
-- End Rate timestamp/value
-- stake band
-- UP/DOWN payout
-- pool amounts/player counts
-
-No other layer may invent round timing from wall-clock minute boundaries. Screen scraping is not the default architecture when a structured source can be integrated.
+Predicts immediate BTC direction for a five-second target. Primary inputs are live tick velocity/acceleration, aggressive trade flow and micro-volatility. Slower 1-minute indicators are context only.
 
 ### Market Data Layer
 
-Binance BTCUSDT is the initial external analysis/reference provider. Provider interfaces remain replaceable. External prices must never be described as BC.GAME settlement truth until measured against BC.GAME Start/End Rate.
+Binance BTCUSDT is the initial external analysis/reference provider. One continuous stream/cache is shared by all requests in a process. Slow candle context is refreshed in the background; a button click does not download history. Near-simultaneous scans are coalesced so many users do not trigger duplicate market calculations.
 
-## On-Demand Design
+### BC.GAME/DeTrade Layer
 
-There is no continuous signal generation per user. One process-local BTC feed serves all scan requests on the web process; the worker has its own lightweight feed for revalidation/reference lifecycle work.
+Future structured integration owns genuine round ID, countdown/order-close, Start Rate, End Rate, payouts, pools and player counts. Synthetic MANUAL_SYNC IDs do not enter the genuine `bcgame_rounds` table.
 
-A user request is:
+## On-Demand Flow
 
 ```text
-BTC 5s Signal
-   ↓
-show game context
-   ↓
-Scan Next Round
-   ↓
-access + kill switch + worker + market + round-sync checks
-   ↓
+User prepares BC.GAME + stake
+        ↓
+Telegram BTC 5s Signal
+        ↓
+15s | 14s | 13s | 12s
+        ↓
+access + worker + market + cached-context checks
+        ↓
+shared/coalesced five-second intelligence
+        ↓
+remaining-time check
+        ↓
 UP / DOWN / NO_TRADE / UNAVAILABLE
+        ↓
+manual execution before BC.GAME reaches 0
 ```
 
 ## Actionability Contract
 
-A directional signal is actionable only when:
-
-1. the user is approved and active;
-2. signals are enabled;
-3. worker heartbeat is fresh;
-4. BTC market data is fresh;
-5. BC.GAME round state is trustworthy/fresh;
-6. the round matches `BTC/USD`, `5s`, `$1-50` V1 scope;
-7. enough time remains before BC.GAME closes the order window for a human to act;
-8. quality thresholds are met.
-
-If any of these fail, do not generate an actionable direction.
+A MANUAL_SYNC direction is actionable only when approved access, signal switch, worker heartbeat, fresh market feed and cached context are healthy; the user selected an allowed countdown; the five-second quality gate passes; and enough estimated time remains after calculation. Otherwise skip or return UNAVAILABLE.
 
 ## Signal Lifecycle
 
-1. During BC.GAME order countdown, user requests next-round scan.
-2. Candidate uses the synchronized round's first-flag timestamp as `entry_at` and second-flag timestamp as `expiry_at`.
-3. Before Start Rate time, the worker may revalidate/cancel if direction quality changes.
-4. At Start Rate time, external BTC data may be recorded as a diagnostic reference; BC.GAME Start Rate remains product truth.
-5. Five seconds later, external reference may be recorded for PAPER diagnostics.
-6. When reliable BC.GAME Start/End Rate ingestion exists, BC.GAME values become the outcome label.
-7. Missing trustworthy result data => unresolved/EXPIRED, never guessed.
+The actionable direction is delivered once from the web request path. Because the player may immediately place the order, the worker must not later reverse/cancel the delivered MANUAL_SYNC direction based on post-delivery revalidation. The worker may capture external Start/End reference prices for diagnostics. If those reference windows are missed, mark the diagnostic outcome unresolved rather than changing the original delivered direction.
 
-## Payout / Pool Architecture
+Manual lifecycle notifications are suppressed to prevent synchronized Telegram message bursts; status is retained in PostgreSQL and can be viewed through My Results/admin tools. When AUTO_SYNC later supplies exact BC.GAME outcome data, exact product results can replace external diagnostic labels.
 
-Direction prediction and economics stay separate:
+## Payout / Pool / Copy Trade
 
-```text
-Direction model => probability/quality of UP or DOWN
-Payout model    => whether displayed return makes the opportunity worthwhile
-```
-
-UP/DOWN pool amounts, player counts and leaderboard data are collected only for research until evidence shows predictive value. Leaderboard copying is not part of V1 signal logic.
+Direction prediction and payout economics remain separate. Pool/player/leaderboard data are research-only until statistically validated. **Copy Top Trade is not part of V1.**
 
 ## Render Topology
 
 ### Web — Starter
 
-Telegram, onboarding, owner verification, scan orchestration, web health, lightweight BTC feed.
+Telegram, onboarding, owner verification, timing buttons, scan orchestration, health, continuous BTC feed/cache.
 
 ### Worker — Starter
 
-Round/lifecycle coordination, revalidation, notifications, broadcasts and cleanup. PostgreSQL advisory locking prevents duplicate singleton jobs during deployment overlap.
+Diagnostic lifecycle, broadcasts, heartbeat and retention cleanup. PostgreSQL advisory locking protects singleton jobs during overlapping deploys.
 
 ### PostgreSQL
 
-Persistent users, verification history, signals/results, round metadata snapshots, settings, broadcasts and audit state. Raw tick/order-book streams are not retained indefinitely.
-
-### Database plan
-
-First month may use Render Free PostgreSQL for PAPER/research. Upgrade before expiry once production history becomes valuable.
+Persistent users, verification history, signals, settings, broadcasts and audit state. Raw tick streams remain in memory. Free PostgreSQL is an initial-month option and should be upgraded before expiry once history matters.
 
 ## Scaling
 
-0-250 users: current Web + Worker + PostgreSQL topology is sufficient for the planned on-demand model.
+The engine is intentionally shared rather than per-user: one BTC stream, one cached candle context and coalesced scans. This makes **10-100 users a comfortable initial validation target** and is designed to be evaluated toward **250 active users** on the current topology.
 
-Later scale triggers:
-
-- Redis/shared cache only when needed;
-- more web instances only with stateless request handling;
-- worker scaling only with explicit job partitioning/locks;
-- high-frequency data should stay in memory/specialized storage rather than bloating main PostgreSQL.
+`1,000` synchronized users must not be claimed as proven on the initial Starter topology. Reaching that level requires measured Render/Telegram load tests and may require additional web instances, shared cache/queueing and Telegram delivery tuning. The architecture preserves that upgrade path without changing the signal model.
 
 ## Failure Philosophy
 
 Fail closed:
 
-- stale analysis feed => UNAVAILABLE
-- stale/missing BC.GAME round sync => no actionable signal
+- stale BTC feed/cache => UNAVAILABLE
 - worker unhealthy => no new signal
-- insufficient action lead time => skip round
+- invalid countdown input => no signal
+- calculation leaves too little time => skip round
 - ambiguous microstructure => NO_TRADE
-- missing trustworthy Start/End Rate => unresolved, not fabricated
-- PAPER mode => no execution button/instruction
+- missing external diagnostic Start/End reference => unresolved, never fabricated
+- AUTO_SYNC selected without a verified provider => unavailable
