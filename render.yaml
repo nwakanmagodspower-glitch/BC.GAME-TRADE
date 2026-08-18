@@ -5,7 +5,7 @@ services:
     plan: starter
     healthCheckPath: /health
     preDeployCommand: alembic upgrade head
-    envVars:
+    envVars: &commonEnv
       - key: APP_ENV
         value: production
       - key: DATABASE_URL
@@ -50,6 +50,13 @@ services:
         sync: false
       - key: SUPPORT_URL
         sync: false
+
+  - type: worker
+    name: bcgame-trade-worker
+    runtime: docker
+    plan: starter
+    dockerCommand: python -m app.worker
+    envVars: *commonEnv
 
 databases:
   - name: bcgame-trade-db
