@@ -6,8 +6,9 @@ from telegram import Update
 
 from app.bot.application import build_telegram_application
 from app.core.config import get_settings
-from app.core.database import engine
+from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
+from app.services.webhook_receipts import WebhookReceiptService
 
 settings = get_settings()
 startup_check = validate_settings(settings)
@@ -73,6 +74,14 @@ async def telegram_webhook(
         raise HTTPException(status_code=403, detail='invalid_webhook_secret')
 
     payload = await request.json()
+    update_id = payload.get('update_id')
+    if not isinstance(update_id, int):
+        raise HTTPException(status_code=400, detail='invalid_update_id')
+
+    with SessionLocal() as db:
+        if not WebhookReceiptService(db).claim(update_id):
+            return {'ok': True, 'duplicate': True}
+
     update = Update.de_json(payload, telegram_app.bot)
     await telegram_app.process_update(update)
     return {'ok': True}
