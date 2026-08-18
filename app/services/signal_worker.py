@@ -8,10 +8,11 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.models.entities import Signal, SignalStatus
 from app.services.signal_lifecycle import SignalLifecycleService
+from app.services.signal_notifications import SignalNotificationService
 
 
 class SignalLifecycleWorker:
-    """Small database-backed worker for waiting and active paper signals."""
+    """Database-backed worker for signal lifecycle and Telegram state notifications."""
 
     def __init__(self, poll_seconds: float = 1.0):
         self.poll_seconds = poll_seconds
@@ -43,11 +44,36 @@ class SignalLifecycleWorker:
                 .order_by(Signal.id.asc())
             ).all()
             lifecycle = SignalLifecycleService(db)
+            notifications = SignalNotificationService(db)
+
             for signal in signals:
+                previous = signal.status
                 if signal.status == SignalStatus.WAITING_ENTRY:
                     await lifecycle.activate_if_due(signal, now=now)
+                if signal.status != previous and signal.status in {SignalStatus.ACTIVE, SignalStatus.CANCELLED}:
+                    await notifications.notify_status(signal)
+
+                previous = signal.status
                 if signal.status == SignalStatus.ACTIVE:
                     await lifecycle.settle_if_due(signal, now=now)
+                if signal.status != previous and signal.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE, SignalStatus.CANCELLED}:
+                    await notifications.notify_status(signal)
+
+            # Retry any terminal/current state notification that previously failed.
+            retryable = db.scalars(
+                select(Signal)
+                .where(Signal.status.in_([
+                    SignalStatus.ACTIVE,
+                    SignalStatus.CANCELLED,
+                    SignalStatus.WIN,
+                    SignalStatus.LOSS,
+                    SignalStatus.TIE,
+                ]))
+                .order_by(Signal.id.desc())
+                .limit(100)
+            ).all()
+            for signal in retryable:
+                await notifications.notify_status(signal)
 
     async def _run(self) -> None:
         while not self._stop.is_set():
