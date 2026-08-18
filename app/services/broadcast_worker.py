@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from sqlalchemy import func, select
 from telegram import Bot
+from telegram.error import RetryAfter
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -12,16 +13,18 @@ settings = get_settings()
 
 
 class BroadcastWorker:
-    def __init__(self, batch_size: int = 20, poll_seconds: float = 2.0):
+    """Independent, rate-limited Telegram broadcast delivery worker."""
+
+    def __init__(self, batch_size: int = 20, poll_seconds: float = 2.0, max_attempts: int = 3):
         self.batch_size = batch_size
         self.poll_seconds = poll_seconds
+        self.max_attempts = max_attempts
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self.last_error: str | None = None
 
     async def start(self):
-        if not settings.telegram_bot_token or (self._task and not self._task.done()):
-            return
+        if not settings.telegram_bot_token or (self._task and not self._task.done()): return
         self._stop.clear(); self._task = asyncio.create_task(self._run(), name='broadcast-worker')
 
     async def stop(self):
@@ -38,24 +41,26 @@ class BroadcastWorker:
             broadcast = db.scalar(select(Broadcast).where(Broadcast.status.in_([BroadcastStatus.QUEUED, BroadcastStatus.SENDING])).order_by(Broadcast.id.asc()))
             if not broadcast: return
             broadcast.status = BroadcastStatus.SENDING; db.commit()
-            deliveries = db.scalars(select(BroadcastDelivery).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status == DeliveryStatus.PENDING).order_by(BroadcastDelivery.id.asc()).limit(self.batch_size)).all()
+            deliveries = db.scalars(select(BroadcastDelivery).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status.in_([DeliveryStatus.PENDING, DeliveryStatus.FAILED]), BroadcastDelivery.attempts < self.max_attempts).order_by(BroadcastDelivery.id.asc()).limit(self.batch_size)).all()
             for delivery in deliveries:
-                user = db.get(User, delivery.user_id)
-                delivery.attempts += 1
+                user = db.get(User, delivery.user_id); delivery.attempts += 1
                 try:
-                    if not user:
-                        raise RuntimeError('user_missing')
+                    if not user: raise RuntimeError('user_missing')
                     await bot.send_message(user.telegram_user_id, broadcast.message)
                     delivery.status = DeliveryStatus.SENT; delivery.sent_at = utcnow(); delivery.last_error = None
+                except RetryAfter as exc:
+                    delivery.status = DeliveryStatus.FAILED; delivery.last_error = f'Rate limited: retry after {exc.retry_after}'[:1000]
+                    db.commit()
+                    await asyncio.sleep(float(exc.retry_after) + 0.25)
                 except Exception as exc:
                     delivery.status = DeliveryStatus.FAILED; delivery.last_error = f'{type(exc).__name__}: {exc}'[:1000]
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.08)
             db.commit()
-            pending = int(db.scalar(select(func.count(BroadcastDelivery.id)).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status == DeliveryStatus.PENDING)) or 0)
+            retryable = int(db.scalar(select(func.count(BroadcastDelivery.id)).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status.in_([DeliveryStatus.PENDING, DeliveryStatus.FAILED]), BroadcastDelivery.attempts < self.max_attempts)) or 0)
             sent = int(db.scalar(select(func.count(BroadcastDelivery.id)).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status == DeliveryStatus.SENT)) or 0)
-            failed = int(db.scalar(select(func.count(BroadcastDelivery.id)).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status == DeliveryStatus.FAILED)) or 0)
+            failed = int(db.scalar(select(func.count(BroadcastDelivery.id)).where(BroadcastDelivery.broadcast_id == broadcast.id, BroadcastDelivery.status == DeliveryStatus.FAILED, BroadcastDelivery.attempts >= self.max_attempts)) or 0)
             broadcast.sent_count = sent; broadcast.failed_count = failed
-            if pending == 0:
+            if retryable == 0:
                 broadcast.status = BroadcastStatus.COMPLETE; broadcast.completed_at = utcnow()
             db.commit()
 
