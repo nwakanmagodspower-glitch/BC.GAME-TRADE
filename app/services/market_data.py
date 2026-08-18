@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
 from app.integrations.market_data.base import Candle, MarketDataProvider, MarketTick
@@ -24,13 +25,17 @@ class MarketSnapshot:
 
 
 class MarketDataCache:
-    def __init__(self):
+    def __init__(self, trade_buffer_size: int = 5000):
         self._latest: dict[str, MarketTick] = {}
+        self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_buffer_size))
         self._lock = asyncio.Lock()
 
     async def set_tick(self, tick: MarketTick) -> None:
+        symbol = tick.symbol.upper()
         async with self._lock:
-            self._latest[tick.symbol.upper()] = tick
+            self._latest[symbol] = tick
+            if tick.quantity > 0:
+                self._trades[symbol].append(tick)
 
     async def get_snapshot(self, symbol: str, max_age_seconds: int) -> MarketSnapshot | None:
         async with self._lock:
@@ -49,6 +54,12 @@ class MarketDataCache:
             last_quantity=tick.quantity,
             is_buyer_maker=tick.is_buyer_maker,
         )
+
+    async def get_recent_ticks(self, symbol: str, lookback_seconds: int) -> list[MarketTick]:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
+        async with self._lock:
+            ticks = list(self._trades.get(symbol.upper(), ()))
+        return [tick for tick in ticks if tick.event_time >= cutoff]
 
 
 class MarketDataService:
