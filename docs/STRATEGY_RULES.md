@@ -6,7 +6,9 @@
 - BC.GAME product: `UP_DOWN`
 - Execution: user/manual
 - Scan mode: on demand
-- Expiry: configurable; 300 seconds is the initial research default, not a permanent hard-coded truth.
+- Production V1 expiry: **300 seconds**.
+
+The broader research framework may evaluate other horizons deliberately, but the deployed `BTC_UPDOWN_V1.x` contract remains locked to 300 seconds. A materially different production expiry requires explicit approval, validation, and a versioned strategy change rather than silently changing configuration.
 
 ## Decision Space
 
@@ -48,14 +50,11 @@ Possible later additions after measurement:
 
 ## Timing
 
-Every directional candidate must contain:
+Every directional candidate must contain signal creation time, planned entry time, entry validity window, and expiry time.
 
-- signal creation time
-- planned entry time
-- entry validity window
-- expiry time
+A candidate must not activate before its exact planned entry timestamp. At or after planned entry and before the entry window closes, rerun V1 intelligence. If data is unavailable, the setup becomes `NO_TRADE`, or direction changes, cancel the candidate rather than activating stale analysis.
 
-A candidate must be revalidated before planned entry. If invalidation conditions trigger, mark `CANCELLED`; do not instruct entry.
+For forward PAPER/LIVE reference settlement, accept only a fresh market event at or after the intended expiry timestamp and within the configured small settlement window. If that reference cannot be captured reliably, mark the signal unresolved/`EXPIRED`; do not assign WIN/LOSS/TIE from a materially late price.
 
 ## Data Health
 
@@ -73,7 +72,7 @@ BTC_UPDOWN_V1.1
 BTC_UPDOWN_V2.0_ORDERFLOW
 ```
 
-Changing weights, thresholds, feature logic, expiry behavior, or timing logic requires a new strategy version when the change can materially affect outcomes.
+Changing weights, thresholds, feature logic, production expiry behavior, or timing logic requires a new strategy version when the change can materially affect outcomes.
 
 ## Evaluation
 
