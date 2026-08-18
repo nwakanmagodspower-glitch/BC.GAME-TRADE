@@ -52,8 +52,6 @@ services:
         sync: false
       - key: OWNER_TELEGRAM_ID
         sync: false
-      - key: ADMIN_CHAT_ID
-        sync: false
       - key: BCGAME_REGISTRATION_URL
         sync: false
       - key: BCGAME_DEPOSIT_URL
@@ -124,11 +122,6 @@ services:
           type: web
           name: bcgame-trade-api
           envVarKey: OWNER_TELEGRAM_ID
-      - key: ADMIN_CHAT_ID
-        fromService:
-          type: web
-          name: bcgame-trade-api
-          envVarKey: ADMIN_CHAT_ID
       - key: BCGAME_REGISTRATION_URL
         fromService:
           type: web
