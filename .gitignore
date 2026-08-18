@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite3
+bcgame_trade.db
+.env
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+.DS_Store
