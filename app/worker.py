@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.startup import validate_settings
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
+from app.services.worker_heartbeat import worker_heartbeat_service
 
 settings = get_settings()
 
@@ -33,11 +34,13 @@ async def main() -> None:
     # Both web and worker keep a lightweight BTC feed in V1. Web uses its copy
     # for on-demand scans; the dedicated worker uses its copy for entry/expiry.
     await market_data_service.start(settings.default_pair)
+    await worker_heartbeat_service.start()
     await background_job_coordinator.start()
     try:
         await stop.wait()
     finally:
         await background_job_coordinator.stop()
+        await worker_heartbeat_service.stop()
         await market_data_service.stop()
 
 
