@@ -28,15 +28,12 @@ class UserSignalService:
     def __init__(self, db: Session):
         self.db = db
 
-    async def request_scan(self, user_id: int) -> UserSignalResult:
+    async def request_scan(self, user_id: int, countdown_seconds: int | None = None) -> UserSignalResult:
         user = self.db.get(User, user_id)
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             return UserSignalResult(None, False, 'Approved access is required.')
 
-        enabled = AdminOpsService(self.db).get_bool(
-            AdminOpsService.SIGNALS_ENABLED_KEY,
-            default=settings.signals_enabled,
-        )
+        enabled = AdminOpsService(self.db).get_bool(AdminOpsService.SIGNALS_ENABLED_KEY, default=settings.signals_enabled)
         if not enabled:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
@@ -46,34 +43,38 @@ class UserSignalService:
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
         existing = self.db.scalar(
-            select(Signal)
-            .where(
+            select(Signal).where(
                 Signal.requested_by_user_id == user_id,
                 Signal.status.in_([SignalStatus.WAITING_ENTRY, SignalStatus.ACTIVE]),
-            )
-            .order_by(Signal.id.desc())
+            ).order_by(Signal.id.desc())
         )
         if existing is not None:
-            return UserSignalResult(existing, False, 'You already have a BC.GAME round signal waiting or active.')
+            return UserSignalResult(existing, False, 'You already have a current-round signal waiting or active.')
 
-        round_snapshot = await bcgame_round_service.current_actionable_round()
-        if round_snapshot is None:
-            return UserSignalResult(None, False, 'BC.GAME round timing is not synchronized yet. No actionable signal was generated.')
-
-        now = datetime.now(timezone.utc)
-        lead = round_snapshot.seconds_until_order_close(now)
-        if lead < settings.signal_minimum_action_lead_seconds:
-            return UserSignalResult(None, False, 'This round is too close to locking. Wait for the next round.')
-        if lead > settings.signal_maximum_action_lead_seconds:
-            return UserSignalResult(None, False, 'This round is still early. Scan again closer to the final order window.')
+        timing_mode = settings.signal_timing_mode.upper()
+        if timing_mode == 'MANUAL_SYNC':
+            if countdown_seconds is None or countdown_seconds not in settings.manual_countdowns():
+                return UserSignalResult(None, False, 'Choose the button that matches the BC.GAME timer: 15, 14, 13, or 12 seconds.')
+            observed_at = datetime.now(timezone.utc)
+            round_snapshot = bcgame_round_service.manual_snapshot(countdown_seconds, observed_at=observed_at)
+        elif timing_mode == 'AUTO_SYNC':
+            round_snapshot = await bcgame_round_service.current_actionable_round()
+            if round_snapshot is None:
+                return UserSignalResult(None, False, 'Automatic BC.GAME round timing is unavailable. No signal was generated.')
+        else:
+            return UserSignalResult(None, False, 'Signal timing mode is unavailable.')
 
         intelligence = await signal_intelligence_service.scan(settings.analysis_pair)
         if not intelligence.service_available:
             return UserSignalResult(None, False, intelligence.reason)
 
-        signal = SignalRecordService(self.db).record_scan(
-            intelligence,
-            requested_by_user_id=user_id,
-            round_snapshot=round_snapshot,
-        )
+        # In manual sync the user already confirmed a visible countdown. If
+        # analysis/Telegram handling took too long, fail rather than provide a
+        # late current-round signal.
+        now = datetime.now(timezone.utc)
+        remaining = round_snapshot.seconds_until_order_close(now)
+        if remaining < settings.manual_sync_min_remaining_after_scan:
+            return UserSignalResult(None, False, 'Too little time remains for this round. Skip it and scan the next fresh 15-second countdown.')
+
+        signal = SignalRecordService(self.db).record_scan(intelligence, requested_by_user_id=user_id, round_snapshot=round_snapshot)
         return UserSignalResult(signal, True, intelligence.reason)
