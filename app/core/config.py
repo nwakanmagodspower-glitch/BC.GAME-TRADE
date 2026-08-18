@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     default_pair: str = 'BTCUSDT'
     default_expiry_seconds: int = 300
     strategy_version: str = 'BTC_UPDOWN_V1.0'
+    signal_min_score: int = 6
+    signal_min_margin: int = 3
+    signal_trade_flow_lookback_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'
     market_data_rest_base_url: str = 'https://api.binance.com'
