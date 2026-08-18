@@ -6,7 +6,7 @@ BC.GAME TRADE is an on-demand Telegram signal assistant specialized for **BTC/US
 
 Observed game flow:
 
-1. BC.GAME opens an order countdown.
+1. A new order countdown starts at 15 seconds.
 2. Users choose UP or DOWN before the countdown ends.
 3. At countdown end / first flag, BC.GAME records the **Start Rate**.
 4. The selected contract runs for **5 seconds**.
@@ -17,7 +17,26 @@ V1 targets the visible `5s $1-50` band first. `$50-100` and `$100-200` remain ou
 
 ## Important Data Boundary
 
-BC.GAME displays BTC/USD. The initial external analysis feed may be Binance BTCUSDT because it provides high-quality tick/trade data, but it is **not BC.GAME settlement truth**. LIVE claims require round/start/end-rate synchronization against BC.GAME itself.
+BC.GAME displays BTC/USD. Binance BTCUSDT is the initial external analysis/reference feed because it provides fast trade/tick data, but it is **not BC.GAME settlement truth**. Until exact DeTrade/BC.GAME Start Rate and End Rate ingestion is integrated, automatically tracked outcomes remain external-reference diagnostics.
+
+## Timing Modes
+
+### MANUAL_SYNC — deployable V1
+
+The player prepares BC.GAME before scanning:
+
+1. Open BC.GAME Up/Down.
+2. Select BTC/USD and 5s.
+3. Enter the desired stake first.
+4. Wait for a fresh countdown starting at 15 seconds.
+5. In Telegram choose `⚡ BTC 5s SIGNAL`.
+6. Tap the button matching BC.GAME at `15s`, `14s`, `13s`, or `12s`.
+7. The backend timestamps that tap, estimates the current Start/End reference window, uses already-running market data, and returns `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`.
+8. If too little time remains after calculation, the bot rejects the round and tells the player to wait for the next fresh countdown.
+
+### AUTO_SYNC — future upgrade
+
+A verified structured DeTrade/BC.GAME round feed may later supply the real countdown, round ID, Start/End timestamps, rates, payouts and pools automatically. It should replace manual confirmation behind the existing timing adapter without changing the rest of the product.
 
 ## User States
 
@@ -51,37 +70,38 @@ Owner additionally receives admin controls.
 ## Signal UX Contract
 
 1. Approved user selects `⚡ BTC 5s SIGNAL`.
-2. Bot shows concise context: `BTC/USD • BC.GAME Up/Down • 5s • $1-50`.
-3. Bot explains that the signal targets the price movement **from BC.GAME Start Rate to End Rate**, not the pre-start countdown movement.
-4. User taps `🔍 SCAN NEXT ROUND`.
-5. Backend checks access, signal kill switch, worker heartbeat, market-data freshness, strategy health, round synchronization, and remaining human-action lead time.
-6. Engine returns `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`.
-7. `UP/DOWN` is actionable only if the system knows which BC.GAME round/order window it refers to and enough time remains to act.
-8. PAPER mode never displays `ENTER NOW` or the execution button.
-9. LIVE mode may show `🚀 Open BC.GAME Up/Down` only when round synchronization is trustworthy and the order window is still actionable.
-10. `NO_TRADE` means the round is deliberately skipped.
-11. `UNAVAILABLE` means data/round synchronization/service health prevents a valid decision; it is not strategy `NO_TRADE`.
+2. Bot shows the preparation rule and four timer buttons: `15s`, `14s`, `13s`, `12s`.
+3. User taps the button matching the visible BC.GAME timer immediately.
+4. Backend checks access, signals switch, worker heartbeat, external data freshness, cached context readiness and strategy health.
+5. Engine returns `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`.
+6. After computation, backend checks that enough estimated ordering time remains. If not, no actionable signal is returned.
+7. LIVE `UP/DOWN` shows the direct BC.GAME Up/Down button and states that it applies only to the current manually confirmed round.
+8. If the BC.GAME timer is already below roughly the configured minimum when the result arrives, the user must skip the round.
+9. `NO_TRADE` means deliberately skip the round.
+10. `UNAVAILABLE` means service/data/timing health prevented a valid decision; it is not strategy `NO_TRADE`.
 
-## Signal Card — LIVE Target
-
-A valid future LIVE card should contain only information a human needs quickly:
+## Signal Card — LIVE V1
 
 ```text
-⚡ BTC/USD — 5s UP/DOWN
+⚡ BTC/USD — BC.GAME 5s UP/DOWN
 
 🟢 UP   or   🔴 DOWN
-Round: next synchronized BC.GAME round
-Order window remaining: <known countdown>
-Contract: 5s • $1-50
 Quality: <calibrated label>
+Contract: 5s • $1-50
+Estimated Start: <time>
+Estimated End: <time>
 
-Place the order before BC.GAME countdown reaches 0.
+Tap the same direction on BC.GAME before its countdown reaches 0.
+
+⏱ Manual timer sync
+Use this direction only for the round whose timer you just confirmed.
+If BC.GAME is already below the safe remaining-time threshold, skip the round.
 ```
 
 Buttons:
 
 - `🚀 Open BC.GAME Up/Down`
-- `🔄 Scan Next Round`
+- `🔄 Next Round`
 - `⬅️ Main Menu`
 
 Do not overload the card with indicators. Backend evidence belongs in logs/research records.
@@ -97,20 +117,23 @@ Do not overload the card with indicators. Backend evidence belongs in logs/resea
 
 ### Primary 5-second features
 
-- tick price velocity and acceleration
+- tick price velocity at approximately 1s / 3s / 5s
+- acceleration
 - aggressive buy/sell trade-flow imbalance
-- very-short-window volume imbalance
-- spread and liquidity quality
-- order-book imbalance / microprice when available
+- very-short-window volume/trade activity
+- micro-volatility
+- spread/liquidity and order-book imbalance when added later
 - cross-exchange agreement when validated
 
 A slow indicator by itself must never trigger a 5-second signal.
+
+The click path must not download market history per user. Slow candle context is refreshed in the background and current ticks are maintained continuously in memory. Near-simultaneous scans may share one calculation.
 
 ## BC.GAME Round Research Fields
 
 When a reliable structured source is discovered, collect:
 
-- round identifier
+- genuine round identifier
 - order-window start/end timestamps
 - Start Rate timestamp/value
 - End Rate timestamp/value
@@ -120,20 +143,21 @@ When a reliable structured source is discovered, collect:
 - UP/DOWN player counts
 - selected 5-second stake band
 
-Pool/player information is research data, not directional evidence until validated statistically.
+Synthetic MANUAL_SYNC IDs must not be stored as genuine BC.GAME round records. Pool/player and leaderboard data are research data, not directional evidence until validated statistically. Copy Top Trade is outside V1.
 
 ## Outcome Contract
 
 Primary truth for product validation is BC.GAME Start Rate versus End Rate. External exchange prices may be stored as reference diagnostics but must not overwrite BC.GAME-labelled outcomes.
 
-Until a reliable BC.GAME round/result source is integrated, PAPER results must explicitly say they are external-reference results.
+For MANUAL_SYNC, background outcome tracking is diagnostic and is not pushed as a second burst of Telegram messages; users can inspect stored status through My Results while exact BC.GAME result ingestion remains a future upgrade.
 
 ## Frontend Rules
 
 - Few screens, few images, few buttons.
 - No menu wall before approval.
-- The signal path must be fast enough for a short countdown.
-- Avoid unnecessary images during a time-sensitive signal.
+- The signal path must be fast enough for the short countdown.
+- Avoid images during the time-sensitive signal flow.
+- User enters stake on BC.GAME before scanning; Telegram does not ask for the bet amount.
 - Backend state is authoritative.
 - BC.GAME links are configuration-driven.
 - Never encourage Martingale, loss recovery, guaranteed profit, or forced round participation.
@@ -143,12 +167,12 @@ Until a reliable BC.GAME round/result source is integrated, PAPER results must e
 - Verification decisions in owner's private bot chat
 - Approved/suspended user management
 - Signals on/off
-- PAPER/LIVE status
-- Worker/data/round-sync health
+- LIVE/PAPER and MANUAL_SYNC/AUTO_SYNC status
+- Worker/data health
 - Strategy version
 - Broadcast composer and summary
 - Database/retention health
 
 ## Broadcasts
 
-Broadcasts target approved active users only, are rate-limited, record delivery summaries, and must never block the real-time scan path.
+Broadcasts target approved active users only, are rate-limited, record delivery summaries, and must never block the time-sensitive scan path.
