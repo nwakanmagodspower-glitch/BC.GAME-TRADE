@@ -61,6 +61,7 @@ def _worker_heartbeat_status() -> dict:
 @app.get('/health')
 async def health():
     snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
+    candles = await market_data_service.get_cached_candles(settings.analysis_pair)
     cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
     return {
@@ -77,6 +78,9 @@ async def health():
             'strategy_version': settings.strategy_version,
         },
         'signal_mode': settings.signal_mode,
+        'signal_timing_mode': settings.signal_timing_mode,
+        'manual_countdowns': settings.manual_countdowns(),
+        'manual_min_remaining_after_scan': settings.manual_sync_min_remaining_after_scan,
         'signals_enabled_default': settings.signals_enabled,
         'broadcasts_enabled_default': settings.broadcasts_enabled,
         'telegram_configured': bool(settings.telegram_bot_token),
@@ -97,6 +101,8 @@ async def health():
             'fresh': bool(snapshot and snapshot.fresh),
             'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
             'last_error': market_data_service.last_error,
+            'candle_cache_ready': bool(candles),
+            'candle_cache_error': market_data_service.candle_last_error,
             'external_reference_only': True,
         },
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
