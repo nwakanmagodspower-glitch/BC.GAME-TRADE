@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from app.backtest.ablation import run_ablation
+from app.backtest.feature_report import build_feature_research_report
 from app.core.config import get_settings
 from app.integrations.market_data.binance_spot import BinanceSpotProvider
 
@@ -24,6 +25,8 @@ async def main():
     parser.add_argument('--expiry-minutes', type=int, default=5)
     parser.add_argument('--min-score', type=int, default=None)
     parser.add_argument('--min-margin', type=int, default=None)
+    parser.add_argument('--minimum-signals', type=int, default=100)
+    parser.add_argument('--meaningful-delta', type=float, default=1.0)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -41,6 +44,12 @@ async def main():
         min_score=args.min_score if args.min_score is not None else settings.signal_min_score,
         min_margin=args.min_margin if args.min_margin is not None else settings.signal_min_margin,
     )
+    research = build_feature_research_report(
+        baseline,
+        results,
+        minimum_signals=args.minimum_signals,
+        meaningful_delta_pct=args.meaningful_delta,
+    )
 
     baseline_rate = 'n/a' if baseline.win_rate_ex_ties is None else f'{baseline.win_rate_ex_ties:.2f}%'
     print('BC.GAME TRADE — FEATURE ABLATION RESEARCH')
@@ -48,16 +57,19 @@ async def main():
     print(f'Baseline win rate: {baseline_rate}')
     print(f'Baseline coverage: {baseline.coverage_pct:.2f}%')
 
-    for result in results:
+    result_by_name = {item.name: item for item in results}
+    for assessment in research.assessments:
+        result = result_by_name[assessment.family]
         rate = 'n/a' if result.report.win_rate_ex_ties is None else f'{result.report.win_rate_ex_ties:.2f}%'
         delta = 'n/a' if result.win_rate_delta_pct is None else f'{result.win_rate_delta_pct:+.2f}pp'
         print(
-            f'- remove {result.name}: signals={result.report.signals}, '
-            f'win_rate={rate}, rate_delta={delta}, '
+            f'- remove {result.name}: class={assessment.classification}, '
+            f'signals={result.report.signals}, win_rate={rate}, rate_delta={delta}, '
             f'coverage_delta={result.coverage_delta_pct:+.2f}pp'
         )
+        print(f'  reason: {assessment.reason}')
 
-    print('\nInterpretation: a single ablation window is evidence only, not permission to change production weights.')
+    print('\nClassification is research evidence only. HARMFUL_CANDIDATE does not authorize removal.')
     print('Any material strategy change must receive a new version and pass unseen validation plus PAPER forward testing.')
 
 
