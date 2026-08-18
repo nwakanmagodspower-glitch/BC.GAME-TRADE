@@ -61,6 +61,7 @@ class OnboardingService:
 
     def set_bcgame_user_id(self, user: User, value: str) -> VerificationRequest:
         request = self.current_request(user)
+        request.status = VerificationStatus.COLLECTING
         request.bcgame_user_id = value.strip()
         user.onboarding_step = OnboardingStep.PROFILE_PROOF
         self.db.commit()
@@ -83,6 +84,20 @@ class OnboardingService:
         return request
 
     def submit(self, user: User) -> VerificationRequest:
+        if user.status in (UserStatus.APPROVED, UserStatus.SUSPENDED):
+            raise ValueError('Verification is not available for this account state')
+
+        existing = self.db.scalar(
+            select(VerificationRequest)
+            .where(VerificationRequest.user_id == user.id)
+            .where(VerificationRequest.status == VerificationStatus.SUBMITTED)
+            .order_by(VerificationRequest.id.desc())
+        )
+        if existing is not None:
+            user.onboarding_step = OnboardingStep.REVIEW
+            self.db.commit()
+            return existing
+
         request = self.current_request(user)
         if not request.bcgame_user_id or not request.profile_proof_file_id or not request.deposit_proof_file_ids:
             raise ValueError('Verification packet is incomplete')
@@ -93,13 +108,27 @@ class OnboardingService:
         self.db.refresh(request)
         return request
 
-    def review(self, request_id: int, admin_id: int, action: str) -> tuple[VerificationRequest, User]:
+    def review(self, request_id: int, admin_id: int, action: str) -> tuple[VerificationRequest, User, bool]:
         request = self.db.get(VerificationRequest, request_id)
         if request is None:
             raise ValueError('Verification request not found')
         user = self.db.get(User, request.user_id)
         if user is None:
             raise ValueError('User not found')
+
+        terminal = {
+            VerificationStatus.APPROVED: 'approve',
+            VerificationStatus.REJECTED: 'reject',
+            VerificationStatus.RESUBMIT: 'resubmit',
+        }
+        previous_action = terminal.get(request.status)
+        if previous_action:
+            if previous_action == action:
+                return request, user, False
+            raise ValueError(f'Request already reviewed as {previous_action}')
+
+        if request.status != VerificationStatus.SUBMITTED:
+            raise ValueError('Request is not waiting for review')
 
         request.reviewed_by = admin_id
         request.reviewed_at = utcnow()
@@ -120,8 +149,11 @@ class OnboardingService:
             request.bcgame_user_id = None
             request.profile_proof_file_id = None
             request.deposit_proof_file_ids = []
+            request.submitted_at = None
         else:
             raise ValueError('Unknown review action')
 
         self.db.commit()
-        return request, user
+        self.db.refresh(request)
+        self.db.refresh(user)
+        return request, user, True
