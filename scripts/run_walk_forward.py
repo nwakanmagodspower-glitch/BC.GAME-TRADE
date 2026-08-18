@@ -4,6 +4,7 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 
+from app.backtest.qualification import qualify_walk_forward
 from app.backtest.walk_forward import run_walk_forward
 from app.core.config import get_settings
 from app.integrations.market_data.binance_spot import BinanceSpotProvider
@@ -43,6 +44,7 @@ async def main():
         expiry_minutes=args.expiry_minutes,
         minimum_train_signals=args.minimum_train_signals,
     )
+    qualification = qualify_walk_forward(report)
 
     print('BC.GAME TRADE — WALK-FORWARD VALIDATION')
     print(f'Folds: {len(report.folds)}')
@@ -62,8 +64,18 @@ async def main():
             f'validation={val_rate} ({fold.validation_report.signals} signals)'
         )
 
-    print('\nUse validation performance, not training performance, to judge whether parameters are stable.')
-    print('This remains an external BTC/USDT historical study, not confirmed BC.GAME settlement performance.')
+    print('\nRESEARCH QUALIFICATION')
+    print(f'Qualified for PAPER forward test: {qualification.qualified_for_forward_test}')
+    lower = 'n/a' if qualification.wilson_lower_bound_pct is None else f'{qualification.wilson_lower_bound_pct:.2f}%'
+    dispersion = 'n/a' if qualification.fold_win_rate_stddev is None else f'{qualification.fold_win_rate_stddev:.2f}%'
+    print(f'95% Wilson lower bound: {lower}')
+    print(f'Fold win-rate stddev: {dispersion}')
+    print(f'Positive folds: {qualification.positive_folds}/{qualification.total_folds}')
+    for reason in qualification.reasons:
+        print(f'- {reason}')
+
+    print('\nPassing this gate means only that the strategy is worth PAPER forward testing.')
+    print('It is not a profitability claim, because BC.GAME payout and exact settlement reference are still unverified.')
 
 
 if __name__ == '__main__':
