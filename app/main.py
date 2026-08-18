@@ -8,7 +8,10 @@ from app.bot.application import build_telegram_application
 from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
+from app.services.broadcast_worker import broadcast_worker
 from app.services.market_data import market_data_service
+from app.services.retention_cleanup import retention_cleanup_service
+from app.services.signal_worker import signal_lifecycle_worker
 from app.services.webhook_receipts import WebhookReceiptService
 
 settings = get_settings()
@@ -18,17 +21,23 @@ telegram_app = build_telegram_application()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Web keeps a lightweight shared market snapshot for on-demand scan requests.
-    # Delayed lifecycle/settlement and broadcasts run only in app.worker on Render.
     await market_data_service.start(settings.default_pair)
+    if settings.run_background_jobs:
+        await signal_lifecycle_worker.start()
+        await broadcast_worker.start()
+        await retention_cleanup_service.start()
     if telegram_app is not None:
         await telegram_app.initialize(); await telegram_app.start()
     try:
         yield
     finally:
-        await market_data_service.stop()
         if telegram_app is not None:
             await telegram_app.stop(); await telegram_app.shutdown()
+        if settings.run_background_jobs:
+            await retention_cleanup_service.stop()
+            await broadcast_worker.stop()
+            await signal_lifecycle_worker.stop()
+        await market_data_service.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -37,12 +46,34 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 @app.get('/health')
 async def health():
     snapshot = await market_data_service.cache.get_snapshot(settings.default_pair, settings.market_data_max_age_seconds)
-    return {'status': 'ok', 'app': settings.app_name, 'env': settings.app_env, 'signal_mode': settings.signal_mode,
-            'signals_enabled_default': settings.signals_enabled, 'telegram_configured': bool(settings.telegram_bot_token),
-            'startup_ok': startup_check.ok, 'startup_warnings': startup_check.warnings,
-            'market_data': {'provider': market_data_service.provider.name, 'connected': market_data_service.connected,
-                            'fresh': bool(snapshot and snapshot.fresh), 'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
-                            'last_error': market_data_service.last_error}}
+    cleanup_result = retention_cleanup_service.last_result
+    return {
+        'status': 'ok',
+        'app': settings.app_name,
+        'env': settings.app_env,
+        'topology': 'combined' if settings.run_background_jobs else 'web-only',
+        'signal_mode': settings.signal_mode,
+        'signals_enabled_default': settings.signals_enabled,
+        'broadcasts_enabled_default': settings.broadcasts_enabled,
+        'telegram_configured': bool(settings.telegram_bot_token),
+        'startup_ok': startup_check.ok,
+        'startup_warnings': startup_check.warnings,
+        'market_data': {
+            'provider': market_data_service.provider.name,
+            'connected': market_data_service.connected,
+            'fresh': bool(snapshot and snapshot.fresh),
+            'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
+            'last_error': market_data_service.last_error,
+        },
+        'background_jobs': {
+            'enabled': settings.run_background_jobs,
+            'signal_worker_error': signal_lifecycle_worker.last_error,
+            'broadcast_worker_error': broadcast_worker.last_error,
+            'cleanup_error': retention_cleanup_service.last_error,
+            'cleanup_last_run_at': retention_cleanup_service.last_run_at,
+            'cleanup_last_deleted': cleanup_result.total if cleanup_result else None,
+        },
+    }
 
 
 @app.get('/ready')
