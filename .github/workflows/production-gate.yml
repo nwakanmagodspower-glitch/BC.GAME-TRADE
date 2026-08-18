@@ -9,9 +9,23 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gate
+          POSTGRES_PASSWORD: gatepass
+          POSTGRES_DB: bcgame_gate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U gate -d bcgame_gate"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     env:
       APP_ENV: development
-      DATABASE_URL: sqlite:///./gate.db
+      DATABASE_URL: postgresql+psycopg://gate:gatepass@127.0.0.1:5432/bcgame_gate
       SIGNAL_MODE: PAPER
       SIGNALS_ENABLED: 'false'
       BROADCASTS_ENABLED: 'false'
@@ -33,7 +47,7 @@ jobs:
       - name: Run unit tests
         run: pytest -q
 
-      - name: Apply all migrations from empty database
+      - name: Apply all migrations to PostgreSQL
         run: alembic upgrade head
 
       - name: Verify migration head
@@ -66,4 +80,27 @@ jobs:
           result = validate_settings(bad)
           assert not result.ok
           print('Invalid production configuration correctly rejected.')
+          PY
+
+      - name: Validate production-like configuration contract
+        run: |
+          python - <<'PY'
+          from app.core.config import Settings
+          from app.core.startup import validate_settings
+          good = Settings(
+              _env_file=None,
+              app_env='production',
+              database_url='postgresql+psycopg://gate:gatepass@127.0.0.1:5432/bcgame_gate',
+              telegram_bot_token='test-token',
+              telegram_webhook_secret='0123456789abcdef0123456789abcdef',
+              owner_telegram_id=1,
+              admin_chat_id=2,
+              bcgame_registration_url='https://example.com/register',
+              bcgame_deposit_url='https://example.com/deposit',
+              bcgame_updown_url='https://example.com/updown',
+              support_url='https://example.com/support',
+          )
+          result = validate_settings(good)
+          assert result.ok, result.errors
+          print('Production-like configuration contract verified.')
           PY
