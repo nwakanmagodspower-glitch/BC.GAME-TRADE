@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     signal_min_score: int = 6
     signal_min_margin: int = 3
     signal_trade_flow_lookback_seconds: int = 30
+    signal_entry_alignment_seconds: int = 60
+    signal_entry_window_seconds: int = 3
+    signal_minimum_lead_seconds: int = 15
 
     market_data_provider: str = 'BINANCE_SPOT'
     market_data_rest_base_url: str = 'https://api.binance.com'
