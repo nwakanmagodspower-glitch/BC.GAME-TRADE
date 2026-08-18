@@ -94,8 +94,10 @@ Admins additionally receive `⚙️ ADMIN`.
 4. Backend verifies user status, service health, strategy status, and market-data freshness.
 5. Signal intelligence returns `UP`, `DOWN`, or `NO_TRADE`.
 6. A valid directional signal includes planned entry, entry window, expiry, strategy version, and signal strength/calibrated confidence when available.
-7. Until entry, the signal may be cancelled if invalidation rules trigger.
-8. At expiry, the outcome engine records the result.
+7. Every valid `UP` or `DOWN` signal must include a direct Telegram URL button labelled `🚀 Open BC.GAME Up/Down`, sourced from the single configurable `BCGAME_UPDOWN_URL` setting. Do not hardcode the destination URL inside handlers or strategy code.
+8. `NO_TRADE` responses must not include the BC.GAME trading button. They may include only safe actions such as `Scan Again`.
+9. Until entry, the signal may be cancelled if invalidation rules trigger.
+10. At expiry, the outcome engine records the result.
 
 ## Frontend Design Rules
 
@@ -104,6 +106,7 @@ Admins additionally receive `⚙️ ADMIN`.
 - Use concise, polished Telegram messages.
 - Visual identity may use a small number of branded assets, but correctness must never depend on images.
 - Backend state is authoritative; Telegram message state is not.
+- Direct trading-feature links must be configuration-driven so BC.GAME route changes can be repaired without changing signal logic.
 
 ## Admin Features
 
