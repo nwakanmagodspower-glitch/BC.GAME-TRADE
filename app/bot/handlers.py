@@ -22,6 +22,10 @@ def _approved_menu() -> InlineKeyboardMarkup:
     ])
 
 
+def _is_access_blocked(user) -> bool:
+    return bool(user.is_blocked or user.status == UserStatus.SUSPENDED)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     if not tg_user or not update.effective_chat:
@@ -30,6 +34,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(tg_user)
+
+        if user.is_blocked:
+            await update.effective_chat.send_message('Your bot access is currently blocked. Please contact support.')
+            return
 
         if user.status == UserStatus.APPROVED:
             await update.effective_chat.send_message(
@@ -40,6 +48,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if user.status == UserStatus.SUSPENDED:
             await update.effective_chat.send_message('Your access is currently suspended. Please contact support.')
+            return
+
+        if user.status == UserStatus.REJECTED:
+            await update.effective_chat.send_message('Your verification was not approved. Please contact support if you believe this is an error.')
             return
 
         step = user.onboarding_step
@@ -104,6 +116,10 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         service = OnboardingService(db)
         user = service.get_or_create_user(query.from_user)
 
+        if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
+            await query.answer('This onboarding action is not available for your account.', show_alert=True)
+            return
+
         if query.data == 'onboard:registered' and user.onboarding_step == OnboardingStep.REGISTRATION:
             service.set_step(user, OnboardingStep.DEPOSIT)
             await query.edit_message_text('Registration step saved ✅')
@@ -118,12 +134,14 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if query.data == 'onboard:submit' and user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
                 request = service.submit(user)
-            except ValueError:
-                await query.answer('Please send at least one deposit screenshot first.', show_alert=True)
+            except ValueError as exc:
+                await query.answer(str(exc), show_alert=True)
                 return
             await query.edit_message_text('Verification submitted ✅\n\nYour access is now waiting for manual admin review.')
             await _send_admin_packet(context, user, request)
             return
+
+        await query.answer('That step is no longer active.', show_alert=True)
 
 
 async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,6 +150,8 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(update.effective_user)
+        if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
+            return
         if user.onboarding_step == OnboardingStep.BC_ID:
             value = update.message.text.strip()
             if len(value) < 2 or len(value) > 255:
@@ -148,6 +168,9 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(update.effective_user)
+
+        if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
+            return
 
         if user.onboarding_step == OnboardingStep.PROFILE_PROOF:
             service.set_profile_proof(user, file_id)
@@ -201,15 +224,24 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer('Not authorized.', show_alert=True)
         return
 
-    _, action, request_id_text = query.data.split(':', 2)
-    request_id = int(request_id_text)
+    try:
+        _, action, request_id_text = query.data.split(':', 2)
+        request_id = int(request_id_text)
+    except (ValueError, AttributeError):
+        await query.answer('Invalid admin action.', show_alert=True)
+        return
+
     with SessionLocal() as db:
         service = OnboardingService(db)
         try:
-            request, user = service.review(request_id, query.from_user.id, action)
+            request, user, changed = service.review(request_id, query.from_user.id, action)
         except ValueError as exc:
             await query.answer(str(exc), show_alert=True)
             return
+
+    if not changed:
+        await query.answer('Already saved.', show_alert=True)
+        return
 
     await query.answer('Saved')
     await query.edit_message_reply_markup(reply_markup=None)
@@ -230,3 +262,29 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await context.bot.send_message(user.telegram_user_id, 'Verification was not approved. Please contact support if you believe this is an error.')
         await query.message.reply_text(f'Rejected request #{request.id}.')
+
+
+async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.from_user or not query.data:
+        return
+
+    with SessionLocal() as db:
+        service = OnboardingService(db)
+        user = service.get_or_create_user(query.from_user)
+        if user.status != UserStatus.APPROVED or user.is_blocked:
+            await query.answer('Your approved access is required.', show_alert=True)
+            return
+
+    await query.answer()
+    if query.data == 'menu:signal':
+        await query.message.reply_text('BTC Signal is not active yet. Market intelligence is being prepared.')
+    elif query.data == 'menu:results':
+        await query.message.reply_text('Results will appear here after the signal engine is connected.')
+    elif query.data == 'menu:help':
+        await query.message.reply_text('This bot will provide on-demand BTC/USDT Up/Down analysis. Signals remain disabled until market intelligence is validated.')
+    elif query.data == 'menu:support':
+        if settings.support_url:
+            await query.message.reply_text(f'Support: {settings.support_url}')
+        else:
+            await query.message.reply_text('Support contact has not been configured yet.')
