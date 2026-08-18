@@ -73,7 +73,7 @@ Admin manually checks the BC.GAME affiliate dashboard and verifies whether the s
 
 - `APPROVE`: persist approval and unlock main menu.
 - `REJECT`: persist rejection and show a concise rejection state.
-- `REQUEST RESUBMISSION`: preserve history and return the user to the required evidence step.
+- `REQUEST RESUBMISSION`: preserve the reviewed packet as history and start a new evidence packet from the required step.
 
 ## Approved User Main Menu
 
@@ -92,12 +92,14 @@ Admins additionally receive `⚙️ ADMIN`.
 2. Bot displays BTC/USDT + BC.GAME Up/Down context.
 3. User taps `SCAN NOW`.
 4. Backend verifies user status, service health, strategy status, and market-data freshness.
-5. Signal intelligence returns `UP`, `DOWN`, or `NO_TRADE`.
+5. Signal intelligence returns `UP`, `DOWN`, `NO_TRADE`, or an `UNAVAILABLE` service state.
 6. A valid directional signal includes planned entry, entry window, expiry, strategy version, and signal strength/calibrated confidence when available.
-7. Every valid `UP` or `DOWN` signal must include a direct Telegram URL button labelled `🚀 Open BC.GAME Up/Down`, sourced from the single configurable `BCGAME_UPDOWN_URL` setting. Do not hardcode the destination URL inside handlers or strategy code.
-8. `NO_TRADE` responses must not include the BC.GAME trading button. They may include only safe actions such as `Scan Again`.
-9. Until entry, the signal may be cancelled if invalidation rules trigger.
-10. At expiry, the outcome engine records the result.
+7. In `LIVE` presentation mode, every valid `UP` or `DOWN` signal must include a direct Telegram URL button labelled `🚀 Open BC.GAME Up/Down`, sourced from the single configurable `BCGAME_UPDOWN_URL` setting. Do not hardcode the destination URL inside handlers or strategy code.
+8. In `PAPER` mode, directional results are validation-only: they must not use `ENTER NOW` language and must not include the BC.GAME execution button.
+9. `NO_TRADE` responses must not include the BC.GAME trading button. They may include only safe actions such as `Scan Again`.
+10. `UNAVAILABLE` means the service/provider cannot produce a valid strategy decision; it must not be recorded as strategy `NO_TRADE`.
+11. Until entry, the signal may be cancelled if invalidation rules trigger.
+12. At expiry, the outcome engine records the result.
 
 ## Frontend Design Rules
 
