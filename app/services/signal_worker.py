@@ -59,12 +59,12 @@ class SignalLifecycleWorker:
                 previous = signal.status
                 if signal.status == SignalStatus.ACTIVE:
                     await lifecycle.settle_if_due(signal, now=now)
-                if signal.status != previous and signal.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE, SignalStatus.CANCELLED}:
+                if signal.status != previous and signal.status in {
+                    SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
+                    SignalStatus.CANCELLED, SignalStatus.EXPIRED,
+                }:
                     await notifications.notify_status(signal)
 
-            # Retry recent states whose Telegram delivery may have failed. Do not
-            # revisit signals older than the notification-retention window: their
-            # delivery receipts may already have been intentionally cleaned.
             retry_cutoff = now - timedelta(days=settings.temporary_retention_days)
             retryable = db.scalars(
                 select(Signal)
@@ -73,6 +73,7 @@ class SignalLifecycleWorker:
                     Signal.status.in_([
                         SignalStatus.ACTIVE,
                         SignalStatus.CANCELLED,
+                        SignalStatus.EXPIRED,
                         SignalStatus.WIN,
                         SignalStatus.LOSS,
                         SignalStatus.TIE,
