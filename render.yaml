@@ -16,8 +16,12 @@ services:
         value: PAPER
       - key: SIGNALS_ENABLED
         value: "false"
+      - key: BROADCASTS_ENABLED
+        value: "false"
       - key: DEFAULT_PAIR
         value: BTCUSDT
+      - key: DEFAULT_PRODUCT
+        value: BC_UPDOWN
       - key: DEFAULT_EXPIRY_SECONDS
         value: "300"
       - key: STRATEGY_VERSION
