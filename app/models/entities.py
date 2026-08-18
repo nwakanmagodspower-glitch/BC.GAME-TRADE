@@ -1,0 +1,116 @@
+import enum
+from datetime import datetime, timezone
+
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.database import Base
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class UserStatus(str, enum.Enum):
+    PENDING = 'PENDING'
+    APPROVED = 'APPROVED'
+    REJECTED = 'REJECTED'
+    SUSPENDED = 'SUSPENDED'
+
+
+class UserRole(str, enum.Enum):
+    USER = 'USER'
+    ADMIN = 'ADMIN'
+    OWNER = 'OWNER'
+
+
+class VerificationStatus(str, enum.Enum):
+    COLLECTING = 'COLLECTING'
+    SUBMITTED = 'SUBMITTED'
+    APPROVED = 'APPROVED'
+    REJECTED = 'REJECTED'
+    RESUBMIT = 'RESUBMIT'
+
+
+class SignalDirection(str, enum.Enum):
+    UP = 'UP'
+    DOWN = 'DOWN'
+    NO_TRADE = 'NO_TRADE'
+
+
+class SignalStatus(str, enum.Enum):
+    CANDIDATE = 'CANDIDATE'
+    WAITING_ENTRY = 'WAITING_ENTRY'
+    ACTIVE = 'ACTIVE'
+    CANCELLED = 'CANCELLED'
+    EXPIRED = 'EXPIRED'
+    WIN = 'WIN'
+    LOSS = 'LOSS'
+    TIE = 'TIE'
+    NO_TRADE = 'NO_TRADE'
+
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.PENDING, index=True)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VerificationRequest(Base):
+    __tablename__ = 'verification_requests'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    bcgame_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    profile_proof_file_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deposit_proof_file_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[VerificationStatus] = mapped_column(Enum(VerificationStatus), default=VerificationStatus.COLLECTING, index=True)
+    admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Signal(Base):
+    __tablename__ = 'signals'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    market: Mapped[str] = mapped_column(String(40), default='BTCUSDT', index=True)
+    product: Mapped[str] = mapped_column(String(60), default='BC_UPDOWN')
+    direction: Mapped[SignalDirection] = mapped_column(Enum(SignalDirection), index=True)
+    status: Mapped[SignalStatus] = mapped_column(Enum(SignalStatus), index=True)
+    strategy_version: Mapped[str] = mapped_column(String(80), index=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    entry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    entry_window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    entry_window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expiry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reference_entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reference_expiry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    features_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Broadcast(Base):
+    __tablename__ = 'broadcasts'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    message: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    recipient_count: Mapped[int] = mapped_column(Integer, default=0)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
