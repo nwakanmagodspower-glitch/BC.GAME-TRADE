@@ -22,16 +22,28 @@ services:
         value: "false"
       - key: BROADCASTS_ENABLED
         value: "false"
+      - key: GAME_MARKET
+        value: BTC/USD
+      - key: ANALYSIS_PAIR
+        value: BTCUSDT
       - key: DEFAULT_PAIR
         value: BTCUSDT
       - key: DEFAULT_PRODUCT
-        value: BC_UPDOWN
+        value: BC_UPDOWN_5S
       - key: DEFAULT_EXPIRY_SECONDS
-        value: "300"
+        value: "5"
+      - key: DEFAULT_STAKE_BAND
+        value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_V1.0
+        value: BTC_UPDOWN_5S_V1.0
+      - key: BCGAME_ROUND_SYNC_ENABLED
+        value: "false"
+      - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
+        value: "2"
+      - key: SIGNAL_MINIMUM_ACTION_LEAD_SECONDS
+        value: "5"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
-        value: "3"
+        value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
         value: "30"
       - key: MARKET_DATA_PROVIDER
@@ -41,11 +53,11 @@ services:
       - key: MARKET_DATA_WS_BASE_URL
         value: wss://stream.binance.com:9443/ws
       - key: MARKET_DATA_MAX_AGE_SECONDS
-        value: "3"
+        value: "2"
       - key: MARKET_DATA_RECONNECT_SECONDS
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
-        value: "300"
+        value: "120"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
@@ -87,16 +99,28 @@ services:
         value: "false"
       - key: BROADCASTS_ENABLED
         value: "false"
+      - key: GAME_MARKET
+        value: BTC/USD
+      - key: ANALYSIS_PAIR
+        value: BTCUSDT
       - key: DEFAULT_PAIR
         value: BTCUSDT
       - key: DEFAULT_PRODUCT
-        value: BC_UPDOWN
+        value: BC_UPDOWN_5S
       - key: DEFAULT_EXPIRY_SECONDS
-        value: "300"
+        value: "5"
+      - key: DEFAULT_STAKE_BAND
+        value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_V1.0
+        value: BTC_UPDOWN_5S_V1.0
+      - key: BCGAME_ROUND_SYNC_ENABLED
+        value: "false"
+      - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
+        value: "2"
+      - key: SIGNAL_MINIMUM_ACTION_LEAD_SECONDS
+        value: "5"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
-        value: "3"
+        value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
         value: "30"
       - key: MARKET_DATA_PROVIDER
@@ -106,11 +130,11 @@ services:
       - key: MARKET_DATA_WS_BASE_URL
         value: wss://stream.binance.com:9443/ws
       - key: MARKET_DATA_MAX_AGE_SECONDS
-        value: "3"
+        value: "2"
       - key: MARKET_DATA_RECONNECT_SECONDS
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
-        value: "300"
+        value: "120"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
