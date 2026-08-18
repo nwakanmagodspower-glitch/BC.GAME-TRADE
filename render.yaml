@@ -39,6 +39,10 @@ services:
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
         value: "300"
+      - key: TEMPORARY_RETENTION_DAYS
+        value: "10"
+      - key: CLEANUP_INTERVAL_SECONDS
+        value: "86400"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
@@ -95,6 +99,10 @@ services:
         value: "3"
       - key: MARKET_DATA_KLINE_LIMIT
         value: "300"
+      - key: TEMPORARY_RETENTION_DAYS
+        value: "10"
+      - key: CLEANUP_INTERVAL_SECONDS
+        value: "86400"
       - key: TELEGRAM_BOT_TOKEN
         fromService:
           type: web
