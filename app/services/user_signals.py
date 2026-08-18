@@ -26,9 +26,6 @@ class UserSignalService:
         self.db = db
 
     async def request_scan(self, user_id: int) -> UserSignalResult:
-        # Environment default plus database runtime override. This lets the owner
-        # disable signals immediately without redeploying while preserving a safe
-        # disabled-by-default production configuration.
         enabled = AdminOpsService(self.db).get_bool(
             AdminOpsService.SIGNALS_ENABLED_KEY,
             default=settings.signals_enabled,
@@ -48,5 +45,10 @@ class UserSignalService:
             return UserSignalResult(existing, False, 'You already have a signal waiting or active.')
 
         intelligence = await signal_intelligence_service.scan(settings.default_pair)
+        if not intelligence.service_available:
+            # UNAVAILABLE is a request/runtime state, not a strategy NO_TRADE.
+            # Do not contaminate strategy statistics with provider failures.
+            return UserSignalResult(None, False, intelligence.reason)
+
         signal = SignalRecordService(self.db).record_scan(intelligence, requested_by_user_id=user_id)
         return UserSignalResult(signal, True, intelligence.reason)
