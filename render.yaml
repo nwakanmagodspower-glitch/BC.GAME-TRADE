@@ -76,6 +76,8 @@ services:
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
         value: "86400"
+      - key: BCGAME_UPDOWN_URL
+        value: https://bc.game/trading/up-down
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
@@ -85,8 +87,6 @@ services:
       - key: BCGAME_REGISTRATION_URL
         sync: false
       - key: BCGAME_DEPOSIT_URL
-        sync: false
-      - key: BCGAME_UPDOWN_URL
         sync: false
       - key: SUPPORT_URL
         sync: false
@@ -167,6 +167,8 @@ services:
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
         value: "86400"
+      - key: BCGAME_UPDOWN_URL
+        value: https://bc.game/trading/up-down
       - key: TELEGRAM_BOT_TOKEN
         fromService:
           type: web
@@ -192,11 +194,6 @@ services:
           type: web
           name: bcgame-trade-api
           envVarKey: BCGAME_DEPOSIT_URL
-      - key: BCGAME_UPDOWN_URL
-        fromService:
-          type: web
-          name: bcgame-trade-api
-          envVarKey: BCGAME_UPDOWN_URL
       - key: SUPPORT_URL
         fromService:
           type: web
