@@ -32,7 +32,6 @@ async def main() -> None:
         if not market_data.get('fresh'):
             raise SystemExit('Market data is not fresh')
 
-        # Security check: webhook without Telegram secret must not be accepted.
         webhook = await client.post(base + '/telegram/webhook', json={'update_id': 1})
         if webhook.status_code not in {403, 503}:
             raise SystemExit(f'Webhook accepted an unauthenticated request: {webhook.status_code}')
@@ -41,6 +40,14 @@ async def main() -> None:
         raise SystemExit('Deployment is not in PAPER mode')
     if health_data.get('signals_enabled_default') is not False:
         raise SystemExit('SIGNALS_ENABLED default is not false')
+    if health_data.get('broadcasts_enabled_default') is not False:
+        raise SystemExit('BROADCASTS_ENABLED default is not false')
+    if health_data.get('topology') != 'web-plus-dedicated-worker':
+        raise SystemExit(f"Unexpected topology: {health_data.get('topology')}")
+
+    worker = health_data.get('dedicated_worker') or {}
+    if not worker.get('seen') or not worker.get('fresh'):
+        raise SystemExit(f'Dedicated worker heartbeat is not fresh: {worker}')
 
     print('Render smoke tests passed.')
     print(json.dumps({'health': health_data, 'market': market_data}, indent=2, default=str))
