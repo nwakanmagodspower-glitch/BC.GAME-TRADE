@@ -1,124 +1,166 @@
 # Signal Intelligence Rules
 
-## V1 Research Target
+## V1 Target
 
-- Pair: `BTCUSDT`
+- Game display market: `BTC/USD`
+- External analysis symbol: `BTCUSDT` initially
 - BC.GAME product: `UP_DOWN`
-- Execution: user/manual
-- Scan mode: on demand
-- Production V1 expiry: **300 seconds**.
+- Duration: **5 seconds**
+- Initial stake band: **$1-50**
+- Execution: manual user action only
+- Scan mode: on demand for the next synchronized BC.GAME round
 
-The broader research framework may evaluate other horizons deliberately, but the deployed `BTC_UPDOWN_V1.x` contract remains locked to 300 seconds. A materially different production expiry requires explicit approval, validation, and a versioned strategy change rather than silently changing configuration.
+## Actual Outcome Definition
+
+The supplied BC.GAME How to Trade instructions define the round as:
+
+1. User places UP/DOWN order during countdown.
+2. When countdown ends, BC.GAME records Start Rate at first flag.
+3. Five seconds later, BC.GAME records End Rate at second flag.
+4. End Rate > Start Rate => UP wins.
+5. Otherwise DOWN wins according to the supplied rules.
+
+The countdown itself is not the five-second prediction horizon.
 
 ## Decision Space
 
-The engine returns exactly one of:
+`UP | DOWN | NO_TRADE | UNAVAILABLE`
 
-- `UP`
-- `DOWN`
-- `NO_TRADE`
-- `UNAVAILABLE`
+`NO_TRADE` is expected and important. The system must not force participation in every round.
 
-`NO_TRADE` is a valid and expected result.
+## Primary Five-Second Features
 
-## V1 Feature Families
+Current implementable inputs:
 
-- short-term trend
-- momentum
-- market structure
-- volume
-- volatility
-- support/resistance context
+- 1-second tick return
+- 3-second tick return
+- 5-second tick return
+- tick acceleration
+- aggressive buy/sell trade-flow ratio
+- number of recent trades
+- 5-second micro-volatility
 
-Possible later additions after measurement:
+Context only:
 
-- order-flow imbalance
-- order-book imbalance
-- liquidations
-- open interest
-- cross-exchange divergence
-- BC.GAME pool/payout/reference-price inputs
+- short EMA relationship
+- 1-minute market structure
+- RSI
+- 1-minute volume/taker context
+- broader volatility/support-resistance context
+
+A slow/candle indicator alone cannot create a five-second signal.
+
+## Planned Microstructure Extensions
+
+Add only after reliable implementation and measurement:
+
+- best bid/ask spread
+- top-of-book imbalance
+- multi-level order-book imbalance
+- microprice
+- book replenishment/cancellation pressure
+- cross-exchange short-horizon divergence
+- liquidation/open-interest context if shown to improve the specific five-second objective
+
+## BC.GAME-Specific Research Inputs
+
+Collect when a reliable structured source is discovered:
+
+- round ID and countdown
+- first-flag Start Rate
+- second-flag End Rate
+- UP/DOWN payout percentages
+- pool amounts
+- player counts
+- stake band
+
+Do not assume crowd/pool direction predicts price. Test it first.
+
+Leaderboard/Copy Top Trade is excluded from V1 direction logic.
+
+## Round Synchronization
+
+LIVE direction delivery requires a trustworthy fresh BC.GAME round snapshot. Do not approximate rounds with minute boundaries or local timers.
+
+A signal must leave enough order-window lead time for a human to receive the Telegram message, open/return to BC.GAME, set amount and press UP/DOWN before countdown reaches zero.
+
+If the remaining window is too short, skip the round.
 
 ## Strategy Principles
 
-- Do not treat a single indicator as a trade command.
-- Do not copy a Forex/futures strategy without validating it against the fixed-expiry Up/Down objective.
-- Optimize for short-horizon BTC direction at the configured settlement horizon.
-- Market-regime detection precedes directional scoring.
-- Confidence must be calibrated from observed/backtested performance; never fabricate percentages from arbitrary indicator counts.
-- Payout/expected-value gating may be added once reliable BC.GAME payout data is available.
+- Optimize specifically for direction between BC.GAME Start Rate and End Rate five seconds later.
+- Treat Binance BTCUSDT as analysis/reference data, not settlement truth.
+- Use microstructure first; use slow indicators as regime/context filters.
+- Do not copy a Forex/futures strategy.
+- Do not use Martingale/recovery logic.
+- Do not fabricate confidence percentages.
+- Calibrate confidence only from forward/backtested five-second labels that match the real game semantics.
+- Prefer fewer high-quality signals over frequent weak signals.
 
-## Timing
+## Direction vs Expected Value
 
-Every directional candidate must contain signal creation time, planned entry time, entry validity window, and expiry time.
+Keep two questions separate:
 
-A candidate must not activate before its exact planned entry timestamp. At or after planned entry and before the entry window closes, rerun V1 intelligence. If data is unavailable, the setup becomes `NO_TRADE`, or direction changes, cancel the candidate rather than activating stale analysis.
+1. **Direction:** is UP or DOWN sufficiently more likely over the five-second target?
+2. **Economics:** is the current displayed payout sufficient for the measured probability?
 
-For forward PAPER/LIVE reference settlement, accept only a fresh market event at or after the intended expiry timestamp and within the configured small settlement window. If that reference cannot be captured reliably, mark the signal unresolved/`EXPIRED`; do not assign WIN/LOSS/TIE from a materially late price.
+Do not let payout change the predicted direction. Payout may veto a direction as `NO_TRADE` once reliable payout data is available.
 
-## Data Health
+## Result Truth
 
-Signal generation requires fresh market data. Freshness thresholds are configuration, not magic constants scattered in code.
+For product validation, BC.GAME Start Rate / End Rate is the desired ground-truth label.
 
-If provider health, timestamps, or snapshot integrity fail, return `UNAVAILABLE` rather than guessing.
+External reference settlement is allowed only for PAPER diagnostics and must be labelled as such. A close external-feed result must not be represented as proof of a BC.GAME win/loss.
+
+If reliable BC.GAME end-rate data is missing, result is unresolved rather than guessed.
 
 ## Strategy Versioning
 
-Use immutable names such as:
+Use immutable identities such as:
 
 ```text
-BTC_UPDOWN_V1.0
-BTC_UPDOWN_V1.1
-BTC_UPDOWN_V2.0_ORDERFLOW
+BTC_UPDOWN_5S_V1.0
+BTC_UPDOWN_5S_V1.1_DEPTH
+BTC_UPDOWN_5S_V2.0_CALIBRATED
 ```
 
-Changing weights, thresholds, feature logic, production expiry behavior, or timing logic requires a new strategy version when the change can materially affect outcomes.
+Material changes to thresholds, features, duration, round timing or outcome logic require a new version.
 
 ## Evaluation
 
 Track at minimum:
 
-- generated directional signals
-- no-trade rate
-- cancellations
-- wins/losses/ties/unresolved
-- performance by market regime
-- performance by time-of-day
+- scans
+- directional signals
+- NO_TRADE rate
+- UNAVAILABLE rate
+- late/too-short-window skips
+- cancellations before Start Rate
+- resolved/unresolved outcomes
+- wins/losses by BC.GAME labels when available
+- external-vs-BC.GAME price disagreements
+- performance by direction
+- performance by micro-volatility regime
+- performance by time of day
+- performance by payout band
 - performance by strategy version
-- data-provider health at decision time
 
-Backtests must match the actual entry/expiry semantics as closely as possible. Live paper forward-testing is required before production signal mode.
+## Historical Research
 
-## Historical Backtest Contract
+The old one-minute / five-minute backtest is no longer a valid validator for this product contract. One-minute candles may remain useful for context research, but five-second model evaluation requires sufficiently fine-grained trade/tick/order-book history.
 
-The M6 candle backtest follows strict no-lookahead rules:
+No-lookahead rules still apply: every feature must use only data available before the predicted BC.GAME Start Rate.
 
-- Features are calculated only from closed 1-minute candles available at decision time.
-- Entry uses the next 1-minute candle open, approximating the next synchronized minute boundary.
-- A 5-minute expiry uses the open price exactly five one-minute intervals after entry.
-- Future candles are used only for labeling the already-created historical signal, never for feature calculation.
-- Historical trade-flow/order-book inputs are not fabricated when tick-level history is unavailable.
+## Forward PAPER Validation
 
-The initial historical source is external `BTCUSDT` market data. A backtest result therefore measures the strategy against that external reference feed; it is **not** proof that BC.GAME would have settled every contract identically.
+This becomes the most important validation phase:
 
-Before production claims are made, compare external entry/expiry prices with BC.GAME's actual live Up/Down reference/settlement behavior and complete live paper forward-testing.
+1. observe synchronized BC.GAME rounds;
+2. capture pre-Start-Rate features;
+3. record model decision without encouraging a real trade;
+4. capture BC.GAME Start Rate and End Rate;
+5. label actual round result;
+6. compare with external reference behavior;
+7. collect enough rounds across regimes before considering LIVE.
 
-Backtest reports should include at least overall win/loss/tie counts, signal coverage/no-trade rate, and breakdowns by direction, quality, market structure, and entry hour.
-
-## Walk-Forward Validation Contract
-
-Parameter research must not select and judge parameters on the same historical period.
-
-The walk-forward engine therefore:
-
-- divides history into chronological training and validation windows;
-- evaluates candidate `min_score` / `min_margin` combinations on the training window only;
-- requires a minimum number of training signals before a candidate can be selected;
-- selects the training candidate using declared ranking rules;
-- applies the selected parameters unchanged to the immediately following unseen validation window;
-- advances chronologically and repeats the process across multiple folds;
-- reports aggregate validation performance separately from training performance.
-
-Default research windows are 14 training days followed by 7 unseen validation days. These are research defaults and may be changed deliberately, but they must not be tuned repeatedly just to improve one historical report.
-
-A parameter set should be considered more credible when validation performance remains reasonably stable across multiple market periods, directions, and signal counts. One exceptionally strong fold is not sufficient evidence of a durable edge.
+A strong-looking small sample is not enough evidence of a durable edge.
