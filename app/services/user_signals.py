@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import Signal, SignalDirection, SignalStatus
+from app.models.entities import Signal, SignalStatus
+from app.services.admin_ops import AdminOpsService
 from app.services.signal_intelligence import signal_intelligence_service
 from app.services.signal_records import SignalRecordService
 
@@ -25,13 +26,16 @@ class UserSignalService:
         self.db = db
 
     async def request_scan(self, user_id: int) -> UserSignalResult:
-        # Product kill switch remains authoritative even though the intelligence
-        # engine can be exercised separately by research tooling.
-        if not settings.signals_enabled:
+        # Environment default plus database runtime override. This lets the owner
+        # disable signals immediately without redeploying while preserving a safe
+        # disabled-by-default production configuration.
+        enabled = AdminOpsService(self.db).get_bool(
+            AdminOpsService.SIGNALS_ENABLED_KEY,
+            default=settings.signals_enabled,
+        )
+        if not enabled:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
-        # Avoid stacking multiple live candidates for one user. This keeps the
-        # on-demand UX simple and prevents accidental repeated-entry pressure.
         existing = self.db.scalar(
             select(Signal)
             .where(
