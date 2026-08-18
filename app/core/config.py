@@ -23,23 +23,20 @@ class Settings(BaseSettings):
     signals_enabled: bool = False
     broadcasts_enabled: bool = False
 
-    # Product contract: BC.GAME displays BTC/USD. Binance BTCUSDT remains the
-    # initial external analysis symbol only; it is never treated as BC.GAME
-    # settlement truth.
     game_market: str = 'BTC/USD'
     analysis_pair: str = 'BTCUSDT'
-    default_pair: str = 'BTCUSDT'  # compatibility alias for existing services
+    default_pair: str = 'BTCUSDT'
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
     strategy_version: str = 'BTC_UPDOWN_5S_V1.0'
 
-    # Round synchronization must be connected and healthy before LIVE
-    # actionable signals are allowed. PAPER may be used for external-reference
-    # research while this remains false.
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
+    # Initial safe research window: do not signal too early and do not signal so
+    # late that a human cannot act. Calibrate from measured Telegram latency.
     signal_minimum_action_lead_seconds: int = 5
+    signal_maximum_action_lead_seconds: int = 10
 
     signal_min_score: int = 6
     signal_min_margin: int = 3
