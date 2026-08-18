@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.core.config import get_settings
+from app.integrations.bcgame import bcgame_adapter
 from app.models.entities import Signal, SignalDirection, SignalStatus
 
 settings = get_settings()
@@ -16,14 +17,12 @@ def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
 def build_signal_keyboard(direction: SignalDirection) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
 
-    # M11 PAPER validation must never encourage execution. The direct BC.GAME
-    # button is a LIVE-presentation feature and remains hidden until M12.
     if (
         settings.signal_mode.upper() == 'LIVE'
         and direction in {SignalDirection.UP, SignalDirection.DOWN}
-        and settings.bcgame_updown_url
+        and bcgame_adapter.updown_url
     ):
-        rows.append([InlineKeyboardButton('🚀 Open BC.GAME Up/Down', url=settings.bcgame_updown_url)])
+        rows.append([InlineKeyboardButton('🚀 Open BC.GAME Up/Down', url=bcgame_adapter.updown_url)])
 
     rows.append([InlineKeyboardButton('🔍 Scan Again', callback_data='menu:signal')])
     rows.append([InlineKeyboardButton('⬅️ Main Menu', callback_data='menu:home')])
