@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
 from app.services.market_data import market_data_service
+from app.services.signal_worker import signal_lifecycle_worker
 from app.services.webhook_receipts import WebhookReceiptService
 
 settings = get_settings()
@@ -19,12 +20,14 @@ telegram_app = build_telegram_application()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await market_data_service.start(settings.default_pair)
+    await signal_lifecycle_worker.start()
     if telegram_app is not None:
         await telegram_app.initialize()
         await telegram_app.start()
     try:
         yield
     finally:
+        await signal_lifecycle_worker.stop()
         await market_data_service.stop()
         if telegram_app is not None:
             await telegram_app.stop()
@@ -55,6 +58,9 @@ async def health():
             'fresh': bool(snapshot and snapshot.fresh),
             'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
             'last_error': market_data_service.last_error,
+        },
+        'signal_worker': {
+            'last_error': signal_lifecycle_worker.last_error,
         },
     }
 
