@@ -56,20 +56,16 @@ class UserSignalService:
         if existing is not None:
             return UserSignalResult(existing, False, 'You already have a BC.GAME round signal waiting or active.')
 
-        # A user-facing five-second signal is meaningful only when we know the
-        # real BC.GAME order window and first/second flag timestamps. Never
-        # recreate the old next-minute approximation.
         round_snapshot = await bcgame_round_service.current_actionable_round()
         if round_snapshot is None:
-            return UserSignalResult(
-                None,
-                False,
-                'BC.GAME round timing is not synchronized yet. No actionable signal was generated.',
-            )
+            return UserSignalResult(None, False, 'BC.GAME round timing is not synchronized yet. No actionable signal was generated.')
 
         now = datetime.now(timezone.utc)
-        if round_snapshot.seconds_until_order_close(now) < settings.signal_minimum_action_lead_seconds:
+        lead = round_snapshot.seconds_until_order_close(now)
+        if lead < settings.signal_minimum_action_lead_seconds:
             return UserSignalResult(None, False, 'This round is too close to locking. Wait for the next round.')
+        if lead > settings.signal_maximum_action_lead_seconds:
+            return UserSignalResult(None, False, 'This round is still early. Scan again closer to the final order window.')
 
         intelligence = await signal_intelligence_service.scan(settings.analysis_pair)
         if not intelligence.service_available:
