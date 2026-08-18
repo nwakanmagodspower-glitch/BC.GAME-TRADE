@@ -26,7 +26,7 @@ def _admin_menu(signals_enabled: bool) -> InlineKeyboardMarkup:
     signal_action = 'adminops:signals:off' if signals_enabled else 'adminops:signals:on'
     return InlineKeyboardMarkup([
         [InlineKeyboardButton('📊 System Status', callback_data='adminops:status')],
-        [InlineKeyboardButton('🧪 Paper Validation', callback_data='adminops:paper_validation')],
+        [InlineKeyboardButton('🧪 Strategy Validation', callback_data='adminops:paper_validation')],
         [InlineKeyboardButton(signal_label, callback_data=signal_action)],
         [InlineKeyboardButton('📣 Broadcast Help', callback_data='adminops:broadcast_help')],
         [InlineKeyboardButton('👤 User Controls Help', callback_data='adminops:user_help')],
@@ -59,18 +59,21 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             latest_broadcast = db.scalar(select(Broadcast).order_by(Broadcast.id.desc()))
             worker = get_worker_status(db)
         snap = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
-        rounds = bcgame_round_service.status()
+        candles = await market_data_service.get_cached_candles(settings.analysis_pair)
+        timing = bcgame_round_service.status()
         bcast = 'none' if latest_broadcast is None else f'#{latest_broadcast.id} {latest_broadcast.status.value} ({latest_broadcast.sent_count}/{latest_broadcast.recipient_count})'
         text = (
             '📊 SYSTEM STATUS\n\n'
             f'Product: {settings.game_market} • 5s • ${settings.default_stake_band}\n'
             f'Strategy: {settings.strategy_version}\n'
             f'Mode: {settings.signal_mode}\n'
+            f'Timing: {settings.signal_timing_mode}\n'
+            f'Manual timer buttons: {", ".join(str(v) + "s" for v in settings.manual_countdowns())}\n'
             f'Signals: {"ON" if enabled else "OFF"}\n'
             f'External BTC feed: {"FRESH" if snap and snap.fresh else "NOT FRESH"}\n'
+            f'Candle context: {"READY" if candles else "NOT READY"}\n'
             f'Worker: {"FRESH" if worker.fresh else "NOT FRESH"}\n'
-            f'BC.GAME round sync: {"FRESH" if rounds.fresh else ("ENABLED / NOT FRESH" if rounds.enabled else "OFF") }\n'
-            f'Action window: {settings.signal_minimum_action_lead_seconds}-{settings.signal_maximum_action_lead_seconds}s before lock\n'
+            f'Timing layer: {"READY" if timing.fresh else "NOT READY"}\n'
             f'Approved users: {approved}\nWaiting signals: {waiting}\nActive signals: {active}\n'
             f'Latest broadcast: {bcast}'
         )
@@ -84,21 +87,21 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         settle_avg = 'n/a' if report.avg_settlement_delay_seconds is None else f'{report.avg_settlement_delay_seconds:.3f}s'
         blockers = 'None' if not report.blockers else '\n'.join(f'• {b}' for b in report.blockers)
         text = (
-            '🧪 5s PAPER VALIDATION\n\n'
+            '🧪 5s STRATEGY VALIDATION\n\n'
             f'Scans: {report.total_scans}\nDirectional: {report.directional_signals}\nNO TRADE: {report.no_trade}\n'
             f'Settled external refs: {report.settled} (W {report.wins} / L {report.losses} / T {report.ties})\n'
             f'Cancelled: {report.cancelled}\nStuck active: {report.stuck_active}\n'
             f'Start delay avg/max: {entry_avg} / {entry_max}\nEnd-reference delay avg: {settle_avg}\n'
             f'Missing start/end refs: {report.missing_entry_prices}/{report.missing_expiry_prices}\n'
             f'Technical gate: {"PASSABLE" if report.passable else "BLOCKED"}\n\nBlockers:\n{blockers}\n\n'
-            'Note: external-reference W/L is diagnostic until BC.GAME Start/End Rate ingestion is verified.'
+            'External-reference W/L is diagnostic until exact BC.GAME Start/End Rate ingestion is integrated.'
         )
         await query.message.reply_text(text); return
 
     if data in {'adminops:signals:on', 'adminops:signals:off'}:
         enabled = data.endswith(':on')
-        if enabled and settings.signal_mode.upper() == 'LIVE' and not bcgame_round_service.status().fresh:
-            await query.message.reply_text('Cannot enable LIVE signals: BC.GAME round synchronization is not fresh.')
+        if enabled and not bcgame_round_service.status().fresh:
+            await query.message.reply_text('Cannot enable signals: the configured timing layer is not ready.')
             return
         with SessionLocal() as db:
             AdminOpsService(db).set_signals_enabled(enabled, query.from_user.id)
