@@ -14,6 +14,9 @@ class SignalNotificationService:
     def __init__(self, db: Session):
         self.db = db
 
+    def _timing_source(self, signal: Signal) -> str:
+        return str(((signal.features_snapshot or {}).get('_bcgame_round') or {}).get('source') or 'AUTO_SYNC')
+
     async def notify_status(self, signal: Signal) -> bool:
         if not settings.telegram_bot_token or signal.requested_by_user_id is None:
             return False
@@ -21,6 +24,13 @@ class SignalNotificationService:
             SignalStatus.ACTIVE, SignalStatus.CANCELLED, SignalStatus.EXPIRED,
             SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
         }:
+            return False
+
+        # The manual-sync user already received the time-critical actionable
+        # signal from the web service. Do not fan out hundreds of synchronized
+        # background messages at Start/End time. Diagnostic status remains in
+        # PostgreSQL and is available through My Results/admin evaluation.
+        if self._timing_source(signal) == 'MANUAL_SYNC':
             return False
 
         user = self.db.get(User, signal.requested_by_user_id)
@@ -69,7 +79,7 @@ class SignalNotificationService:
 
         if signal.status == SignalStatus.CANCELLED:
             prefix = '🧪 PAPER SIGNAL CANCELLED' if mode == 'PAPER' else '⚠️ SIGNAL CANCELLED'
-            return f'{prefix}\n\n{signal.decision_reason or "The next-round setup was invalidated before Start Rate."}'
+            return f'{prefix}\n\n{signal.decision_reason or "The setup was invalidated before Start Rate."}'
 
         if signal.status == SignalStatus.EXPIRED:
             prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNRESOLVED'
