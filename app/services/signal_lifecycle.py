@@ -28,18 +28,19 @@ class SignalLifecycleService:
         current = now or datetime.now(timezone.utc)
         if current < signal.entry_at:
             return signal
+        source = self._timing_source(signal)
         activation_deadline = signal.entry_at + timedelta(seconds=settings.signal_settlement_window_seconds)
         if current > activation_deadline:
-            return self._cancel(signal, 'Estimated Start Rate reference window was missed.')
+            if source == 'MANUAL_SYNC':
+                return self._expire(signal, 'Manual-sync external Start Rate reference window was missed; the delivered signal itself is unchanged.')
+            return self._cancel(signal, 'Start Rate reference window was missed.')
 
-        source = self._timing_source(signal)
         if source == 'MANUAL_SYNC':
-            # The player may already have placed the order. Do not cancel or
-            # change the delivered direction after the fact. Capture only an
-            # external reference price for later strategy evaluation.
+            # A user may already have placed the order. Never change/cancel the
+            # delivered direction afterward; this lifecycle is diagnostic only.
             snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
             if snapshot is None or not snapshot.fresh:
-                return self._cancel(signal, 'Fresh external Start Rate reference was unavailable.')
+                return self._expire(signal, 'Manual-sync external Start Rate reference was unavailable; BC.GAME result must be checked separately.')
             revalidated_direction = None
             revalidated_quality = None
         else:
@@ -76,7 +77,7 @@ class SignalLifecycleService:
         if signal.status != SignalStatus.ACTIVE or signal.direction not in {SignalDirection.UP, SignalDirection.DOWN}:
             return signal
         if signal.reference_entry_price is None or signal.expiry_at is None:
-            return self._cancel(signal, 'Active signal is missing external entry reference or End Rate time.')
+            return self._expire(signal, 'Active signal is missing an external reference; no result was guessed.')
 
         current = now or datetime.now(timezone.utc)
         if current < signal.expiry_at:
