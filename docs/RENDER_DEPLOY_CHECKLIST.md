@@ -12,28 +12,40 @@ This checklist is subordinate to `AGENTS.md`, `ARCHITECTURE.md`, `DEPLOYMENT.md`
 - Confirm V1 identity remains `BTCUSDT` + `BC_UPDOWN` + 300-second expiry.
 - Prepare secrets outside GitHub.
 
-## Render Blueprint — 0 to 250 users
+## Render Blueprint — first month
 
-Create from root `render.yaml`. Expected paid resources:
+Create from root `render.yaml`. Expected resources:
 
-1. `bcgame-trade-api` Starter web service — Frankfurt.
-2. `bcgame-trade-db` PostgreSQL 16 Basic-256MB — Frankfurt, 1 GB disk.
+1. `bcgame-trade-api` — Starter web service, Frankfurt.
+2. `bcgame-trade-worker` — Starter background worker, Frankfurt.
+3. `bcgame-trade-db` — Free PostgreSQL 16, Frankfurt.
 
-There is no separate paid background worker in this stage. `RUN_BACKGROUND_JOBS=true` makes the web process host the already-separated signal lifecycle worker, broadcast worker, and 10-day retention cleanup task.
+Expected first-month base service cost is the two paid Starter services; the database uses Render's Free Postgres tier for the initial PAPER-validation month.
 
-The web service runs migrations using `alembic upgrade head` as the pre-deploy command. PostgreSQL external access is disabled (`ipAllowList: []`).
+The web service has `RUN_BACKGROUND_JOBS=false`. It handles Telegram webhooks, onboarding/admin requests, on-demand BTC scans, health/readiness endpoints, and its own lightweight BTC market feed.
 
-### Combined-topology coordination and scaling rule
+The worker runs `python -m app.worker`. It maintains its own lightweight BTC market feed and owns signal lifecycle, entry/expiry settlement, lifecycle notifications, broadcast delivery, and 10-day retention cleanup.
 
-Render zero-downtime deploys temporarily overlap the old and new web instances. The combined topology therefore uses a PostgreSQL advisory leader lock: only the lock holder may run signal lifecycle, broadcast delivery, and retention cleanup. A replacement instance keeps retrying and takes leadership after the previous instance shuts down.
+The worker uses the PostgreSQL advisory-lock coordinator before starting singleton jobs. This protects against duplicate processing when Render briefly overlaps old and new worker instances during a zero-downtime deployment.
 
-For the 0–250-user cost plan, keep one steady-state web instance. The leader lock protects correctness during deploy/maintenance overlap, but running multiple permanent web instances would unnecessarily duplicate market-feed/API compute and increase cost.
+The web service runs `alembic upgrade head` as its pre-deploy command. PostgreSQL external access is disabled with `ipAllowList: []`; web and worker use the same-region internal database connection.
 
-When sustained concurrency justifies horizontal web scaling, switch to the existing dedicated `app.worker` topology: set `RUN_BACKGROUND_JOBS=false` on web and provision one separate background worker. This requires configuration change, not a rewrite of business logic.
+## Free PostgreSQL first-month limits
+
+Render Free Postgres is for the initial testing/PAPER period only:
+
+- fixed 1 GB storage;
+- expires 30 days after creation;
+- no managed backups;
+- no managed connection pooling;
+- Render may restart it for maintenance;
+- after expiry there is a 14-day grace period to upgrade before deletion.
+
+Do **not** plan to wait until expiry. Target upgrade around day 25–28 to a paid Postgres plan. Confirm the upgrade is complete and the database remains accessible before day 30.
 
 ## Required production values
 
-During initial Blueprint creation, provide these `sync: false` values:
+During initial Blueprint creation, provide these `sync: false` values on `bcgame-trade-api`:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET` (minimum 16 characters)
@@ -44,19 +56,22 @@ During initial Blueprint creation, provide these `sync: false` values:
 - `BCGAME_UPDOWN_URL`
 - `SUPPORT_URL`
 
+The worker inherits these values from the web service with Render `fromService` references. Do not create separate conflicting copies.
+
 Do not enable signals or broadcasts during first deployment.
 
 ## First boot verification
 
-1. Web deployment succeeds.
-2. Pre-deploy migration succeeds against PostgreSQL.
-3. `/health` returns HTTP 200 and reports `topology=combined`.
-4. `/health` reports background jobs enabled with no coordinator/worker/cleanup errors.
-5. In steady state, `/health` reports `background_jobs.leader=true` on the single running web instance.
-6. `/ready` returns HTTP 200.
-7. `/market/status` reports fresh BTCUSDT data.
-8. An unauthenticated POST to `/telegram/webhook` is rejected.
-9. Run:
+1. Free PostgreSQL is created successfully.
+2. Web pre-deploy migration succeeds against PostgreSQL.
+3. `bcgame-trade-api` deployment succeeds.
+4. `bcgame-trade-worker` deployment succeeds.
+5. `/health` returns HTTP 200 and reports `topology=web-plus-dedicated-worker`.
+6. `/health` reports a fresh dedicated-worker heartbeat (normally <=30 seconds old).
+7. `/ready` returns HTTP 200.
+8. `/market/status` reports fresh BTCUSDT data.
+9. An unauthenticated POST to `/telegram/webhook` is rejected.
+10. Run:
 
 ```bash
 python scripts/render_smoke_test.py --base-url https://YOUR-SERVICE.onrender.com
@@ -64,9 +79,11 @@ python scripts/render_smoke_test.py --base-url https://YOUR-SERVICE.onrender.com
 
 The smoke test must pass before webhook registration.
 
+If the worker heartbeat is missing immediately after first boot, wait briefly and recheck while viewing worker logs. It must become fresh before proceeding.
+
 ## Telegram webhook registration
 
-After the web service is healthy, run from an environment containing the same production variables:
+After the web service and worker are healthy, run from an environment containing the same production variables:
 
 ```bash
 python scripts/setup_telegram_webhook.py --base-url https://YOUR-SERVICE.onrender.com
@@ -102,9 +119,23 @@ With signals and broadcasts still disabled:
 
 Do not change to LIVE for M11. Keep `SIGNAL_MODE=PAPER`.
 
-When M11 is intentionally started, enable only the runtime signal gate needed for controlled paper testing according to the documented test procedure. PAPER messages must remain explicitly non-actionable: no `ENTER NOW` language and no BC.GAME execution button.
+When M11 is intentionally started, enable only the runtime signal gate required for controlled paper testing according to the documented test procedure. PAPER messages must remain explicitly non-actionable: no `ENTER NOW` language and no BC.GAME execution button.
 
 Automated BC.GAME trade placement remains prohibited.
+
+## Database upgrade before expiry
+
+Around day 25–28:
+
+1. Open `bcgame-trade-db` in Render.
+2. Upgrade the same database from Free to the chosen paid Postgres instance type.
+3. Confirm the database becomes Available.
+4. Confirm `bcgame-trade-api` `/ready` remains HTTP 200.
+5. Confirm `/health` still shows a fresh worker heartbeat.
+6. Confirm users, approvals, verification history, and paper signal history remain intact.
+7. Repeat `scripts/render_smoke_test.py`.
+
+Do not create a second production database unless a migration plan explicitly requires it.
 
 ## Stop conditions
 
@@ -113,8 +144,8 @@ Stop deployment validation and repair before proceeding if any of these occur:
 - database migration error;
 - stale/unavailable market data recorded as strategy `NO_TRADE`;
 - webhook secret failure;
-- no background-job leader in steady state;
-- duplicate lifecycle/broadcast processing despite leader coordination;
+- dedicated worker heartbeat stale/missing after startup settles;
+- duplicate lifecycle/broadcast processing despite worker leader coordination;
 - onboarding bypass;
 - resubmission overwrites old verification evidence;
 - unauthorized admin access;
