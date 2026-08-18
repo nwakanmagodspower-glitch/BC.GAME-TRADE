@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable
 
 from app.integrations.market_data.base import Candle
 from app.models.entities import SignalDirection
 from app.signals.decision import decide
-from app.signals.features import build_features
+from app.signals.features import FeatureSnapshot, build_features
 from app.signals.scoring import score_features
 
 
@@ -55,12 +56,16 @@ def run_backtest(
     min_score: int = 6,
     min_margin: int = 3,
     warmup_candles: int = 60,
+    feature_transform: Callable[[FeatureSnapshot], FeatureSnapshot] | None = None,
 ) -> BacktestReport:
     """Backtest the live V1 scoring rules without future-data leakage.
 
     Decision uses candles through index i only. Entry is the open of i+1.
     Expiry is the open exactly `expiry_minutes` one-minute candles after entry.
     Historical trade-flow is intentionally absent; build_features receives no ticks.
+
+    `feature_transform` is research-only. It lets controlled experiments neutralize
+    feature families without changing production scoring or strategy configuration.
     """
     closed = [c for c in candles if c.closed]
     if expiry_minutes < 1:
@@ -79,6 +84,8 @@ def run_backtest(
         observations += 1
 
         features = build_features(history, [])
+        if feature_transform is not None:
+            features = feature_transform(features)
         score = score_features(features)
         decision = decide(score, min_score=min_score, min_margin=min_margin)
 
