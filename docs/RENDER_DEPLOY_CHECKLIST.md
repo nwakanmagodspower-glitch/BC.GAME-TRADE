@@ -6,16 +6,16 @@ The repository defines:
 
 1. `bcgame-trade-api` — Starter web, Frankfurt.
 2. `bcgame-trade-worker` — Starter worker, Frankfurt.
-3. `bcgame-trade-db` — PostgreSQL 16, Free for PAPER validation only.
+3. `bcgame-trade-db` — PostgreSQL 16, currently Free for initial deployment/testing.
 
-Render Free PostgreSQL expires after 30 days and has no backups. Upgrade the same database to at least `basic-256mb` before admitting controlled-beta users. Redis is not required for 10–250-user testing.
+Render Free PostgreSQL expires after 30 days and has no backups. Upgrade before relying on it for valuable long-lived production history. Redis is not required for initial 10–250-user testing.
 
-## Safe checked-in state
+## Checked-in controlled-beta state
 
 ```text
-SIGNAL_MODE=PAPER
-SIGNALS_ENABLED=false
-BROADCASTS_ENABLED=false
+SIGNAL_MODE=LIVE
+SIGNALS_ENABLED=true
+BROADCASTS_ENABLED=true
 SIGNAL_TIMING_MODE=MANUAL_SYNC
 MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
 MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
@@ -43,17 +43,17 @@ Required secret/link values:
 - `BCGAME_UPDOWN_URL=https://bc.game/trading/up-down`
 - `SUPPORT_URL`
 
-There is no `ADMIN_CHAT_ID`. The owner must start the bot once before receiving packets.
+There is no `ADMIN_CHAT_ID`. The owner must start the bot once before receiving verification packets.
 
 ## First boot
 
 1. Render pre-deploy runs `alembic upgrade head` and reaches `0007_security_delivery_hardening`.
 2. Web and worker start.
 3. `/ready` returns 200.
-4. `/health` reports PAPER, signals/broadcasts off, correct product identity, fresh BTCUSDT reference data, fresh candle context and worker heartbeat.
+4. `/health` reports LIVE, signals/broadcasts enabled by default, correct product identity, fresh BTCUSDT reference data, fresh candle context and worker heartbeat.
 5. `/market/status` labels BTCUSDT external-reference-only.
 6. Unauthenticated, non-JSON and oversized webhook requests are rejected.
-7. Run `python scripts/render_smoke_test.py --base-url https://<service>.onrender.com`.
+7. Run `python scripts/render_smoke_test.py --base-url https://<service>.onrender.com` (LIVE is the default expectation).
 
 ## Telegram onboarding
 
@@ -64,17 +64,31 @@ There is no `ADMIN_CHAT_ID`. The owner must start the bot once before receiving 
 - Approve unlocks the menu; reject and resubmit work; resubmission preserves the old packet.
 - Suspension/blocking is enforced on request and async delivery paths.
 
-## Controlled beta promotion
+## Controlled MANUAL_SYNC beta
 
-After the safe deployment and owner approval, set on both services:
+- User prepares BTC/USD, 5s and stake on BC.GAME before scanning.
+- Only 15s/14s/13s/12s countdown callbacks are accepted.
+- At least seven seconds must remain after analysis or the round is rejected.
+- Worker/tick/candle/sparse-data failures return UNAVAILABLE.
+- Ambiguous market evidence returns NO_TRADE.
+- Qualified UP/DOWN includes the correct BC.GAME Up/Down link and remains manual execution only.
+- Current-signal serialization and scan cooldown prevent duplicate per-user actionable scans.
+- MANUAL_SYNC estimates never create fake official BC.GAME round records.
+- External-reference outcomes stay explicitly labelled reference-only.
+
+Do not enable `AUTO_SYNC` until a legitimate structured BC.GAME/DeTrade round source is verified.
+
+## Emergency rollback / diagnostic mode
+
+If live signal delivery needs to be stopped, use the owner kill switch or explicitly set both services consistently to PAPER/off:
 
 ```text
-SIGNAL_MODE=LIVE
-SIGNALS_ENABLED=true
-BROADCASTS_ENABLED=true
+SIGNAL_MODE=PAPER
+SIGNALS_ENABLED=false
+BROADCASTS_ENABLED=false
 ```
 
-Do not enable `AUTO_SYNC`. Validate the 15/14/13/12 buttons, seven-second post-scan floor, NO_TRADE/UNAVAILABLE distinction, correct game link, current-signal serialization, scan cooldown and external-reference labels. Re-run the smoke script with `--expect-mode LIVE`.
+PAPER is diagnostic/non-actionable and is not the checked-in Blueprint default.
 
 ## GitHub Actions
 
@@ -83,6 +97,6 @@ Do not create, enable or depend on GitHub Actions while the owner's allowance is
 ## Scale triggers
 
 - 10 users: current services are ample.
-- 100 users: comfortable if synchronized signal bursts are monitored.
-- 250 users: reasonable test target; watch PostgreSQL connections, webhook latency and Telegram rate limits.
-- 1,000 users: not proven. Load-test first; likely add horizontal web capacity, shared cache/queueing and delivery controls.
+- 100 users: supported; monitor synchronized signal bursts and Telegram latency.
+- 250 users: reasonable test target; watch PostgreSQL connections, webhook latency, worker lag and Telegram rate limits.
+- 1,000 users: not yet proven. Load-test first; likely add horizontal web capacity, shared cache/queueing and stronger delivery controls.
