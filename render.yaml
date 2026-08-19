@@ -17,11 +17,11 @@ services:
           name: bcgame-trade-db
           property: connectionString
       - key: SIGNAL_MODE
-        value: PAPER
+        value: LIVE
       - key: SIGNALS_ENABLED
-        value: "false"
+        value: "true"
       - key: BROADCASTS_ENABLED
-        value: "false"
+        value: "true"
       - key: SIGNAL_TIMING_MODE
         value: MANUAL_SYNC
       - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
@@ -132,11 +132,11 @@ services:
           name: bcgame-trade-db
           property: connectionString
       - key: SIGNAL_MODE
-        value: PAPER
+        value: LIVE
       - key: SIGNALS_ENABLED
-        value: "false"
+        value: "true"
       - key: BROADCASTS_ENABLED
-        value: "false"
+        value: "true"
       - key: SIGNAL_TIMING_MODE
         value: MANUAL_SYNC
       - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
