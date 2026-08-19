@@ -10,7 +10,7 @@ import httpx
 async def main() -> None:
     parser = argparse.ArgumentParser(description='Smoke-test BC.GAME TRADE Render deployment.')
     parser.add_argument('--base-url', required=True)
-    parser.add_argument('--expect-mode', choices=('PAPER', 'LIVE'), default='PAPER')
+    parser.add_argument('--expect-mode', choices=('PAPER', 'LIVE'), default='LIVE')
     args = parser.parse_args()
     base = args.base_url.rstrip('/')
     if not base.startswith('https://'):
