@@ -1,41 +1,28 @@
 # Render Deployment Checklist
 
-## Before Creating Resources
+## Blueprint
 
-- main contains intended release;
-- migration chain includes `0006_bcgame_rounds`;
-- `SIGNAL_MODE=PAPER`;
-- `SIGNALS_ENABLED=false`;
-- `BROADCASTS_ENABLED=false`;
-- `BCGAME_ROUND_SYNC_ENABLED=false` until a real structured provider is integrated;
-- V1 identity: `BTC/USD` game market + `BTCUSDT` analysis + `BC_UPDOWN_5S` + 5 seconds + `$1-50`;
-- no GitHub Actions dependency.
-
-## Blueprint — First Month
-
-Expected:
+The repository defines:
 
 1. `bcgame-trade-api` — Starter web, Frankfurt.
 2. `bcgame-trade-worker` — Starter worker, Frankfurt.
-3. `bcgame-trade-db` — Free PostgreSQL 16 initially.
+3. `bcgame-trade-db` — PostgreSQL 16, currently Free for initial deployment/testing.
 
-First-month base compute: the two paid Starter services. Upgrade the same Free PostgreSQL before expiry once history is valuable.
+Render Free PostgreSQL expires after 30 days and has no backups. Upgrade before relying on it for valuable long-lived production history. Redis is not required for initial 10–250-user testing.
 
-## Required Values
+## Checked-in controlled-beta state
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET` (>=16 chars)
-- `OWNER_TELEGRAM_ID`
-- `BCGAME_REGISTRATION_URL`
-- `BCGAME_DEPOSIT_URL`
-- `BCGAME_UPDOWN_URL` — target `https://bc.game/trading/up-down`
-- `SUPPORT_URL`
+```text
+SIGNAL_MODE=LIVE
+SIGNALS_ENABLED=true
+BROADCASTS_ENABLED=true
+SIGNAL_TIMING_MODE=MANUAL_SYNC
+MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
+MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
+BCGAME_ROUND_SYNC_ENABLED=false
+```
 
-`OWNER_TELEGRAM_ID` is the private verification inbox. No separate `ADMIN_CHAT_ID`. Owner must start the bot once before the bot can deliver private verification packets.
-
-## Product Defaults
-
-Confirm Render shows:
+Product identity:
 
 ```text
 GAME_MARKET=BTC/USD
@@ -43,126 +30,73 @@ ANALYSIS_PAIR=BTCUSDT
 DEFAULT_PRODUCT=BC_UPDOWN_5S
 DEFAULT_EXPIRY_SECONDS=5
 DEFAULT_STAKE_BAND=1-50
-STRATEGY_VERSION=BTC_UPDOWN_5S_V1.0
-BCGAME_ROUND_SYNC_ENABLED=false
-SIGNAL_MINIMUM_ACTION_LEAD_SECONDS=5
-SIGNAL_MAXIMUM_ACTION_LEAD_SECONDS=10 (application default unless explicitly set)
+STRATEGY_VERSION=BTC_UPDOWN_5S_V1.1
 ```
 
-Do not change these to make a deployment pass.
+Required secret/link values:
 
-## First Boot
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET` (at least 16 characters)
+- `OWNER_TELEGRAM_ID` (private verification inbox)
+- `BCGAME_REGISTRATION_URL`
+- `BCGAME_DEPOSIT_URL`
+- `BCGAME_UPDOWN_URL=https://bc.game/trading/up-down`
+- `SUPPORT_URL`
 
-1. database created;
-2. `alembic upgrade head` reaches `0006_bcgame_rounds`;
-3. web deploy succeeds;
-4. worker deploy succeeds;
-5. `/ready` = 200;
-6. `/health` shows:
-   - topology `web-plus-dedicated-worker`;
-   - product BTC/USD / BC_UPDOWN_5S / 5s / 1-50;
-   - PAPER;
-   - signals off;
-   - fresh BTCUSDT external feed;
-   - fresh worker heartbeat;
-   - round sync disabled/not healthy yet;
-7. `/market/status` explicitly labels BTCUSDT as external reference;
-8. unauthenticated webhook POST rejected.
+There is no `ADMIN_CHAT_ID`. The owner must start the bot once before receiving verification packets.
 
-## Telegram Smoke Test — Signals Still Off
+## First boot
 
-- `/start` new user sees guided registration, not main menu;
-- registration → deposit → User ID → profile screenshot → deposit screenshot(s);
-- verification packet reaches owner's private bot chat;
-- owner approve/resubmit/reject controls work;
-- resubmission preserves old packet;
-- approved user menu contains:
-  - `⚡ BTC 5s Signal`
-  - `📈 My Results`
-  - `ℹ️ How It Works`
-  - `🆘 Support`;
-- selecting BTC signal shows Start Rate → 5s → End Rate explanation first;
-- `Scan Next Round` refuses because signals are off;
-- no button wall before approval;
-- no separate admin group requirement.
+1. Render pre-deploy runs `alembic upgrade head` and reaches `0007_security_delivery_hardening`.
+2. Web and worker start.
+3. `/ready` returns 200.
+4. `/health` reports LIVE, signals/broadcasts enabled by default, correct product identity, fresh BTCUSDT reference data, fresh candle context and worker heartbeat.
+5. `/market/status` labels BTCUSDT external-reference-only.
+6. Unauthenticated, non-JSON and oversized webhook requests are rejected.
+7. Run `python scripts/render_smoke_test.py --base-url https://<service>.onrender.com` (LIVE is the default expectation).
 
-## Round-Sync Safety Test
+## Telegram onboarding
 
-After controlled signal gate is enabled for research but before a provider is integrated:
+- New users receive the guided funnel, not the main menu.
+- Evidence count/size/rate limits reject excess screenshots.
+- Submission creates a durable owner-delivery record.
+- The worker sends all evidence before owner decision buttons.
+- Approve unlocks the menu; reject and resubmit work; resubmission preserves the old packet.
+- Suspension/blocking is enforced on request and async delivery paths.
 
-- `Scan Next Round` must say round timing is not synchronized;
-- it must not create a directional waiting signal;
-- it must not fall back to next-minute timing;
-- it must not show BC.GAME execution button.
+## Controlled MANUAL_SYNC beta
 
-This is a **pass**, not a failure: fail-closed behavior is required.
+- User prepares BTC/USD, 5s and stake on BC.GAME before scanning.
+- Only 15s/14s/13s/12s countdown callbacks are accepted.
+- At least seven seconds must remain after analysis or the round is rejected.
+- Worker/tick/candle/sparse-data failures return UNAVAILABLE.
+- Ambiguous market evidence returns NO_TRADE.
+- Qualified UP/DOWN includes the correct BC.GAME Up/Down link and remains manual execution only.
+- Current-signal serialization and scan cooldown prevent duplicate per-user actionable scans.
+- MANUAL_SYNC estimates never create fake official BC.GAME round records.
+- External-reference outcomes stay explicitly labelled reference-only.
 
-## After BC.GAME Round Provider Is Integrated
+Do not enable `AUTO_SYNC` until a legitimate structured BC.GAME/DeTrade round source is verified.
 
-Validate against live page before enabling LIVE:
+## Emergency rollback / diagnostic mode
 
-- countdown/order-close timestamp;
-- first flag Start Rate time;
-- 5-second second flag End Rate time;
-- exact Start/End values;
-- stake band;
-- payouts/pools where available;
-- snapshot freshness;
-- round IDs do not duplicate;
-- round rows persist in `bcgame_rounds`;
-- signal row links to correct round;
-- Telegram direction arrives only with 5-10 seconds remaining (initial research window);
-- activation notification occurs after lock and never says `ENTER NOW`.
+If live signal delivery needs to be stopped, use the owner kill switch or explicitly set both services consistently to PAPER/off:
 
-## PAPER Presentation
+```text
+SIGNAL_MODE=PAPER
+SIGNALS_ENABLED=false
+BROADCASTS_ENABLED=false
+```
 
-PAPER must never show:
-
-- `ENTER NOW`;
-- actionable BC.GAME button;
-- claim that Binance reference result equals BC.GAME result.
-
-PAPER may show external-reference result only with explicit diagnostic wording.
-
-## Database / Retention
-
-10-day cleanup applies to temporary webhook receipts, notification receipts and completed broadcast deliveries.
-
-Do not clean automatically:
-
-- users/approval;
-- verification history;
-- `bcgame_rounds`;
-- signals/results;
-- broadcast summaries;
-- meaningful audit history.
+PAPER is diagnostic/non-actionable and is not the checked-in Blueprint default.
 
 ## GitHub Actions
 
-Both repository workflows are intentionally removed/disabled. Do not recreate them while the owner has asked not to use GitHub Actions. Use Render logs, migrations, health endpoints and manual/runtime smoke tests.
+Do not create, enable or depend on GitHub Actions while the owner's allowance is exhausted. Use local tests, Render pre-deploy migration, health/readiness and Telegram smoke tests.
 
-## Free Database Upgrade
+## Scale triggers
 
-Upgrade the same database before expiry (target around day 25-28), then recheck:
-
-- `/ready`;
-- worker heartbeat;
-- user approvals;
-- verification history;
-- BC.GAME round rows;
-- signal history.
-
-## Stop Conditions
-
-Stop and repair if:
-
-- migration error;
-- old 300-second/next-minute timing appears anywhere in runtime behavior;
-- stale worker/market/round data allows a signal;
-- direction arrives too early or too late outside action window;
-- activation message encourages a late order;
-- BC.GAME Start/End Rate is replaced by external price data;
-- PAPER becomes actionable;
-- verification goes anywhere except owner private bot chat;
-- unauthorized user/admin access occurs;
-- duplicate worker lifecycle processing occurs.
+- 10 users: current services are ample.
+- 100 users: supported; monitor synchronized signal bursts and Telegram latency.
+- 250 users: reasonable test target; watch PostgreSQL connections, webhook latency, worker lag and Telegram rate limits.
+- 1,000 users: not yet proven. Load-test first; likely add horizontal web capacity, shared cache/queueing and stronger delivery controls.

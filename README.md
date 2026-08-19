@@ -38,6 +38,8 @@ The engine focuses on immediate BTC microstructure: tick velocity, acceleration,
 
 Binance BTCUSDT is an external analysis/reference feed. It must not be described as BC.GAME settlement truth.
 
+LIVE actionable delivery supports the documented `MANUAL_SYNC` flow: an approved user must confirm the visible 15/14/13/12 countdown and the backend must retain enough post-scan action time. `AUTO_SYNC` remains unavailable until a verified structured BC.GAME/DeTrade source exists.
+
 ## User Flow
 
 1. `/start`
@@ -58,6 +60,18 @@ Binance BTCUSDT is an external analysis/reference feed. It must not be described
 16. Returns `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`
 17. User manually taps the indicated direction on BC.GAME before countdown zero
 18. External-reference outcomes may be recorded for diagnostics; BC.GAME Start/End Rate remains the eventual product truth when reliable ingestion is integrated
+
+## Deployment State
+
+The checked-in Render Blueprint targets the **controlled beta** directly:
+
+- `SIGNAL_MODE=LIVE`
+- `SIGNALS_ENABLED=true`
+- `BROADCASTS_ENABLED=true`
+- `SIGNAL_TIMING_MODE=MANUAL_SYNC`
+- `BCGAME_ROUND_SYNC_ENABLED=false`
+
+LIVE does not mean fail-open. Signal delivery still fails closed when access, worker health, market freshness, sparse-data, timing, cooldown, strategy or other safety gates fail. PAPER remains available as an explicit diagnostic mode if needed.
 
 ## Non-goals
 

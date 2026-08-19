@@ -40,17 +40,27 @@ class SignalIntelligenceService:
 
         max_cache_age = max(0.0, settings.signal_scan_coalesce_ms / 1000.0)
         now_mono = time.monotonic()
-        if self._last_result is not None and (now_mono - self._last_result_at) <= max_cache_age:
+        if self._cached_result_is_usable(now_mono, max_cache_age):
             return self._last_result
 
         async with self._scan_lock:
             now_mono = time.monotonic()
-            if self._last_result is not None and (now_mono - self._last_result_at) <= max_cache_age:
+            if self._cached_result_is_usable(now_mono, max_cache_age):
                 return self._last_result
             result = await self._compute(market)
             self._last_result = result
             self._last_result_at = time.monotonic()
             return result
+
+    def _cached_result_is_usable(self, now_mono: float, max_cache_age: float) -> bool:
+        result = self._last_result
+        if result is None or (now_mono - self._last_result_at) > max_cache_age:
+            return False
+        snapshot = result.market_snapshot
+        if snapshot is None:
+            return True
+        age = (time.time() - snapshot.event_time.timestamp())
+        return -settings.market_data_future_skew_seconds <= age <= settings.market_data_max_age_seconds
 
     async def _compute(self, market: str) -> IntelligenceResult:
         snapshot = await market_data_service.cache.get_snapshot(market, max_age_seconds=settings.market_data_max_age_seconds)
@@ -66,6 +76,11 @@ class SignalIntelligenceService:
             if not candles:
                 raise RuntimeError('candle context cache is not ready')
             ticks = await market_data_service.cache.get_recent_ticks(market, lookback_seconds=settings.signal_trade_flow_lookback_seconds)
+            if len(ticks) < settings.signal_min_recent_trades:
+                raise RuntimeError('insufficient recent trade data')
+            tick_span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
+            if tick_span < settings.signal_min_tick_span_seconds:
+                raise RuntimeError('recent trade window is too short')
             features = build_features(candles, ticks)
         except Exception as exc:
             return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, f'Market analysis is temporarily unavailable ({type(exc).__name__}).', False)

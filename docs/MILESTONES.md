@@ -46,7 +46,7 @@ Infrastructure already built is retained. Old timing/backtest milestones are sup
 
 - `⚡ BTC 5s Signal`
 - game explanation before scanning
-- `🔍 Scan Next Round`
+- `15s` / `14s` / `13s` / `12s` countdown confirmation
 - minimal UP/DOWN/NO_TRADE/UNAVAILABLE card
 - result history
 - How It Works
@@ -73,7 +73,7 @@ Next extensions after evidence:
 
 **Exit:** five-second feature snapshots are reproducible and fresh.
 
-## M5 — BC.GAME Round/Data Discovery — NEXT HARD GATE
+## M5 — BC.GAME Round/Data Discovery — FUTURE AUTO_SYNC GATE
 
 Discover and validate a legitimate reliable structured source used by/available for the Up/Down page for as many of these as possible:
 
@@ -87,19 +87,19 @@ Discover and validate a legitimate reliable structured source used by/available 
 
 Do not use guessed minute timing. Do not make fragile screen scraping the permanent default if a structured source exists.
 
-**Exit:** `BCGameRoundService` can return a fresh actionable round and observed results reliably.
+**Exit:** `BCGameRoundService` can return a fresh genuine AUTO_SYNC round and observed results reliably. This is not required for MANUAL_SYNC controlled beta.
 
-## M6 — Round-Aware Signal Engine
+## M6 — MANUAL_SYNC Signal Engine — IMPLEMENTED
 
-- scan during BC.GAME order window
+- require the user's 15/14/13/12 confirmation during the BC.GAME order window
 - enforce human-action lead time
 - predict Start Rate → +5s End Rate direction
-- revalidate before Start Rate
-- cancel stale/opposite setups
+- recheck access, kill switch, data health and remaining time before persistence
+- never reverse a delivered MANUAL_SYNC direction
 - NO_TRADE weak rounds
 - UNAVAILABLE bad data/round state
 
-**Exit:** directional candidates are tied to real BC.GAME rounds, not local clock approximations.
+**Exit:** directional candidates are tied to an explicit user-confirmed timer estimate; synthetic timing is labelled and never stored as a genuine BC.GAME round.
 
 ## M7 — BC.GAME Outcome Labelling
 
@@ -140,24 +140,25 @@ Once reliable payout data exists:
 
 - Web Starter
 - Worker Starter
-- Free PostgreSQL initially
+- Free PostgreSQL for PAPER validation only; paid PostgreSQL before controlled-beta users
 - PAPER
 - signals off by default
 - broadcasts off by default
-- round sync off until M5 passes
+- AUTO_SYNC off; MANUAL_SYNC active
 - smoke checks via Render/runtime, not GitHub Actions
 
 **Exit:** stable deployment without actionable signals.
 
-## M11 — Controlled PAPER Round Validation
+## M11 — Safe PAPER + Controlled MANUAL_SYNC Validation
 
-- real round synchronization
-- model decisions before Start Rate
-- BC.GAME actual Start/End labels
+- PAPER infrastructure/onboarding with user signals off
+- explicit owner promotion to LIVE MANUAL_SYNC
+- model decisions recorded before the estimated Start Rate
+- external Start/End diagnostics labelled reference-only
 - Telegram latency measurements
 - no execution button/instruction
 
-**Exit:** technical behavior is proven with real five-second rounds.
+**Exit:** timing, fail-closed behavior and delivery are proven against observed five-second rounds without claiming exact BC.GAME settlement ingestion.
 
 ## M12 — Controlled LIVE Beta
 

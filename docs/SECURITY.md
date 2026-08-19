@@ -10,6 +10,7 @@ The bot accepts user-supplied profile/user-ID evidence and deposit screenshot(s)
 
 - bind each evidence item to one verification request and Telegram user;
 - reject unsupported/oversized inputs according to configured limits;
+- bound deposit evidence count and rate before persistence;
 - preserve submission order and timestamps;
 - prevent one user's evidence from being attached to another user's request;
 - make admin callbacks idempotent;
@@ -24,12 +25,15 @@ The bot must never claim that screenshots alone prove affiliate attribution. Adm
 - Treat callback data as untrusted input.
 - Authorize every admin action server-side; never rely on whether a button was visible.
 - Rate-limit abuse-sensitive routes/actions.
+- Mark an update successful only after handlers complete; failed processing must remain retryable.
 
 ## Authorization
 
 Roles: `USER`, `ADMIN`, `OWNER`.
 
 Every protected action must check persisted role/status. Suspended or blocked users cannot request signals even if they reuse an old callback.
+
+Authorization and kill-switch state are rechecked after asynchronous analysis and immediately before signal persistence. Broadcast and notification workers recheck approval/block state at delivery time.
 
 ## Secrets
 
@@ -60,6 +64,7 @@ Do not log secrets, full tokens, or unnecessary sensitive evidence. Logs should 
 - Health/readiness checks are separate.
 - Market-provider failure disables signal generation, not onboarding/support.
 - Broadcast failures do not block signal requests.
+- Verification packets and broadcasts are delivered by bounded background workers rather than the webhook path.
 - Database failure fails closed for access and signal issuance.
 - Kill switches must be owner-controlled and persistent/configurable.
 

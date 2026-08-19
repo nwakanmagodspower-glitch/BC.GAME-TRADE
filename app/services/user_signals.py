@@ -29,7 +29,10 @@ class UserSignalService:
         self.db = db
 
     async def request_scan(self, user_id: int, countdown_seconds: int | None = None) -> UserSignalResult:
-        user = self.db.get(User, user_id)
+        if settings.signal_mode.upper() != 'LIVE':
+            return UserSignalResult(None, False, 'Signals are in PAPER validation mode and are not actionable.')
+
+        user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             return UserSignalResult(None, False, 'Approved access is required.')
 
@@ -51,6 +54,16 @@ class UserSignalService:
         if existing is not None:
             return UserSignalResult(existing, False, 'You already have a current-round signal waiting or active.')
 
+        now = datetime.now(timezone.utc)
+        if user.last_scan_requested_at is not None:
+            previous = user.last_scan_requested_at
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            if (now - previous).total_seconds() < settings.signal_user_cooldown_seconds:
+                return UserSignalResult(None, False, 'Please wait for the next fresh countdown before scanning again.')
+        user.last_scan_requested_at = now
+        self.db.commit()
+
         timing_mode = settings.signal_timing_mode.upper()
         if timing_mode == 'MANUAL_SYNC':
             if countdown_seconds is None or countdown_seconds not in settings.manual_countdowns():
@@ -71,9 +84,30 @@ class UserSignalService:
         # In manual sync the user already confirmed a visible countdown. If
         # analysis/Telegram handling took too long, fail rather than provide a
         # late current-round signal.
+        # Serialize the commit boundary per user and revalidate all revocable
+        # controls after asynchronous market work.
+        user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
+            self.db.rollback()
+            return UserSignalResult(None, False, 'Approved access is required.')
+        enabled = AdminOpsService(self.db).get_bool(AdminOpsService.SIGNALS_ENABLED_KEY, default=settings.signals_enabled)
+        if not enabled or settings.signal_mode.upper() != 'LIVE':
+            self.db.rollback()
+            return UserSignalResult(None, False, 'Signals are currently disabled.')
+        existing = self.db.scalar(
+            select(Signal).where(
+                Signal.requested_by_user_id == user_id,
+                Signal.status.in_([SignalStatus.WAITING_ENTRY, SignalStatus.ACTIVE]),
+            ).order_by(Signal.id.desc())
+        )
+        if existing is not None:
+            self.db.rollback()
+            return UserSignalResult(existing, False, 'You already have a current-round signal waiting or active.')
+
         now = datetime.now(timezone.utc)
         remaining = round_snapshot.seconds_until_order_close(now)
         if remaining < settings.manual_sync_min_remaining_after_scan:
+            self.db.rollback()
             return UserSignalResult(None, False, 'Too little time remains for this round. Skip it and scan the next fresh 15-second countdown.')
 
         signal = SignalRecordService(self.db).record_scan(intelligence, requested_by_user_id=user_id, round_snapshot=round_snapshot)

@@ -33,6 +33,15 @@ def _is_access_blocked(user) -> bool:
     return bool(user.is_blocked or user.status == UserStatus.SUSPENDED)
 
 
+def _result_label(signal: Signal) -> str:
+    source = str(((signal.features_snapshot or {}).get('_bcgame_round') or {}).get('source') or '')
+    if source == 'MANUAL_SYNC' and signal.status.value in {'WIN', 'LOSS', 'TIE'}:
+        return f'{signal.status.value} (external reference only)'
+    if signal.status.value == 'EXPIRED':
+        return 'UNRESOLVED'
+    return signal.status.value
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     if not tg_user or not update.effective_chat:
@@ -134,7 +143,6 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.answer(str(exc), show_alert=True)
                 return
             await query.edit_message_text('Verification submitted ✅\n\nYou will receive a message after manual review.')
-            await _send_admin_packet(context, user, request)
             return
         await query.answer('That step is no longer active.', show_alert=True)
 
@@ -159,7 +167,11 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.photo or not update.effective_user:
         return
-    file_id = update.message.photo[-1].file_id
+    photo = update.message.photo[-1]
+    file_id = photo.file_id
+    if photo.file_size is not None and photo.file_size > settings.verification_max_photo_bytes:
+        await update.message.reply_text('That screenshot is too large. Please send a smaller image.')
+        return
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(update.effective_user)
@@ -173,38 +185,16 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         if user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
-            request = service.add_deposit_proof(user, file_id)
+            try:
+                request = service.add_deposit_proof(user, file_id)
+            except ValueError as exc:
+                await update.message.reply_text(str(exc))
+                return
             count = len(request.deposit_proof_file_ids or [])
             await update.message.reply_text(
                 f'Deposit screenshot saved ✅ ({count})\n\nSend another if needed, or finish verification.',
                 reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
             )
-
-
-async def _send_admin_packet(context: ContextTypes.DEFAULT_TYPE, user, request):
-    owner_chat = settings.owner_telegram_id
-    if not owner_chat:
-        return
-    username = f'@{user.telegram_username}' if user.telegram_username else 'None'
-    text = (
-        '🔐 NEW VERIFICATION REQUEST\n\n'
-        f'Request ID: {request.id}\n'
-        f'Name: {user.first_name or "Unknown"}\n'
-        f'Username: {username}\n'
-        f'Telegram ID: {user.telegram_user_id}\n'
-        f'BC.GAME User ID: {request.bcgame_user_id}\n\n'
-        'Check the BC.GAME affiliate dashboard and the submitted evidence before deciding.'
-    )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}')],
-        [InlineKeyboardButton('🔄 Resubmit', callback_data=f'admin:resubmit:{request.id}')],
-        [InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}')],
-    ])
-    await context.bot.send_message(owner_chat, text, reply_markup=keyboard)
-    await context.bot.send_photo(owner_chat, request.profile_proof_file_id, caption='BC.GAME profile proof')
-    for index, file_id in enumerate(request.deposit_proof_file_ids or [], start=1):
-        await context.bot.send_photo(owner_chat, file_id, caption=f'Deposit proof {index}')
-
 
 async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -282,7 +272,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             lines = ['📈 MY RECENT 5s SIGNALS', '']
             for signal in recent:
-                lines.append(f'#{signal.id}  {signal.direction.value} — {signal.status.value}')
+                lines.append(f'#{signal.id}  {signal.direction.value} — {_result_label(signal)}')
             await query.message.reply_text('\n'.join(lines), reply_markup=_approved_menu())
             return
 

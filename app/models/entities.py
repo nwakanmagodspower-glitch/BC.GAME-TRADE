@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -44,6 +44,13 @@ class VerificationStatus(str, enum.Enum):
     RESUBMIT = 'RESUBMIT'
 
 
+class VerificationDeliveryStatus(str, enum.Enum):
+    PENDING = 'PENDING'
+    SENDING = 'SENDING'
+    SENT = 'SENT'
+    FAILED = 'FAILED'
+
+
 class SignalDirection(str, enum.Enum):
     UP = 'UP'
     DOWN = 'DOWN'
@@ -78,8 +85,12 @@ class DeliveryStatus(str, enum.Enum):
 
 class User(Base):
     __tablename__ = 'users'
+    __table_args__ = (
+        UniqueConstraint('telegram_user_id'),
+        Index('ix_users_telegram_user_id', 'telegram_user_id'),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger)
     telegram_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.PENDING, index=True)
@@ -90,6 +101,7 @@ class User(Base):
     approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_scan_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VerificationRequest(Base):
@@ -105,14 +117,43 @@ class VerificationRequest(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_evidence_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class VerificationDelivery(Base):
+    __tablename__ = 'verification_deliveries'
+    __table_args__ = (
+        UniqueConstraint(
+            'verification_request_id',
+            name='uq_verification_deliveries_request',
+        ),
+        Index(
+            'ix_verification_deliveries_verification_request_id',
+            'verification_request_id',
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    verification_request_id: Mapped[int] = mapped_column(ForeignKey('verification_requests.id'))
+    status: Mapped[VerificationDeliveryStatus] = mapped_column(Enum(VerificationDeliveryStatus), default=VerificationDeliveryStatus.PENDING, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BCGameRound(Base):
     """Compact product-truth record for one observed BC.GAME Up/Down round."""
     __tablename__ = 'bcgame_rounds'
+    __table_args__ = (
+        UniqueConstraint(
+            'external_round_id',
+            name='uq_bcgame_rounds_external_round_id',
+        ),
+        Index('ix_bcgame_rounds_external_round_id', 'external_round_id'),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    external_round_id: Mapped[str | None] = mapped_column(String(120), unique=True, nullable=True, index=True)
+    external_round_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     game_market: Mapped[str] = mapped_column(String(40), default='BTC/USD', index=True)
     duration_seconds: Mapped[int] = mapped_column(Integer, default=5)
     stake_band: Mapped[str] = mapped_column(String(40), default='1-50', index=True)
@@ -137,6 +178,19 @@ class BCGameRound(Base):
 
 class Signal(Base):
     __tablename__ = 'signals'
+    __table_args__ = (
+        Index(
+            'uq_signals_current_per_user',
+            'requested_by_user_id',
+            unique=True,
+            postgresql_where=text(
+                "requested_by_user_id IS NOT NULL AND status IN ('WAITING_ENTRY', 'ACTIVE')"
+            ),
+            sqlite_where=text(
+                "requested_by_user_id IS NOT NULL AND status IN ('WAITING_ENTRY', 'ACTIVE')"
+            ),
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
     bcgame_round_id: Mapped[int | None] = mapped_column(ForeignKey('bcgame_rounds.id'), nullable=True, index=True)
@@ -155,6 +209,7 @@ class Signal(Base):
     reference_expiry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     features_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SignalNotification(Base):

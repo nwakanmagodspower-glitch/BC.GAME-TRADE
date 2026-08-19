@@ -54,6 +54,12 @@ services:
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
         value: "750"
+      - key: SIGNAL_USER_COOLDOWN_SECONDS
+        value: "5"
+      - key: SIGNAL_MIN_RECENT_TRADES
+        value: "12"
+      - key: SIGNAL_MIN_TICK_SPAN_SECONDS
+        value: "4"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
         value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
@@ -72,6 +78,24 @@ services:
         value: "120"
       - key: MARKET_CANDLE_REFRESH_SECONDS
         value: "15"
+      - key: MARKET_CANDLE_MAX_AGE_SECONDS
+        value: "60"
+      - key: MARKET_DATA_REST_MAX_RESPONSE_BYTES
+        value: "1000000"
+      - key: MARKET_DATA_FUTURE_SKEW_SECONDS
+        value: "2"
+      - key: VERIFICATION_MAX_DEPOSIT_PROOFS
+        value: "3"
+      - key: VERIFICATION_MAX_PHOTO_BYTES
+        value: "10000000"
+      - key: VERIFICATION_MIN_EVIDENCE_INTERVAL_SECONDS
+        value: "0.5"
+      - key: VERIFICATION_DELIVERY_MAX_ATTEMPTS
+        value: "5"
+      - key: TELEGRAM_WEBHOOK_MAX_BODY_BYTES
+        value: "1000000"
+      - key: TELEGRAM_UPDATE_PROCESSING_TIMEOUT_SECONDS
+        value: "60"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
@@ -145,6 +169,12 @@ services:
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
         value: "750"
+      - key: SIGNAL_USER_COOLDOWN_SECONDS
+        value: "5"
+      - key: SIGNAL_MIN_RECENT_TRADES
+        value: "12"
+      - key: SIGNAL_MIN_TICK_SPAN_SECONDS
+        value: "4"
       - key: SIGNAL_SETTLEMENT_WINDOW_SECONDS
         value: "2"
       - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
@@ -163,6 +193,24 @@ services:
         value: "120"
       - key: MARKET_CANDLE_REFRESH_SECONDS
         value: "15"
+      - key: MARKET_CANDLE_MAX_AGE_SECONDS
+        value: "60"
+      - key: MARKET_DATA_REST_MAX_RESPONSE_BYTES
+        value: "1000000"
+      - key: MARKET_DATA_FUTURE_SKEW_SECONDS
+        value: "2"
+      - key: VERIFICATION_MAX_DEPOSIT_PROOFS
+        value: "3"
+      - key: VERIFICATION_MAX_PHOTO_BYTES
+        value: "10000000"
+      - key: VERIFICATION_MIN_EVIDENCE_INTERVAL_SECONDS
+        value: "0.5"
+      - key: VERIFICATION_DELIVERY_MAX_ATTEMPTS
+        value: "5"
+      - key: TELEGRAM_WEBHOOK_MAX_BODY_BYTES
+        value: "1000000"
+      - key: TELEGRAM_UPDATE_PROCESSING_TIMEOUT_SECONDS
+        value: "60"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS

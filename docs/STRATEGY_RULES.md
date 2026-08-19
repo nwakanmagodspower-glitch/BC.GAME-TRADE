@@ -80,7 +80,7 @@ Leaderboard/Copy Top Trade is excluded from V1 direction logic.
 
 ## Round Synchronization
 
-LIVE direction delivery requires a trustworthy fresh BC.GAME round snapshot. Do not approximate rounds with minute boundaries or local timers.
+LIVE direction delivery requires either a valid fresh `MANUAL_SYNC` countdown confirmation (15/14/13/12) or, in the future, a trustworthy fresh `AUTO_SYNC` round snapshot. Never use minute boundaries or an unconfirmed local timer.
 
 A signal must leave enough order-window lead time for a human to receive the Telegram message, open/return to BC.GAME, set amount and press UP/DOWN before countdown reaches zero.
 
@@ -119,7 +119,6 @@ If reliable BC.GAME end-rate data is missing, result is unresolved rather than g
 Use immutable identities such as:
 
 ```text
-BTC_UPDOWN_5S_V1.0
 BTC_UPDOWN_5S_V1.1_DEPTH
 BTC_UPDOWN_5S_V2.0_CALIBRATED
 ```

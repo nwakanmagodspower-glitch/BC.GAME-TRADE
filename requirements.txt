@@ -7,4 +7,3 @@ pydantic-settings==2.10.1
 httpx==0.28.1
 websockets==15.0.1
 python-telegram-bot==22.3
-pytest==8.4.1

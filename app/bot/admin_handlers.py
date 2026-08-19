@@ -104,7 +104,11 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.message.reply_text('Cannot enable signals: the configured timing layer is not ready.')
             return
         with SessionLocal() as db:
-            AdminOpsService(db).set_signals_enabled(enabled, query.from_user.id)
+            try:
+                AdminOpsService(db).set_signals_enabled(enabled, query.from_user.id)
+            except ValueError as exc:
+                await query.message.reply_text(str(exc))
+                return
         await query.message.reply_text(f'Signals are now {"ON" if enabled else "OFF"}.', reply_markup=_admin_menu(enabled)); return
 
     if data == 'adminops:broadcast_help':

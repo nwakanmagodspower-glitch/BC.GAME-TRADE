@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import hmac
+import json
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from sqlalchemy import text
@@ -14,6 +16,7 @@ from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
+from app.services.verification_delivery_worker import verification_delivery_worker
 from app.services.webhook_receipts import WebhookReceiptService
 from app.services.worker_status import get_worker_status
 
@@ -54,8 +57,8 @@ def _worker_heartbeat_status() -> dict:
                 'age_seconds': round(status.age_seconds, 3) if status.age_seconds is not None else None,
                 'last_heartbeat': status.last_heartbeat,
             }
-    except Exception as exc:
-        return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None, 'error': f'{type(exc).__name__}: {exc}'}
+    except Exception:
+        return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None, 'error_code': 'database_unavailable'}
 
 
 @app.get('/health')
@@ -92,27 +95,30 @@ async def health():
             'fresh': round_status.fresh,
             'age_seconds': round(round_status.age_seconds, 3) if round_status.age_seconds is not None else None,
             'round_id': round_status.round_id,
-            'last_error': round_status.last_error,
-            'action_window_seconds': [settings.signal_minimum_action_lead_seconds, settings.signal_maximum_action_lead_seconds],
+            'error_code': 'round_sync_unavailable' if round_status.last_error else None,
+            'allowed_countdowns': settings.manual_countdowns() if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else None,
+            'minimum_remaining_after_scan': settings.manual_sync_min_remaining_after_scan if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else None,
         },
         'market_data': {
             'provider': market_data_service.provider.name,
             'connected': market_data_service.connected,
             'fresh': bool(snapshot and snapshot.fresh),
             'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
-            'last_error': market_data_service.last_error,
+            'error_code': 'market_feed_unavailable' if market_data_service.last_error else None,
             'candle_cache_ready': bool(candles),
-            'candle_cache_error': market_data_service.candle_last_error,
+            'candle_cache_age_seconds': await market_data_service.cache.get_candle_age_seconds(settings.analysis_pair),
+            'candle_cache_error_code': 'candle_cache_unavailable' if market_data_service.candle_last_error else None,
             'external_reference_only': True,
         },
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
         'background_jobs': {
             'local_to_web': settings.run_background_jobs,
             'leader': background_job_coordinator.is_leader if settings.run_background_jobs else False,
-            'coordinator_error': background_job_coordinator.last_error if settings.run_background_jobs else None,
-            'signal_worker_error': signal_lifecycle_worker.last_error if settings.run_background_jobs else None,
-            'broadcast_worker_error': broadcast_worker.last_error if settings.run_background_jobs else None,
-            'cleanup_error': retention_cleanup_service.last_error if settings.run_background_jobs else None,
+            'coordinator_error_code': 'coordinator_error' if (settings.run_background_jobs and background_job_coordinator.last_error) else None,
+            'signal_worker_error_code': 'signal_worker_error' if (settings.run_background_jobs and signal_lifecycle_worker.last_error) else None,
+            'broadcast_worker_error_code': 'broadcast_worker_error' if (settings.run_background_jobs and broadcast_worker.last_error) else None,
+            'verification_worker_error_code': 'verification_worker_error' if (settings.run_background_jobs and verification_delivery_worker.last_error) else None,
+            'cleanup_error_code': 'cleanup_error' if (settings.run_background_jobs and retention_cleanup_service.last_error) else None,
             'cleanup_last_run_at': retention_cleanup_service.last_run_at if settings.run_background_jobs else None,
             'cleanup_last_deleted': cleanup_result.total if (settings.run_background_jobs and cleanup_result) else None,
         },
@@ -154,15 +160,43 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         raise HTTPException(status_code=503, detail='telegram_not_configured')
     if not settings.telegram_webhook_secret:
         raise HTTPException(status_code=503, detail='telegram_webhook_secret_not_configured')
-    if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+    if not x_telegram_bot_api_secret_token or not hmac.compare_digest(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret):
         raise HTTPException(status_code=403, detail='invalid_webhook_secret')
-    payload = await request.json()
+    content_type = request.headers.get('content-type', '').split(';', 1)[0].strip().lower()
+    if content_type != 'application/json':
+        raise HTTPException(status_code=415, detail='application_json_required')
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > settings.telegram_webhook_max_body_bytes:
+                raise HTTPException(status_code=413, detail='webhook_body_too_large')
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail='invalid_content_length') from exc
+    body = await request.body()
+    if len(body) > settings.telegram_webhook_max_body_bytes:
+        raise HTTPException(status_code=413, detail='webhook_body_too_large')
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid_json') from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='invalid_update')
     update_id = payload.get('update_id')
     if not isinstance(update_id, int):
         raise HTTPException(status_code=400, detail='invalid_update_id')
     with SessionLocal() as db:
-        if not WebhookReceiptService(db).claim(update_id):
+        claim = WebhookReceiptService(db).claim(update_id)
+        if claim.duplicate:
             return {'ok': True, 'duplicate': True}
-    update = Update.de_json(payload, telegram_app.bot)
-    await telegram_app.process_update(update)
+        if not claim.claimed:
+            raise HTTPException(status_code=503, detail='update_already_processing')
+    try:
+        update = Update.de_json(payload, telegram_app.bot)
+        await telegram_app.process_update(update)
+    except Exception as exc:
+        with SessionLocal() as db:
+            WebhookReceiptService(db).fail(update_id, type(exc).__name__)
+        raise HTTPException(status_code=503, detail='update_processing_failed') from exc
+    with SessionLocal() as db:
+        WebhookReceiptService(db).succeed(update_id)
     return {'ok': True}

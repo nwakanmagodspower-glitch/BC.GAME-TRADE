@@ -1,121 +1,69 @@
-# M11 — Five-Second PAPER Round Validation
+# M11 — MANUAL_SYNC Controlled-Beta Validation Runbook
 
 ## Purpose
 
-Demonstrate that the redesigned system follows the actual BC.GAME Up/Down round: order countdown → Start Rate → 5 seconds → End Rate. PAPER validation proves technical correctness and measures strategy behavior; it does not guarantee profit or authorize automated trading.
+Validate the production topology and real BC.GAME Up/Down interaction contract without inventing provider data or making profit claims. The checked-in Render Blueprint targets **LIVE + MANUAL_SYNC** for a controlled beta. AUTO_SYNC remains unavailable until a verified structured BC.GAME/DeTrade source exists.
 
-## Required starting state
+## Required checked-in state
 
-- Render Web + Worker + PostgreSQL healthy.
-- `SIGNAL_MODE=PAPER`.
-- deployment defaults: signals OFF, broadcasts OFF.
-- product: `BTC/USD`, `BC_UPDOWN_5S`, 5 seconds, `$1-50` band.
-- external analysis: BTCUSDT.
-- onboarding/owner verification smoke-tested.
-- BC.GAME round provider integrated and measured before controlled round signals are enabled.
+```text
+SIGNAL_MODE=LIVE
+SIGNALS_ENABLED=true
+BROADCASTS_ENABLED=true
+SIGNAL_TIMING_MODE=MANUAL_SYNC
+MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
+MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
+BCGAME_ROUND_SYNC_ENABLED=false
+```
 
-## Phase A — Infrastructure Before Round Sync
+## Phase A — Infrastructure and onboarding validation
 
-With `BCGAME_ROUND_SYNC_ENABLED=false` verify:
+Before asking beta users to act on signals, verify:
 
-1. Web/worker boot safely.
-2. `/health` reports the five-second product contract.
-3. `/health` shows round sync disabled.
-4. an approved user's `Scan Next Round` does **not** invent timing and returns unavailable.
-5. no LIVE button or `ENTER NOW` message exists.
+1. Web, worker and PostgreSQL start; Alembic reaches `0007_security_delivery_hardening`.
+2. `/ready` confirms database connectivity.
+3. `/health` reports LIVE, the five-second product, fresh BTCUSDT ticks, fresh candle context and worker heartbeat without raw exception text.
+4. `/market/status` labels BTCUSDT external-reference-only.
+5. The webhook rejects a missing/incorrect secret, non-JSON input and oversized bodies.
+6. Registration → deposit → BC.GAME User ID → bounded screenshots creates a durable owner delivery.
+7. Owner decisions are unavailable until all evidence is delivered; approve, reject and resubmit remain idempotent.
+8. Suspended/blocked users cannot use stale callbacks or receive queued protected content.
+9. Only approved users see the normal signal menu.
 
-This phase may be deployed before round discovery is complete.
+## Phase B — Controlled LIVE MANUAL_SYNC validation
 
-## Phase B — Round Synchronization
+For a small approved cohort, verify:
 
-After a legitimate structured round source is integrated:
+1. The user prepares BTC/USD, 5s and the $1-50 band/stake on BC.GAME before scanning.
+2. Only 15s/14s/13s/12s callbacks are accepted.
+3. Worker, tick and candle freshness fail closed as UNAVAILABLE.
+4. Sparse/insufficient recent trade data fails closed rather than forcing a direction.
+5. Too little remaining human-action time returns UNAVAILABLE and creates no actionable signal.
+6. Sufficient but ambiguous evidence creates and records NO_TRADE.
+7. A qualified direction is recorded before delivery and contains the correct BC.GAME Up/Down URL.
+8. Concurrent callbacks cannot create two current signals for one user; cooldown prevents rapid duplicate scans.
+9. MANUAL_SYNC synthetic timing stays in signal metadata and never enters `bcgame_rounds` as an official round.
+10. Background external Start/End tracking remains reference-only and never reverses the delivered direction.
+11. My Results labels external-reference WIN/LOSS/TIE explicitly.
+12. No automatic BC.GAME trade placement, Martingale, loss chasing, guarantee or fabricated confidence exists.
+13. Measure end-to-end Telegram latency and record whether 15s, 14s, 13s or 12s scan timing performs best; do not assume the optimal scan second without evidence.
 
-For at least multiple consecutive observed rounds, compare backend data with the visible BC.GAME interface:
+## Optional PAPER diagnostic mode
 
-- round/countdown state;
-- order-close timestamp;
-- first-flag Start Rate time/value;
-- second-flag End Rate time/value;
-- duration = 5s;
-- stake band;
-- UP/DOWN payout where available;
-- pool/player counts where available.
+If the operator needs a non-actionable troubleshooting mode, both Render services may be explicitly changed together to:
 
-Do not enable user-facing round signals until timing is consistently aligned.
+```text
+SIGNAL_MODE=PAPER
+SIGNALS_ENABLED=false
+BROADCASTS_ENABLED=false
+```
 
-## Phase C — Controlled Model Decisions
+In PAPER mode there must be no actionable BC.GAME button or instruction to place a wager. Restore the checked-in LIVE MANUAL_SYNC state only after health/onboarding issues are resolved.
 
-For approved test users only:
+## AUTO_SYNC research boundary
 
-1. Request `⚡ BTC 5s Signal`.
-2. Tap `Scan Next Round`.
-3. Only evaluate when order-close is inside the configured action window (initially 5-10 seconds away).
-4. Record external tick features and model decision before Start Rate.
-5. Direction may be UP, DOWN or NO_TRADE.
-6. Provider/timing failure must be UNAVAILABLE.
-7. At Start Rate, record the BC.GAME value when available plus external diagnostic reference.
-8. Five seconds later, record BC.GAME End Rate plus external diagnostic reference.
-9. Actual product label comes from BC.GAME Start/End Rate.
+`AUTO_SYNC` stays unavailable until a legitimate structured BC.GAME/DeTrade source is verified for genuine round ID, countdown/order close, Start/End times and product rates. The adapter boundary remains in place; do not fabricate an endpoint, credentials, responses or settlement values.
 
-## Required Evidence Per Round
+## Stop conditions
 
-- round ID;
-- scan timestamp;
-- seconds remaining when signal was delivered;
-- Telegram delivery latency where measurable;
-- strategy version;
-- tick/trade-flow feature snapshot;
-- model direction/quality;
-- BC.GAME Start Rate / End Rate;
-- actual direction;
-- external start/end references;
-- payout/pool metadata if available;
-- final match/mismatch/unresolved state.
-
-## Core Pass Conditions
-
-- no signal uses guessed minute boundaries;
-- no direction is delivered outside the configured action window;
-- stale market or round data fails closed;
-- Start Rate and End Rate align with BC.GAME observations;
-- model uses only pre-Start-Rate data;
-- no late `ENTER NOW` notification is emitted after the round locks;
-- worker restart/deploy does not duplicate lifecycle processing;
-- PAPER messages remain non-actionable;
-- unresolved data is not converted into a fake WIN/LOSS;
-- external price differences from BC.GAME are measured explicitly.
-
-## Strategy Evaluation
-
-Do not judge the five-second model using the old one-minute / five-minute backtest. Evaluate against actual five-second BC.GAME-labelled rounds and sufficiently granular historical/live data.
-
-Track:
-
-- UP/DOWN accuracy;
-- NO_TRADE rate;
-- UNAVAILABLE rate;
-- skipped-too-early / skipped-too-late rounds;
-- performance by micro-volatility;
-- trade-flow strength;
-- action lead time;
-- payout band;
-- external-vs-BC.GAME disagreement.
-
-A small strong sample is not enough.
-
-## Stop Conditions
-
-Disable controlled signal testing immediately if:
-
-- round sync drifts;
-- Start/End Rate does not match BC.GAME;
-- Telegram delivery leaves insufficient execution time;
-- stale data produces a direction;
-- late messages encourage entry after order lock;
-- unapproved users can scan;
-- PAPER shows an execution button;
-- strategy/product/duration changes unexpectedly.
-
-## LIVE Gate
-
-Controlled LIVE beta requires explicit owner approval after enough five-second PAPER evidence. Manual user execution remains mandatory.
+Stop LIVE signal delivery if worker/tick/candle health is stale, recent market data is too sparse, timing validation fails, the kill switch is off, authorization changes during analysis, strategy identity drifts, a direction arrives too late, external references are presented as BC.GAME truth, or duplicate current signals appear.
