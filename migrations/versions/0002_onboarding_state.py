@@ -33,7 +33,11 @@ def upgrade() -> None:
         sa.Column('onboarding_step', onboarding_step, nullable=False, server_default='START'),
     )
     op.create_index('ix_users_onboarding_step', 'users', ['onboarding_step'], unique=False)
-    op.alter_column('users', 'onboarding_step', server_default=None)
+    # SQLite cannot execute ``ALTER COLUMN ... DROP DEFAULT``. Keeping the
+    # bootstrap default in local SQLite databases is harmless; PostgreSQL,
+    # which is the production database, still has the default removed.
+    if op.get_bind().dialect.name != 'sqlite':
+        op.alter_column('users', 'onboarding_step', server_default=None)
 
 
 def downgrade() -> None:

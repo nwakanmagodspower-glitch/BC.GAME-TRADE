@@ -4,6 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.entities import AuditLog, RuntimeSetting, User, UserStatus
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
 class AdminOpsService:
@@ -19,6 +22,8 @@ class AdminOpsService:
         return row.value.lower() in {'1', 'true', 'yes', 'on'}
 
     def set_signals_enabled(self, enabled: bool, actor_telegram_id: int) -> bool:
+        if enabled and settings.signal_mode.upper() != 'LIVE':
+            raise ValueError('Signals cannot be enabled while SIGNAL_MODE is PAPER.')
         row = self.db.get(RuntimeSetting, self.SIGNALS_ENABLED_KEY)
         if row is None:
             row = RuntimeSetting(key=self.SIGNALS_ENABLED_KEY, value='true' if enabled else 'false')

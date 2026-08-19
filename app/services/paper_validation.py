@@ -78,8 +78,8 @@ class PaperValidationService:
         if missing_entry: blockers.append(f'{missing_entry} activated/settled signals are missing entry reference prices.')
         if missing_expiry: blockers.append(f'{missing_expiry} settled signals are missing expiry reference prices.')
         if stuck_active: blockers.append(f'{stuck_active} active signals remain unsettled well after expiry.')
-        if entry_delays and max(entry_delays) > settings.signal_entry_window_seconds:
-            blockers.append('At least one activation exceeded the configured entry window.')
+        if entry_delays and max(entry_delays) > settings.signal_settlement_window_seconds:
+            blockers.append('At least one external Start Rate reference exceeded the configured capture window.')
         if versions and any(v != settings.strategy_version for v in versions):
             blockers.append('Observed strategy-version drift in paper-validation records.')
 

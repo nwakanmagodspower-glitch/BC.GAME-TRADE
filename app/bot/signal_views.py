@@ -64,6 +64,11 @@ def format_signal(signal: Signal) -> str:
             'If BC.GAME is already below about 7 seconds when this arrives, skip the round.'
         )
 
+    action = (
+        'Recorded for PAPER validation only. Do not place a BC.GAME trade.'
+        if mode == 'PAPER'
+        else 'Tap the same direction on BC.GAME before its countdown reaches 0.'
+    )
     return (
         '⚡ BTC/USD — BC.GAME 5s UP/DOWN\n\n'
         f'{icon} {signal.direction.value}\n'
@@ -71,6 +76,6 @@ def format_signal(signal: Signal) -> str:
         f'Contract: 5s • ${settings.default_stake_band}\n'
         f'Estimated Start: {start}\n'
         f'Estimated End: {end}\n\n'
-        'Tap the same direction on BC.GAME before its countdown reaches 0.'
+        + action
         + manual_note + paper
     )

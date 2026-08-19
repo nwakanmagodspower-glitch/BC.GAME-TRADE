@@ -79,3 +79,10 @@ def test_missing_owner_id_fails():
 
 def test_short_webhook_secret_fails():
     assert not validate_settings(production(telegram_webhook_secret='short')).ok
+
+
+def test_production_rejects_unsafe_market_origins_and_wrong_game_url():
+    assert not validate_settings(production(market_data_rest_base_url='http://api.binance.com')).ok
+    assert not validate_settings(production(market_data_ws_base_url='ws://stream.binance.com/ws')).ok
+    assert not validate_settings(production(market_data_rest_base_url='https://example.com')).ok
+    assert not validate_settings(production(bcgame_updown_url='https://example.com/trading/up-down')).ok

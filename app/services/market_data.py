@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -25,14 +26,24 @@ class MarketSnapshot:
 
 
 class MarketDataCache:
-    def __init__(self, trade_buffer_size: int = 5000):
+    def __init__(self, trade_buffer_size: int = 5000, max_future_skew_seconds: float | None = None):
         self._latest: dict[str, MarketTick] = {}
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_buffer_size))
         self._candles: dict[str, list[Candle]] = {}
         self._candles_updated_at: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
+        self.max_future_skew_seconds = settings.market_data_future_skew_seconds if max_future_skew_seconds is None else max_future_skew_seconds
 
     async def set_tick(self, tick: MarketTick) -> None:
+        if not math.isfinite(tick.price) or tick.price <= 0:
+            raise ValueError('market tick price must be finite and positive')
+        if not math.isfinite(tick.quantity) or tick.quantity < 0:
+            raise ValueError('market tick quantity must be finite and non-negative')
+        event_time = tick.event_time
+        if event_time.tzinfo is None:
+            raise ValueError('market tick event_time must be timezone-aware')
+        if event_time > datetime.now(timezone.utc) + timedelta(seconds=self.max_future_skew_seconds):
+            raise ValueError('market tick event_time is too far in the future')
         symbol = tick.symbol.upper()
         async with self._lock:
             self._latest[symbol] = tick
@@ -44,10 +55,21 @@ class MarketDataCache:
             self._candles[symbol.upper()] = list(candles)
             self._candles_updated_at[symbol.upper()] = datetime.now(timezone.utc)
 
-    async def get_candles(self, symbol: str) -> list[Candle] | None:
+    async def get_candles(self, symbol: str, max_age_seconds: int | None = None) -> list[Candle] | None:
         async with self._lock:
             candles = self._candles.get(symbol.upper())
+            updated_at = self._candles_updated_at.get(symbol.upper())
+        if candles and max_age_seconds is not None:
+            if updated_at is None or (datetime.now(timezone.utc) - updated_at).total_seconds() > max_age_seconds:
+                return None
         return list(candles) if candles else None
+
+    async def get_candle_age_seconds(self, symbol: str) -> float | None:
+        async with self._lock:
+            updated_at = self._candles_updated_at.get(symbol.upper())
+        if updated_at is None:
+            return None
+        return max(0.0, (datetime.now(timezone.utc) - updated_at).total_seconds())
 
     async def get_snapshot(self, symbol: str, max_age_seconds: int) -> MarketSnapshot | None:
         async with self._lock:
@@ -97,7 +119,7 @@ class MarketDataService:
         return await self.provider.fetch_candles(symbol, interval, limit or settings.market_data_kline_limit)
 
     async def get_cached_candles(self, symbol: str) -> list[Candle] | None:
-        return await self.cache.get_candles(symbol)
+        return await self.cache.get_candles(symbol, settings.market_candle_max_age_seconds)
 
     async def start(self, symbol: str) -> None:
         if self._task and not self._task.done():
@@ -165,6 +187,7 @@ def build_market_data_service() -> MarketDataService:
     provider = BinanceSpotProvider(
         rest_base_url=settings.market_data_rest_base_url,
         ws_base_url=settings.market_data_ws_base_url,
+        max_response_bytes=settings.market_data_rest_max_response_bytes,
     )
     return MarketDataService(provider=provider, cache=MarketDataCache())
 

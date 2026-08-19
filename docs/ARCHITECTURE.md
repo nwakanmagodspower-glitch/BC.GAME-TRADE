@@ -17,6 +17,7 @@ PostgreSQL ← dedicated worker heartbeat
 Background Worker (Render)
    ├─ Independent lightweight BTCUSDT feed/cache
    ├─ diagnostic Start/End reference lifecycle
+   ├─ durable owner verification-packet delivery
    ├─ future AUTO_SYNC integration boundary
    ├─ broadcast delivery
    └─ 10-day temporary-record cleanup
@@ -59,7 +60,7 @@ observed tap time
 = estimated End Rate time
 ```
 
-These are estimates and must never be represented as BC.GAME-issued timestamps or round IDs. The backend performs a post-computation remaining-time check and refuses the current round if too little time remains.
+These are estimates and must never be represented as BC.GAME-issued timestamps or round IDs. The backend performs a post-computation remaining-time check and refuses the current round if too little time remains. Per-user database locking and a five-second cooldown prevent concurrent or repeated callbacks from creating multiple current signals.
 
 ### AUTO_SYNC — future upgrade
 
@@ -133,7 +134,9 @@ Diagnostic lifecycle, broadcasts, heartbeat and retention cleanup. PostgreSQL ad
 
 ### PostgreSQL
 
-Persistent users, verification history, signals, settings, broadcasts and audit state. Raw tick streams remain in memory. Free PostgreSQL is an initial-month option and should be upgraded before expiry once history matters.
+Persistent users, verification history, signals, settings, broadcasts and audit state. Raw tick streams remain in memory. Free PostgreSQL is PAPER-validation-only: it expires after 30 days and has no backups. Upgrade the same database to a paid Basic plan before admitting controlled-beta users.
+
+Authenticated Telegram updates carry PROCESSING/SUCCEEDED/FAILED receipt state so failures remain retryable. Verification submission creates a durable delivery row in the same transaction; the worker sends bounded evidence first and exposes owner decision buttons only after the evidence send succeeds.
 
 ## Scaling
 

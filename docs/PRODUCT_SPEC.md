@@ -80,6 +80,8 @@ Owner additionally receives admin controls.
 9. `NO_TRADE` means deliberately skip the round.
 10. `UNAVAILABLE` means service/data/timing health prevented a valid decision; it is not strategy `NO_TRADE`.
 
+PAPER deployments never issue actionable user signals. The default Blueprint is PAPER with signals and broadcasts disabled. LIVE MANUAL_SYNC is an explicit controlled-beta promotion, not a first-boot default.
+
 ## Signal Card — LIVE V1
 
 ```text
@@ -176,3 +178,5 @@ For MANUAL_SYNC, background outcome tracking is diagnostic and is not pushed as 
 ## Broadcasts
 
 Broadcasts target approved active users only, are rate-limited, record delivery summaries, and must never block the time-sensitive scan path.
+
+Eligibility is checked again immediately before delivery so suspension/blocking takes effect for already queued work.

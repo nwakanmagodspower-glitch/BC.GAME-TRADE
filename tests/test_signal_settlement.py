@@ -23,6 +23,7 @@ async def test_up_signal_wins_when_expiry_is_higher(monkeypatch):
         status=SignalStatus.ACTIVE,
         market='BTCUSDT',
         strategy_version='TEST',
+        decision_reason='Original strategy rationale',
         reference_entry_price=100.0,
         expiry_at=now - timedelta(seconds=1),
     )
@@ -34,6 +35,8 @@ async def test_up_signal_wins_when_expiry_is_higher(monkeypatch):
     result = await SignalLifecycleService(DummyDB()).settle_if_due(signal, now=now)
     assert result.status == SignalStatus.WIN
     assert result.reference_expiry_price == 101.0
+    assert result.decision_reason == 'Original strategy rationale'
+    assert 'External-reference UP' in result.status_reason
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import Signal, SignalNotification, SignalStatus, User, utcnow
+from app.models.entities import Signal, SignalNotification, SignalStatus, User, UserStatus, utcnow
 
 settings = get_settings()
 
@@ -34,7 +34,7 @@ class SignalNotificationService:
             return False
 
         user = self.db.get(User, signal.requested_by_user_id)
-        if user is None or user.is_blocked:
+        if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             return False
 
         event = signal.status.value
@@ -79,14 +79,14 @@ class SignalNotificationService:
 
         if signal.status == SignalStatus.CANCELLED:
             prefix = '🧪 PAPER SIGNAL CANCELLED' if mode == 'PAPER' else '⚠️ SIGNAL CANCELLED'
-            return f'{prefix}\n\n{signal.decision_reason or "The setup was invalidated before Start Rate."}'
+            return f'{prefix}\n\n{signal.status_reason or "The setup was invalidated before Start Rate."}'
 
         if signal.status == SignalStatus.EXPIRED:
             prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNRESOLVED'
             return (
                 f'{prefix}\n\n'
                 'A trustworthy result reference was not captured inside the required window, so the system did not guess a WIN/LOSS.\n\n'
-                f'{signal.decision_reason or "Result source unavailable."}'
+                f'{signal.status_reason or "Result source unavailable."}'
             )
 
         start = f'{signal.reference_entry_price:,.5f}' if signal.reference_entry_price is not None else 'Unavailable'

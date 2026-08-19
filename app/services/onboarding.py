@@ -9,8 +9,13 @@ from app.models.entities import (
     UserRole,
     UserStatus,
     VerificationRequest,
+    VerificationDelivery,
+    VerificationDeliveryStatus,
     VerificationStatus,
 )
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
 def utcnow():
@@ -78,9 +83,19 @@ class OnboardingService:
     def add_deposit_proof(self, user: User, file_id: str) -> VerificationRequest:
         request = self.current_request(user)
         proofs = list(request.deposit_proof_file_ids or [])
+        now = utcnow()
+        if request.last_evidence_at is not None:
+            previous = request.last_evidence_at
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            if (now - previous).total_seconds() < settings.verification_min_evidence_interval_seconds:
+                raise ValueError('Please wait briefly before sending another screenshot.')
+        if file_id not in proofs and len(proofs) >= settings.verification_max_deposit_proofs:
+            raise ValueError(f'You can submit at most {settings.verification_max_deposit_proofs} deposit screenshots.')
         if file_id not in proofs:
             proofs.append(file_id)
         request.deposit_proof_file_ids = proofs
+        request.last_evidence_at = now
         self.db.commit()
         return request
 
@@ -96,6 +111,7 @@ class OnboardingService:
         )
         if existing is not None:
             user.onboarding_step = OnboardingStep.REVIEW
+            self._ensure_delivery(existing)
             self.db.commit()
             return existing
 
@@ -105,9 +121,24 @@ class OnboardingService:
         request.status = VerificationStatus.SUBMITTED
         request.submitted_at = utcnow()
         user.onboarding_step = OnboardingStep.REVIEW
+        self._ensure_delivery(request)
         self.db.commit()
         self.db.refresh(request)
         return request
+
+    def _ensure_delivery(self, request: VerificationRequest) -> VerificationDelivery:
+        delivery = self.db.scalar(
+            select(VerificationDelivery).where(
+                VerificationDelivery.verification_request_id == request.id
+            )
+        )
+        if delivery is None:
+            delivery = VerificationDelivery(
+                verification_request_id=request.id,
+                status=VerificationDeliveryStatus.PENDING,
+            )
+            self.db.add(delivery)
+        return delivery
 
     def review(self, request_id: int, admin_id: int, action: str) -> tuple[VerificationRequest, User, bool]:
         request = self.db.get(VerificationRequest, request_id)
@@ -130,6 +161,13 @@ class OnboardingService:
 
         if request.status != VerificationStatus.SUBMITTED:
             raise ValueError('Request is not waiting for review')
+        delivery = self.db.scalar(
+            select(VerificationDelivery).where(
+                VerificationDelivery.verification_request_id == request.id
+            )
+        )
+        if delivery is None or delivery.status != VerificationDeliveryStatus.SENT:
+            raise ValueError('Verification evidence has not finished delivery to the owner')
 
         request.reviewed_by = admin_id
         request.reviewed_at = utcnow()

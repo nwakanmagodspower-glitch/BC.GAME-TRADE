@@ -37,6 +37,7 @@ Manual timestamps are estimates based on the player's countdown confirmation. Th
 The engine focuses on immediate BTC microstructure: tick velocity, acceleration, aggressive buy/sell flow and micro-volatility, with slower candle indicators used only as context. It deliberately supports `NO_TRADE` and does not force a signal every round.
 
 Binance BTCUSDT is an external analysis/reference feed. It must not be described as BC.GAME settlement truth.
+LIVE actionable delivery supports the documented `MANUAL_SYNC` flow: an approved user must confirm the visible 15/14/13/12 countdown and the backend must retain enough post-scan action time. `AUTO_SYNC` remains unavailable until a verified structured BC.GAME/DeTrade source exists.
 
 ## User Flow
 
@@ -72,3 +73,5 @@ Binance BTCUSDT is an external analysis/reference feed. It must not be described
 GitHub Actions workflows are intentionally disabled at the owner's request while the monthly Actions allowance is unavailable. Repository review/editing may continue, but validation is performed through local/Render/runtime checks rather than Actions.
 
 See `AGENTS.md` and `docs/` for the permanent contract.
+
+The checked-in Render Blueprint is deliberately safe: `PAPER`, signals off, and broadcasts off. Controlled LIVE MANUAL_SYNC requires an explicit Render environment promotion after the deployment and onboarding gates pass.

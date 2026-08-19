@@ -9,6 +9,7 @@ from app.core.database import engine
 from app.services.broadcast_worker import broadcast_worker
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
+from app.services.verification_delivery_worker import verification_delivery_worker
 
 
 class BackgroundJobCoordinator:
@@ -49,6 +50,7 @@ class BackgroundJobCoordinator:
     async def _become_leader(self) -> None:
         await signal_lifecycle_worker.start()
         await broadcast_worker.start()
+        await verification_delivery_worker.start()
         await retention_cleanup_service.start()
         self.is_leader = True
 
@@ -56,6 +58,7 @@ class BackgroundJobCoordinator:
         if self.is_leader:
             await retention_cleanup_service.stop()
             await broadcast_worker.stop()
+            await verification_delivery_worker.stop()
             await signal_lifecycle_worker.stop()
             self.is_leader = False
         if self._connection is not None:

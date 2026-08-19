@@ -112,18 +112,18 @@ class SignalLifecycleService:
         })
         feature_data['_market'] = market_meta
         signal.features_snapshot = feature_data
-        signal.decision_reason = f'External-reference {signal.direction.value}: start={entry:.8f}, end={expiry:.8f}. BC.GAME Start/End Rate remains product truth.'
+        signal.status_reason = f'External-reference {signal.direction.value}: start={entry:.8f}, end={expiry:.8f}. BC.GAME Start/End Rate remains product truth.'
         self.db.commit(); self.db.refresh(signal)
         return signal
 
     def _cancel(self, signal: Signal, reason: str) -> Signal:
         signal.status = SignalStatus.CANCELLED
-        signal.decision_reason = reason
+        signal.status_reason = reason
         data = dict(signal.features_snapshot or {}); data['_cancelled_at'] = datetime.now(timezone.utc).isoformat(); signal.features_snapshot = data
         self.db.commit(); self.db.refresh(signal); return signal
 
     def _expire(self, signal: Signal, reason: str) -> Signal:
         signal.status = SignalStatus.EXPIRED
-        signal.decision_reason = reason
+        signal.status_reason = reason
         data = dict(signal.features_snapshot or {}); data['_expired_at'] = datetime.now(timezone.utc).isoformat(); signal.features_snapshot = data
         self.db.commit(); self.db.refresh(signal); return signal

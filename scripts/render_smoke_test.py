@@ -10,6 +10,7 @@ import httpx
 async def main() -> None:
     parser = argparse.ArgumentParser(description='Smoke-test BC.GAME TRADE Render deployment.')
     parser.add_argument('--base-url', required=True)
+    parser.add_argument('--expect-mode', choices=('PAPER', 'LIVE'), default='PAPER')
     args = parser.parse_args()
     base = args.base_url.rstrip('/')
     if not base.startswith('https://'):
@@ -40,12 +41,13 @@ async def main() -> None:
         if webhook.status_code not in {403, 503}:
             raise SystemExit(f'Webhook accepted an unauthenticated request: {webhook.status_code}')
 
-    if health_data.get('signal_mode') != 'LIVE':
-        raise SystemExit('Deployment is not in LIVE mode')
-    if health_data.get('signals_enabled_default') is not True:
-        raise SystemExit('SIGNALS_ENABLED default is not true')
-    if health_data.get('broadcasts_enabled_default') is not True:
-        raise SystemExit('BROADCASTS_ENABLED default is not true')
+    if health_data.get('signal_mode') != args.expect_mode:
+        raise SystemExit(f"Deployment mode is {health_data.get('signal_mode')!r}, expected {args.expect_mode!r}")
+    expected_enabled = args.expect_mode == 'LIVE'
+    if health_data.get('signals_enabled_default') is not expected_enabled:
+        raise SystemExit(f'SIGNALS_ENABLED default must be {expected_enabled} for {args.expect_mode}')
+    if health_data.get('broadcasts_enabled_default') is not expected_enabled:
+        raise SystemExit(f'BROADCASTS_ENABLED default must be {expected_enabled} for {args.expect_mode}')
     if health_data.get('topology') != 'web-plus-dedicated-worker':
         raise SystemExit(f"Unexpected topology: {health_data.get('topology')}")
 
@@ -70,7 +72,7 @@ async def main() -> None:
     if not timing.get('enabled') or not timing.get('fresh') or timing.get('round_id') != 'MANUAL_SYNC':
         raise SystemExit(f'Manual timing mode is not healthy: {timing}')
 
-    print('Render active manual-sync smoke tests passed.')
+    print(f'Render {args.expect_mode} manual-sync smoke tests passed.')
     print(json.dumps({'health': health_data, 'market': market_data}, indent=2, default=str))
 
 

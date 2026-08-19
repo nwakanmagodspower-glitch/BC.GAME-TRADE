@@ -32,6 +32,10 @@ class BCGameRoundRecordService:
             raise ValueError('round must be observed before its result can be recorded')
         if start_rate <= 0 or end_rate <= 0:
             raise ValueError('BC.GAME Start Rate and End Rate must be positive')
+        if row.start_rate is not None or row.end_rate is not None:
+            if row.start_rate == float(start_rate) and row.end_rate == float(end_rate):
+                return row
+            raise ValueError('recorded BC.GAME results are immutable; use a future audited correction path')
 
         row.start_rate = float(start_rate)
         row.end_rate = float(end_rate)

@@ -12,6 +12,8 @@ Telegram identity, approval/access state, onboarding position, owner/admin metad
 
 Each evidence packet stores BC.GAME User ID, Telegram profile/deposit file references, submission/review state and reviewer metadata. Resubmission preserves the prior reviewed row and creates a new packet rather than overwriting history.
 
+Evidence is bounded to a configured small count/size and rate. `verification_deliveries` is the durable owner-inbox outbox; owner review is unavailable until the complete packet is marked delivered.
+
 ### `bcgame_rounds`
 
 One compact row per observed BC.GAME Up/Down round:
@@ -53,6 +55,8 @@ Each scan/decision stores:
 - compact feature snapshot
 - lifecycle/result status
 - decision/cancellation reason
+
+The original strategy `decision_reason` is immutable after issuance. Later lifecycle diagnostics use `status_reason`. A per-user scan timestamp supports abuse throttling; the issuance transaction locks the user and rechecks access and kill switches after asynchronous analysis.
 
 External reference fields are diagnostic until BC.GAME settlement matching is verified.
 
@@ -97,6 +101,8 @@ It does **not** delete:
 - broadcast summaries;
 - runtime configuration currently needed;
 - meaningful audit history.
+
+Webhook receipts retain processing outcome and attempt metadata until the temporary-record cutoff, so only successfully completed updates are treated as duplicates.
 
 ## Growth Expectations
 

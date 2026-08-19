@@ -41,11 +41,27 @@ def upgrade():
     op.create_index('ix_bcgame_rounds_order_closes_at', 'bcgame_rounds', ['order_closes_at'])
     op.create_index('ix_bcgame_rounds_actual_direction', 'bcgame_rounds', ['actual_direction'])
 
-    op.add_column('signals', sa.Column('bcgame_round_id', sa.Integer(), sa.ForeignKey('bcgame_rounds.id'), nullable=True))
-    op.create_index('ix_signals_bcgame_round_id', 'signals', ['bcgame_round_id'])
+    round_column = sa.Column(
+        'bcgame_round_id',
+        sa.Integer(),
+        sa.ForeignKey('bcgame_rounds.id', name='fk_signals_bcgame_round_id'),
+        nullable=True,
+    )
+    if op.get_bind().dialect.name == 'sqlite':
+        with op.batch_alter_table('signals', recreate='always') as batch_op:
+            batch_op.add_column(round_column)
+            batch_op.create_index('ix_signals_bcgame_round_id', ['bcgame_round_id'])
+    else:
+        op.add_column('signals', round_column)
+        op.create_index('ix_signals_bcgame_round_id', 'signals', ['bcgame_round_id'])
 
 
 def downgrade():
-    op.drop_index('ix_signals_bcgame_round_id', table_name='signals')
-    op.drop_column('signals', 'bcgame_round_id')
+    if op.get_bind().dialect.name == 'sqlite':
+        with op.batch_alter_table('signals', recreate='always') as batch_op:
+            batch_op.drop_index('ix_signals_bcgame_round_id')
+            batch_op.drop_column('bcgame_round_id')
+    else:
+        op.drop_index('ix_signals_bcgame_round_id', table_name='signals')
+        op.drop_column('signals', 'bcgame_round_id')
     op.drop_table('bcgame_rounds')

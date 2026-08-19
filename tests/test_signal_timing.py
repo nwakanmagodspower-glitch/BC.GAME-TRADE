@@ -1,33 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from app.signals.timing import plan_timing
+import pytest
 
-
-def test_timing_aligns_to_next_boundary_with_lead_time():
-    now = datetime(2026, 8, 18, 14, 31, 50, tzinfo=timezone.utc)
-    timing = plan_timing(
-        now=now,
-        expiry_seconds=300,
-        alignment_seconds=60,
-        entry_window_seconds=3,
-        minimum_lead_seconds=15,
-    )
-
-    assert timing.entry_at == datetime(2026, 8, 18, 14, 33, 0, tzinfo=timezone.utc)
-    assert timing.entry_window_start == datetime(2026, 8, 18, 14, 32, 57, tzinfo=timezone.utc)
-    assert timing.entry_window_end == datetime(2026, 8, 18, 14, 33, 3, tzinfo=timezone.utc)
-    assert timing.expiry_at == datetime(2026, 8, 18, 14, 38, 0, tzinfo=timezone.utc)
+from app.integrations.bcgame_rounds import BCGameRoundService
 
 
-def test_timing_uses_next_boundary_when_lead_is_sufficient():
-    now = datetime(2026, 8, 18, 14, 31, 20, tzinfo=timezone.utc)
-    timing = plan_timing(
-        now=now,
-        expiry_seconds=300,
-        alignment_seconds=60,
-        entry_window_seconds=3,
-        minimum_lead_seconds=15,
-    )
+def test_manual_timing_uses_confirmed_countdown_and_five_second_contract():
+    observed = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+    snapshot = BCGameRoundService().manual_snapshot(15, observed_at=observed)
 
-    assert timing.entry_at == datetime(2026, 8, 18, 14, 32, 0, tzinfo=timezone.utc)
-    assert timing.expiry_at == datetime(2026, 8, 18, 14, 37, 0, tzinfo=timezone.utc)
+    assert snapshot.source == 'MANUAL_SYNC'
+    assert snapshot.order_closes_at == observed + timedelta(seconds=15)
+    assert snapshot.start_rate_at == snapshot.order_closes_at
+    assert snapshot.end_rate_at == snapshot.start_rate_at + timedelta(seconds=5)
+    assert snapshot.seconds_until_order_close(observed + timedelta(seconds=3)) == 12
+    assert snapshot.round_id.startswith('manual-')
+
+
+def test_manual_timing_rejects_unsupported_countdown():
+    with pytest.raises(ValueError):
+        BCGameRoundService().manual_snapshot(11)

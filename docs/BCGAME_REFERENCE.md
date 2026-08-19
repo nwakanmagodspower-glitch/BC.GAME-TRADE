@@ -104,7 +104,8 @@ Must remain research/integration questions:
 - Duration is locked to 5s for V1.
 - The old 300-second/minute-boundary architecture is retired.
 - `BCGameRoundService` owns round synchronization.
-- No wall-clock approximation may substitute for real round timing in LIVE mode.
+- `MANUAL_SYNC` may estimate Start/End timestamps only after the user confirms 15/14/13/12; those estimates are never represented as BC.GAME-issued facts.
+- `AUTO_SYNC` requires verified real round timing and must never fall back to a local clock approximation.
 - Binance BTCUSDT is analysis/reference only.
 - External-reference outcomes remain PAPER diagnostics until BC.GAME Start/End Rate ingestion is integrated.
 - Unknown internal endpoints must not be relied on silently; use health checks and fail closed.
