@@ -8,21 +8,26 @@ Render is the V1 deployment platform.
 
 1. **Web Service (Starter)** — Telegram webhook, onboarding/owner verification, on-demand manual countdown scans, health/readiness and lightweight external BTC feed.
 2. **Background Worker (Starter)** — independent BTC feed, singleton lifecycle coordination, durable owner-packet delivery, future BC.GAME round integration, diagnostic lifecycle, broadcasts and retention cleanup.
-3. **PostgreSQL** — persistent product state and worker heartbeat. First PAPER/research validation may use Render Free PostgreSQL. Free databases expire after 30 days and have no backups, so upgrade the same database to at least `basic-256mb` before admitting controlled-beta users.
-4. **Redis** — deferred.
+3. **PostgreSQL 16** — persistent product state and worker heartbeat. The checked-in Blueprint currently uses Render Free PostgreSQL for initial deployment/testing. Free databases expire after 30 days and have no backups, so upgrade before relying on the database for valuable long-lived production history.
+4. **Redis** — deferred until scale measurements justify it.
 
-## Safe First Deployment
+## Checked-in Controlled-Beta State
 
-The initial deployment is intentionally non-actionable:
+The Render Blueprint intentionally deploys the current MANUAL_SYNC beta as active:
 
 ```text
-SIGNAL_MODE=PAPER
-SIGNALS_ENABLED=false
-BROADCASTS_ENABLED=false
+SIGNAL_MODE=LIVE
+SIGNALS_ENABLED=true
+BROADCASTS_ENABLED=true
+SIGNAL_TIMING_MODE=MANUAL_SYNC
+MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
+MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
 BCGAME_ROUND_SYNC_ENABLED=false
 ```
 
-This means the infrastructure/onboarding can be deployed and tested without pretending the old minute-based timing matches BC.GAME.
+LIVE is still fail-closed. An actionable direction is refused when user access, worker health, market freshness, sparse-data checks, countdown timing, cooldown, strategy health or other required gates fail.
+
+`AUTO_SYNC` is not enabled and must not be fabricated. MANUAL_SYNC remains the V1 round-timing contract until a legitimate BC.GAME/DeTrade structured source is verified.
 
 ## Product Environment
 
@@ -34,11 +39,6 @@ DEFAULT_PRODUCT=BC_UPDOWN_5S
 DEFAULT_EXPIRY_SECONDS=5
 DEFAULT_STAKE_BAND=1-50
 STRATEGY_VERSION=BTC_UPDOWN_5S_V1.1
-SIGNAL_TIMING_MODE=MANUAL_SYNC
-MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
-MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
-BCGAME_ROUND_SYNC_ENABLED=false
-BCGAME_ROUND_SYNC_MAX_AGE_SECONDS=2
 SIGNAL_USER_COOLDOWN_SECONDS=5
 SIGNAL_MIN_RECENT_TRADES=12
 SIGNAL_MIN_TICK_SPAN_SECONDS=4
@@ -72,21 +72,25 @@ Validation path:
 repository review
 → Render build/pre-deploy migration
 → /health + /ready
-→ Telegram smoke tests
-→ controlled PAPER round validation
+→ Telegram onboarding/owner-review smoke test
+→ controlled LIVE MANUAL_SYNC signal test
+→ latency and external-reference result measurement
 ```
+
+PAPER remains available as an explicit diagnostic mode, but it is not the checked-in Render deployment default.
 
 ## Deployment Gates
 
 ### Infrastructure gate
 
 1. Render creates Web + Worker + PostgreSQL.
-2. Alembic migrations succeed.
+2. Alembic migrations succeed and reach `0007_security_delivery_hardening`.
 3. Web boots.
 4. Worker boots and heartbeat is fresh.
 5. `/ready` confirms database connectivity.
-6. `/health` shows PAPER, signals off, fresh external BTC data and worker heartbeat.
-7. webhook rejects requests without Telegram secret.
+6. `/health` reports LIVE, signals/broadcasts enabled by default, correct five-second product identity, fresh BTCUSDT reference data, fresh candle context and worker heartbeat.
+7. `/market/status` labels BTCUSDT as external-reference-only.
+8. Webhook rejects missing/incorrect secrets, non-JSON input and oversized bodies.
 
 ### Onboarding gate
 
@@ -100,60 +104,47 @@ repository review
 
 ### Five-second product gate
 
-Before actionable signal mode:
-
 1. `SIGNAL_TIMING_MODE=MANUAL_SYNC` is active and only 15/14/13/12 callbacks are accepted.
 2. Estimated Start/End timestamps remain explicitly labelled manual estimates and synthetic IDs never enter `bcgame_rounds`.
 3. Worker heartbeat, tick data and candle context pass their freshness limits.
-4. Human-action lead-time is measured end-to-end and at least seven seconds remains after analysis.
-5. Product is BTC/USD, 5s, approved V1 stake band.
-6. External Start/End tracking is labelled diagnostic; the user checks the actual BC.GAME result.
-7. Direction decisions are generated from data available before Start Rate.
-8. NO_TRADE/UNAVAILABLE behavior is verified.
-9. PAPER and LIVE renderings are verified as non-actionable and actionable respectively.
+4. Human-action lead time is measured end-to-end and at least seven seconds remains after analysis.
+5. Product remains BTC/USD, 5s, $1-50 V1 scope.
+6. External Start/End tracking is diagnostic/reference-only; it must never be represented as official BC.GAME settlement truth.
+7. Direction decisions are generated only from data available before the estimated Start Rate.
+8. NO_TRADE and UNAVAILABLE remain distinct and are tested.
+9. Current-signal serialization and user cooldown prevent duplicate actionable scans.
+10. No automatic BC.GAME execution exists.
 
-`BCGAME_ROUND_SYNC_ENABLED` remains false in MANUAL_SYNC. A future AUTO_SYNC promotion has a separate gate: a verified structured provider must supply genuine round/timing/result data.
+## PAPER Diagnostic Mode
 
-## PAPER Validation
+If troubleshooting requires a non-actionable environment, the operator may explicitly set both services to:
 
-The default PAPER deployment validates infrastructure, onboarding and fail-closed controls. User-facing scans remain disabled. Offline or owner-controlled research may collect model decisions, but:
+```text
+SIGNAL_MODE=PAPER
+SIGNALS_ENABLED=false
+BROADCASTS_ENABLED=false
+```
 
-- no `ENTER NOW`;
-- no actionable BC.GAME button;
-- no claim that external reference result equals BC.GAME result;
-- record BC.GAME Start/End Rate whenever trustworthy ingestion is available;
-- use unresolved status rather than guessing missing results.
-
-## LIVE Gate
-
-LIVE requires all of the following simultaneously:
-
-- MANUAL_SYNC timer buttons and post-computation lead-time rejection verified;
-- enough measured technical/strategy evidence for the controlled cohort;
-- strategy version explicitly approved;
-- no fabricated confidence percentage;
-- signal kill switch intentionally enabled;
-- latency leaves enough time for manual execution;
-- direct BC.GAME link points to the actual Up/Down page;
-- no automatic trade placement.
+PAPER must never show actionable execution instructions or an actionable BC.GAME trade button.
 
 ## Database
 
-Keep core history: users, verification packets, strategy decisions, BC.GAME round metadata/results, broadcast summaries, audit state.
+Keep core history: users, verification packets, strategy decisions, genuine BC.GAME round metadata/results when available, broadcast summaries and audit state.
 
-Temporary technical records are cleaned after 10 days. Do not store continuous raw tick/order-book streams indefinitely in PostgreSQL.
+Temporary technical records are cleaned after 10 days. Do not store continuous raw tick/order-book streams indefinitely in PostgreSQL. MANUAL_SYNC estimates stay with signal metadata and do not create fake official BC.GAME round rows.
 
 ## Stop Conditions
 
 Stop signal delivery immediately when any of these occurs:
 
 - worker heartbeat stale;
-- market feed stale;
-- manual countdown invalid, unconfirmed, or too late (or future AUTO_SYNC stale/missing);
+- market feed or candle context stale;
+- insufficient recent trade density/tick span;
+- manual countdown invalid, unconfirmed or too late;
 - order window too close to closing;
 - round/product/duration mismatch;
 - unexpected strategy version;
-- duplicate lifecycle processing;
-- BC.GAME Start/End Rate cannot be trusted;
-- PAPER presentation becomes actionable;
-- kill switch is off.
+- duplicate lifecycle/current-signal processing;
+- user access changes during analysis;
+- kill switch/signals switch is off;
+- external reference data is being presented as BC.GAME settlement truth.
