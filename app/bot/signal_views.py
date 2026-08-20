@@ -15,7 +15,12 @@ def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def build_signal_keyboard(direction: SignalDirection) -> InlineKeyboardMarkup:
+def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = None) -> InlineKeyboardMarkup:
+    """Build only user-facing trade/navigation actions.
+
+    signal_id is kept temporarily for call-site compatibility; no calibration
+    controls are rendered.
+    """
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
