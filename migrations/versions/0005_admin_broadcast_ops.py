@@ -1,17 +1,27 @@
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = '0005_admin_broadcast_ops'
 down_revision = '0004_signal_notifications'
 branch_labels = None
 depends_on = None
 
+BROADCAST_STATUS_VALUES = ('DRAFT', 'QUEUED', 'SENDING', 'COMPLETE', 'FAILED')
+DELIVERY_STATUS_VALUES = ('PENDING', 'SENT', 'FAILED')
+
+
+def _enum(bind, values: tuple[str, ...], name: str):
+    if bind.dialect.name == 'postgresql':
+        postgresql.ENUM(*values, name=name).create(bind, checkfirst=True)
+        return postgresql.ENUM(*values, name=name, create_type=False)
+    return sa.Enum(*values, name=name)
+
 
 def upgrade():
-    broadcast_status = sa.Enum('DRAFT','QUEUED','SENDING','COMPLETE','FAILED', name='broadcaststatus')
-    delivery_status = sa.Enum('PENDING','SENT','FAILED', name='deliverystatus')
-    broadcast_status.create(op.get_bind(), checkfirst=True)
-    delivery_status.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    broadcast_status = _enum(bind, BROADCAST_STATUS_VALUES, 'broadcaststatus')
+    delivery_status = _enum(bind, DELIVERY_STATUS_VALUES, 'deliverystatus')
 
     op.add_column('broadcasts', sa.Column('status', broadcast_status, nullable=False, server_default='DRAFT'))
     op.add_column('broadcasts', sa.Column('queued_at', sa.DateTime(timezone=True), nullable=True))
@@ -56,6 +66,7 @@ def upgrade():
 
 
 def downgrade():
+    bind = op.get_bind()
     op.drop_table('audit_logs')
     op.drop_table('runtime_settings')
     op.drop_table('broadcast_deliveries')
@@ -63,5 +74,9 @@ def downgrade():
     op.drop_column('broadcasts', 'completed_at')
     op.drop_column('broadcasts', 'queued_at')
     op.drop_column('broadcasts', 'status')
-    sa.Enum(name='deliverystatus').drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name='broadcaststatus').drop(op.get_bind(), checkfirst=True)
+    if bind.dialect.name == 'postgresql':
+        postgresql.ENUM(*DELIVERY_STATUS_VALUES, name='deliverystatus').drop(bind, checkfirst=True)
+        postgresql.ENUM(*BROADCAST_STATUS_VALUES, name='broadcaststatus').drop(bind, checkfirst=True)
+    else:
+        sa.Enum(*DELIVERY_STATUS_VALUES, name='deliverystatus').drop(bind, checkfirst=True)
+        sa.Enum(*BROADCAST_STATUS_VALUES, name='broadcaststatus').drop(bind, checkfirst=True)
