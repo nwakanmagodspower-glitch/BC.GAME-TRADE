@@ -6,7 +6,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.database import engine
-from app.integrations.detrade_observer import detrade_observer
 from app.services.broadcast_worker import broadcast_worker
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
@@ -14,15 +13,14 @@ from app.services.verification_delivery_worker import verification_delivery_work
 
 
 class BackgroundJobCoordinator:
-    """Ensure only one web process runs singleton background loops.
+    """Ensure only one process runs singleton background loops.
 
     Render zero-downtime deploys can temporarily overlap the old and new web
     instances. A PostgreSQL advisory lock lets only one process own lifecycle,
-    broadcast, cleanup, and observation work at a time. A replacement instance
-    keeps trying and takes over shortly after the previous instance releases the lock.
+    broadcast, verification delivery, and cleanup work at a time.
     """
 
-    LOCK_KEY = 0x424347414D455452  # stable app-specific 64-bit advisory-lock key
+    LOCK_KEY = 0x424347414D455452
 
     def __init__(self, retry_seconds: float = 3.0):
         self.retry_seconds = retry_seconds
@@ -53,12 +51,10 @@ class BackgroundJobCoordinator:
         await broadcast_worker.start()
         await verification_delivery_worker.start()
         await retention_cleanup_service.start()
-        await detrade_observer.start()
         self.is_leader = True
 
     async def _relinquish(self) -> None:
         if self.is_leader:
-            await detrade_observer.stop()
             await retention_cleanup_service.stop()
             await broadcast_worker.stop()
             await verification_delivery_worker.stop()
@@ -66,9 +62,7 @@ class BackgroundJobCoordinator:
             self.is_leader = False
         if self._connection is not None:
             try:
-                self._connection.execute(
-                    text('SELECT pg_advisory_unlock(:key)'), {'key': self.LOCK_KEY}
-                )
+                self._connection.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': self.LOCK_KEY})
             except Exception:
                 pass
             try:
@@ -79,13 +73,10 @@ class BackgroundJobCoordinator:
 
     def _try_lock(self) -> bool:
         if engine.dialect.name != 'postgresql':
-            # Local/test environments normally run a single process.
             return True
         self._connection = engine.connect()
         acquired = bool(
-            self._connection.execute(
-                text('SELECT pg_try_advisory_lock(:key)'), {'key': self.LOCK_KEY}
-            ).scalar()
+            self._connection.execute(text('SELECT pg_try_advisory_lock(:key)'), {'key': self.LOCK_KEY}).scalar()
         )
         if not acquired:
             self._connection.close()
