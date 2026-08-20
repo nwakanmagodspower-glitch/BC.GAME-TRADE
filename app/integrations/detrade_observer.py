@@ -8,7 +8,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import websockets
 
@@ -34,19 +34,38 @@ class DeTradeRoundObservation:
         return self.trade_cutoff_time_ms or self.price_start_time_ms
 
     @property
-    def remaining_ms(self) -> int | None:
-        cutoff = self.authoritative_cutoff_ms
-        if cutoff is None or self.current_time_ms is None:
-            return None
-        return max(0, int(cutoff - self.current_time_ms))
-
-    @property
     def data_age_ms(self) -> int:
         return max(0, int((time.monotonic() - self.received_monotonic) * 1000))
 
     @property
+    def estimated_server_time_ms(self) -> int | None:
+        if self.current_time_ms is None:
+            return None
+        return self.current_time_ms + self.data_age_ms
+
+    @property
+    def remaining_ms(self) -> int | None:
+        cutoff = self.authoritative_cutoff_ms
+        server_now = self.estimated_server_time_ms
+        if cutoff is None or server_now is None:
+            return None
+        return max(0, int(cutoff - server_now))
+
+    @property
     def fresh(self) -> bool:
         return self.data_age_ms <= settings.detrade_stale_after_ms
+
+    @property
+    def phase(self) -> str:
+        return {
+            1001: 'BETTING',
+            1003: 'TRADE_CUTOFF',
+            1002: 'PAYOUT_PROCESSING',
+            1004: 'PAYOUT_PROCESSING',
+            1005: 'FINISHED',
+            1006: 'PREPARING_NEXT_ROUND',
+            1007: 'CANCELLED',
+        }.get(self.status, 'UNKNOWN')
 
     @property
     def can_trade(self) -> bool:
@@ -63,7 +82,8 @@ class DeTradeObserver:
     """Observation-only DeTrade round feed.
 
     Reverse-engineered field names and routes are configurable. No token is ever
-    printed or included in diagnostics. This component does not place orders.
+    printed or included in diagnostics. This component does not place orders and
+    does not control the live signal engine while observation mode is being tested.
     """
 
     def __init__(self) -> None:
