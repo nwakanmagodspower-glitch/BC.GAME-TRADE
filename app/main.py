@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import hmac
 import json
 
@@ -17,6 +18,7 @@ from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
 from app.services.verification_delivery_worker import verification_delivery_worker
+from app.services.webhook_backpressure import telegram_update_user_id, webhook_backpressure
 from app.services.webhook_receipts import WebhookReceiptService
 from app.services.worker_status import get_worker_status
 
@@ -54,11 +56,13 @@ def _worker_heartbeat_status() -> dict:
             return {
                 'seen': status.seen,
                 'fresh': status.fresh,
+                'healthy': status.healthy,
                 'age_seconds': round(status.age_seconds, 3) if status.age_seconds is not None else None,
                 'last_heartbeat': status.last_heartbeat,
+                'components': status.components,
             }
     except Exception:
-        return {'seen': False, 'fresh': False, 'age_seconds': None, 'last_heartbeat': None, 'error_code': 'database_unavailable'}
+        return {'seen': False, 'fresh': False, 'healthy': False, 'age_seconds': None, 'last_heartbeat': None, 'error_code': 'database_unavailable'}
 
 
 @app.get('/health')
@@ -184,19 +188,36 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     update_id = payload.get('update_id')
     if not isinstance(update_id, int):
         raise HTTPException(status_code=400, detail='invalid_update_id')
-    with SessionLocal() as db:
-        claim = WebhookReceiptService(db).claim(update_id)
-        if claim.duplicate:
-            return {'ok': True, 'duplicate': True}
-        if not claim.claimed:
-            raise HTTPException(status_code=503, detail='update_already_processing')
+
+    user_id = telegram_update_user_id(payload)
+    if not await webhook_backpressure.allow_user(user_id):
+        raise HTTPException(status_code=429, detail='user_update_rate_limited')
+    if not await webhook_backpressure.acquire():
+        raise HTTPException(status_code=429, detail='webhook_capacity_busy')
+
     try:
-        update = Update.de_json(payload, telegram_app.bot)
-        await telegram_app.process_update(update)
-    except Exception as exc:
         with SessionLocal() as db:
-            WebhookReceiptService(db).fail(update_id, type(exc).__name__)
-        raise HTTPException(status_code=503, detail='update_processing_failed') from exc
-    with SessionLocal() as db:
-        WebhookReceiptService(db).succeed(update_id)
-    return {'ok': True}
+            claim = WebhookReceiptService(db).claim(update_id)
+            if claim.duplicate:
+                return {'ok': True, 'duplicate': True}
+            if not claim.claimed:
+                raise HTTPException(status_code=503, detail='update_already_processing')
+        try:
+            update = Update.de_json(payload, telegram_app.bot)
+            await asyncio.wait_for(
+                telegram_app.process_update(update),
+                timeout=settings.telegram_update_processing_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            with SessionLocal() as db:
+                WebhookReceiptService(db).fail(update_id, 'TimeoutError')
+            raise HTTPException(status_code=503, detail='update_processing_timeout') from exc
+        except Exception as exc:
+            with SessionLocal() as db:
+                WebhookReceiptService(db).fail(update_id, type(exc).__name__)
+            raise HTTPException(status_code=503, detail='update_processing_failed') from exc
+        with SessionLocal() as db:
+            WebhookReceiptService(db).succeed(update_id)
+        return {'ok': True}
+    finally:
+        webhook_backpressure.release()
