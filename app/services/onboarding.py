@@ -28,20 +28,36 @@ class OnboardingService:
 
     def get_or_create_user(self, telegram_user) -> User:
         user = self.db.scalar(select(User).where(User.telegram_user_id == telegram_user.id))
+        is_owner = bool(settings.owner_telegram_id and telegram_user.id == settings.owner_telegram_id)
+        now = utcnow()
+
         if user is None:
             user = User(
                 telegram_user_id=telegram_user.id,
                 telegram_username=telegram_user.username,
                 first_name=telegram_user.first_name,
-                status=UserStatus.PENDING,
-                role=UserRole.USER,
-                onboarding_step=OnboardingStep.START,
+                status=UserStatus.APPROVED if is_owner else UserStatus.PENDING,
+                role=UserRole.OWNER if is_owner else UserRole.USER,
+                onboarding_step=OnboardingStep.APPROVED if is_owner else OnboardingStep.START,
+                approved_at=now if is_owner else None,
+                approved_by=telegram_user.id if is_owner else None,
             )
             self.db.add(user)
         else:
             user.telegram_username = telegram_user.username
             user.first_name = telegram_user.first_name
-            user.last_seen_at = utcnow()
+            user.last_seen_at = now
+            # OWNER_TELEGRAM_ID is the trusted private-chat identity used for
+            # admin review. Keep that same account permanently able to test the
+            # approved-user signal journey without affiliate verification.
+            if is_owner:
+                user.role = UserRole.OWNER
+                user.status = UserStatus.APPROVED
+                user.onboarding_step = OnboardingStep.APPROVED
+                user.is_blocked = False
+                if user.approved_at is None:
+                    user.approved_at = now
+                user.approved_by = telegram_user.id
         self.db.commit()
         self.db.refresh(user)
         return user
@@ -141,7 +157,7 @@ class OnboardingService:
     def _purge_evidence(self, request: VerificationRequest) -> None:
         """Remove temporary verification evidence after an owner decision.
 
-        BC.GAME account IDs and Telegram file IDs exist only long enough to
+        BCGAME account IDs and Telegram file IDs exist only long enough to
         complete owner review. They are not retained as user profile/history.
         """
         request.bcgame_user_id = None
@@ -202,8 +218,6 @@ class OnboardingService:
         else:
             raise ValueError('Unknown review action')
 
-        # Evidence is temporary. Once the owner has made a decision, retain
-        # only the review/access state and purge BC.GAME ID + Telegram file IDs.
         self._purge_evidence(request)
 
         self.db.commit()
