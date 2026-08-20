@@ -63,7 +63,7 @@ services:
       - key: DETRADE_TICKER_ROUTE
         value: /contest/BTC/USD/5/ticker
       - key: DETRADE_LATENCY_SAFETY_MARGIN_MS
-        value: "700"
+        value: "7000"
       - key: DETRADE_STALE_AFTER_MS
         value: "1500"
       - key: DETRADE_PING_INTERVAL_SECONDS
