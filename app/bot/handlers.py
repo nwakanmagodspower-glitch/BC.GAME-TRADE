@@ -32,13 +32,20 @@ def _is_access_blocked(user) -> bool:
     return bool(user.is_blocked or user.status == UserStatus.SUSPENDED)
 
 
-def _result_label(signal: Signal) -> str:
-    source = str(((signal.features_snapshot or {}).get('_bcgame_round') or {}).get('source') or '')
-    if source == 'MANUAL_SYNC' and signal.status.value in {'WIN', 'LOSS', 'TIE'}:
-        return f'{signal.status.value} (external reference only)'
-    if signal.status.value == 'EXPIRED':
-        return 'UNRESOLVED'
-    return signal.status.value
+def _display_result(signal: Signal) -> str:
+    status = signal.status.value
+    if signal.direction.value == 'NO_TRADE' or status == 'NO_TRADE':
+        return '⚪ NO TRADE — Skipped'
+    if status == 'WIN':
+        icon = '🟢' if signal.direction.value == 'UP' else '🔴'
+        return f'{icon} {signal.direction.value} — ✅ WIN'
+    if status == 'LOSS':
+        icon = '🟢' if signal.direction.value == 'UP' else '🔴'
+        return f'{icon} {signal.direction.value} — ❌ LOSS'
+    if status in {'EXPIRED', 'PENDING'}:
+        icon = '🟢' if signal.direction.value == 'UP' else '🔴' if signal.direction.value == 'DOWN' else '⚪'
+        return f'{icon} {signal.direction.value} — ⏳ Pending'
+    return f'{signal.direction.value} — {status}'
 
 
 async def _send_results(chat, db, user) -> None:
@@ -46,9 +53,25 @@ async def _send_results(chat, db, user) -> None:
     if not recent:
         await chat.send_message('📈 MY RESULTS\n\nNo recent signals yet. Your latest results will appear here after you start scanning.')
         return
-    lines = ['📈 MY RECENT SIGNALS', 'Latest 10 • automatically cleared after 10 days', '']
-    for signal in recent:
-        lines.append(f'#{signal.id}  {signal.direction.value} — {_result_label(signal)}')
+
+    wins = sum(1 for signal in recent if signal.status.value == 'WIN')
+    losses = sum(1 for signal in recent if signal.status.value == 'LOSS')
+    skipped = sum(1 for signal in recent if signal.direction.value == 'NO_TRADE' or signal.status.value == 'NO_TRADE')
+    settled = wins + losses
+    win_rate = round((wins / settled) * 100) if settled else 0
+
+    lines = ['📈 MY RECENT RESULTS', 'Last 10 signal checks', '']
+    lines.extend(_display_result(signal) for signal in recent)
+    lines.extend([
+        '',
+        '📊 PERFORMANCE',
+        f'✅ Wins: {wins}',
+        f'❌ Losses: {losses}',
+        f'🎯 Win Rate: {win_rate}%' if settled else '🎯 Win Rate: —',
+        f'⚪ Skipped: {skipped}',
+        '',
+        'Results automatically clear after 10 days.',
+    ])
     await chat.send_message('\n'.join(lines))
 
 
