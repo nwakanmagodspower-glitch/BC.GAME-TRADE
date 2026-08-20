@@ -308,7 +308,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_text(result.reason, reply_markup=build_scan_prompt_keyboard())
                 return
             signal = result.signal
-            await query.message.reply_text(format_signal(signal), reply_markup=build_signal_keyboard(signal.direction))
+            await query.message.reply_text(format_signal(signal), reply_markup=build_signal_keyboard(signal.direction, signal.id))
             return
         if query.data == 'menu:help':
             await query.answer()
