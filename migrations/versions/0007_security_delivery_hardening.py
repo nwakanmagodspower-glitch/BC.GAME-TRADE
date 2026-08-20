@@ -6,18 +6,26 @@ Revises: 0006_bcgame_rounds
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = '0007_security_delivery_hardening'
 down_revision = '0006_bcgame_rounds'
 branch_labels = None
 depends_on = None
 
+VERIFICATION_DELIVERY_VALUES = ('PENDING', 'SENDING', 'SENT', 'FAILED')
+
+
+def _verification_delivery_enum(bind):
+    if bind.dialect.name == 'postgresql':
+        postgresql.ENUM(*VERIFICATION_DELIVERY_VALUES, name='verificationdeliverystatus').create(bind, checkfirst=True)
+        return postgresql.ENUM(*VERIFICATION_DELIVERY_VALUES, name='verificationdeliverystatus', create_type=False)
+    return sa.Enum(*VERIFICATION_DELIVERY_VALUES, name='verificationdeliverystatus')
+
 
 def upgrade() -> None:
-    verification_delivery_status = sa.Enum(
-        'PENDING', 'SENDING', 'SENT', 'FAILED', name='verificationdeliverystatus'
-    )
-    verification_delivery_status.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    verification_delivery_status = _verification_delivery_enum(bind)
 
     op.add_column('verification_requests', sa.Column('last_evidence_at', sa.DateTime(timezone=True), nullable=True))
     op.add_column('users', sa.Column('last_scan_requested_at', sa.DateTime(timezone=True), nullable=True))
@@ -57,6 +65,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
     op.drop_index('uq_signals_current_per_user', table_name='signals')
     op.drop_table('verification_deliveries')
     op.drop_index('ix_telegram_update_receipts_status', table_name='telegram_update_receipts')
@@ -67,4 +76,7 @@ def downgrade() -> None:
     op.drop_column('verification_requests', 'last_evidence_at')
     op.drop_column('users', 'last_scan_requested_at')
     op.drop_column('signals', 'status_reason')
-    sa.Enum(name='verificationdeliverystatus').drop(op.get_bind(), checkfirst=True)
+    if bind.dialect.name == 'postgresql':
+        postgresql.ENUM(*VERIFICATION_DELIVERY_VALUES, name='verificationdeliverystatus').drop(bind, checkfirst=True)
+    else:
+        sa.Enum(*VERIFICATION_DELIVERY_VALUES, name='verificationdeliverystatus').drop(bind, checkfirst=True)
