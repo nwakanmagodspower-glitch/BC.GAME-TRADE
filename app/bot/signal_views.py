@@ -28,12 +28,19 @@ def build_signal_keyboard(direction: SignalDirection) -> InlineKeyboardMarkup:
 
 def format_scan_context() -> str:
     return (
-        '⚡ BCGAME BTC/USD — 5s UP/DOWN\n\n'
-        '🎯 GET READY\n'
-        'Open Up/Down, select BTC/USD • 5s and enter your stake first.\n\n'
-        '⏱ WATCH THE BCGAME COUNTDOWN\n'
-        'As soon as a fresh round shows 15, 14, 13 or 12 seconds, return here and tap the exact matching button below.\n\n'
-        '🤖 The system will analyse the live market and return:\n'
+        '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
+        '🎯 USE THE CORRECT MARKET\n'
+        'Pair: BTC/USD\n'
+        'Duration: 5 Seconds\n'
+        f'Range: ${settings.default_stake_band}\n\n'
+        '⚠️ This bot is designed specifically for the 5s • $1–$50 Up/Down market. Do not use these signals on the other 5-second ranges.\n\n'
+        '1️⃣ ENTER YOUR TRADE AMOUNT\n'
+        'Open BCGAME Up/Down and enter the amount you want to trade before requesting a signal. Do not tap UP or DOWN yet.\n\n'
+        '2️⃣ WATCH THE 15-SECOND COUNTDOWN\n'
+        'Wait for a fresh round. When the order window begins, BCGAME counts down from 15 seconds.\n\n'
+        '3️⃣ SCAN EARLY\n'
+        'When BCGAME shows 15, 14, 13 or 12 seconds, return here and tap the exact matching countdown button immediately.\n\n'
+        '🤖 The system will return:\n'
         '🟢 UP  •  🔴 DOWN  •  ⚪ NO TRADE  •  ⚠️ UNAVAILABLE\n\n'
         'If the signal arrives too late for that round, skip it and scan the next fresh round.'
     )
@@ -45,7 +52,7 @@ def format_signal(signal: Signal) -> str:
 
     if signal.direction == SignalDirection.NO_TRADE or signal.status == SignalStatus.NO_TRADE:
         return (
-            '⚡ BCGAME BTC/USD — 5s UP/DOWN\n\n'
+            '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
             '⚪ NO TRADE\n\n'
             'This round did not meet the signal quality gate. Skip it and wait for the next fresh countdown.' + paper
         )
@@ -71,7 +78,7 @@ def format_signal(signal: Signal) -> str:
         else '🚀 Open BCGAME now and tap the same direction before the countdown reaches 0. If there is not enough time left, skip the round.'
     )
     return (
-        '⚡ BCGAME BTC/USD — 5s UP/DOWN\n\n'
+        '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
         f'{icon} SIGNAL: {signal.direction.value}\n\n'
         f'Quality: {quality}\n'
         f'{timing_text}'
