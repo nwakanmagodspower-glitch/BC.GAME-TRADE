@@ -18,7 +18,13 @@ settings = get_settings()
 
 
 def _is_owner(update: Update) -> bool:
-    return bool(update.effective_user and settings.owner_telegram_id and update.effective_user.id == settings.owner_telegram_id)
+    return bool(
+        update.effective_user
+        and update.effective_chat
+        and update.effective_chat.type == 'private'
+        and settings.owner_telegram_id
+        and update.effective_user.id == settings.owner_telegram_id
+    )
 
 
 def _admin_menu(signals_enabled: bool) -> InlineKeyboardMarkup:
@@ -45,7 +51,7 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     if not query or not _is_owner(update):
         if query:
-            await query.answer('Owner access required.', show_alert=True)
+            await query.answer('Owner access is available only in the owner private chat.', show_alert=True)
         return
     await query.answer(); data = query.data or ''
 
@@ -72,7 +78,7 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f'Signals: {"ON" if enabled else "OFF"}\n'
             f'External BTC feed: {"FRESH" if snap and snap.fresh else "NOT FRESH"}\n'
             f'Candle context: {"READY" if candles else "NOT READY"}\n'
-            f'Worker: {"FRESH" if worker.fresh else "NOT FRESH"}\n'
+            f'Worker: {"HEALTHY" if worker.healthy else "NOT HEALTHY"}\n'
             f'Timing layer: {"READY" if timing.fresh else "NOT READY"}\n'
             f'Approved users: {approved}\nWaiting signals: {waiting}\nActive signals: {active}\n'
             f'Latest broadcast: {bcast}'
@@ -141,6 +147,8 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not _is_owner(update):
+        if query:
+            await query.answer('Owner access is available only in the owner private chat.', show_alert=True)
         return
     try:
         _, action, broadcast_id_text = (query.data or '').rsplit(':', 2); broadcast_id = int(broadcast_id_text)
