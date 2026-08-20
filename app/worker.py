@@ -7,9 +7,20 @@ from app.core.config import get_settings
 from app.core.startup import validate_settings
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
+from app.services.signal_worker import signal_lifecycle_worker
 from app.services.worker_heartbeat import worker_heartbeat_service
 
 settings = get_settings()
+
+
+def _critical_worker_health() -> dict[str, bool]:
+    """Health used by LIVE signal gating, not merely process liveness."""
+    return {
+        'coordinator_leader': background_job_coordinator.is_leader,
+        'coordinator_ok': background_job_coordinator.last_error is None,
+        'signal_lifecycle_ok': signal_lifecycle_worker.last_error is None,
+        'market_stream_ok': market_data_service.connected and market_data_service.last_error is None,
+    }
 
 
 async def main() -> None:
@@ -26,16 +37,15 @@ async def main() -> None:
         except NotImplementedError:
             pass
 
-    # BTCUSDT is the initial high-frequency analysis/reference feed. BC.GAME
-    # BTC/USD Start/End Rate remains separate product truth.
     await market_data_service.start(settings.analysis_pair)
-    await worker_heartbeat_service.start()
     await background_job_coordinator.start()
+    worker_heartbeat_service.health_provider = _critical_worker_health
+    await worker_heartbeat_service.start()
     try:
         await stop.wait()
     finally:
-        await background_job_coordinator.stop()
         await worker_heartbeat_service.stop()
+        await background_job_coordinator.stop()
         await market_data_service.stop()
 
 
