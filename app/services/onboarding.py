@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.entities import (
@@ -47,8 +47,6 @@ class OnboardingService:
         return user
 
     def current_request(self, user: User) -> VerificationRequest:
-        # Only COLLECTING requests are mutable. Reviewed/resubmission requests
-        # remain immutable history and a new packet is created for the retry.
         request = self.db.scalar(
             select(VerificationRequest)
             .where(VerificationRequest.user_id == user.id)
@@ -140,6 +138,22 @@ class OnboardingService:
             self.db.add(delivery)
         return delivery
 
+    def _purge_evidence(self, request: VerificationRequest) -> None:
+        """Remove temporary verification evidence after an owner decision.
+
+        BC.GAME account IDs and Telegram file IDs exist only long enough to
+        complete owner review. They are not retained as user profile/history.
+        """
+        request.bcgame_user_id = None
+        request.profile_proof_file_id = None
+        request.deposit_proof_file_ids = None
+        request.last_evidence_at = None
+        self.db.execute(
+            delete(VerificationDelivery).where(
+                VerificationDelivery.verification_request_id == request.id
+            )
+        )
+
     def review(self, request_id: int, admin_id: int, action: str) -> tuple[VerificationRequest, User, bool]:
         request = self.db.get(VerificationRequest, request_id)
         if request is None:
@@ -185,10 +199,12 @@ class OnboardingService:
             request.status = VerificationStatus.RESUBMIT
             user.status = UserStatus.PENDING
             user.onboarding_step = OnboardingStep.BC_ID
-            # Do not clear old evidence. The reviewed packet remains a historical
-            # record and current_request() creates a new COLLECTING packet later.
         else:
             raise ValueError('Unknown review action')
+
+        # Evidence is temporary. Once the owner has made a decision, retain
+        # only the review/access state and purge BC.GAME ID + Telegram file IDs.
+        self._purge_evidence(request)
 
         self.db.commit()
         self.db.refresh(request)
