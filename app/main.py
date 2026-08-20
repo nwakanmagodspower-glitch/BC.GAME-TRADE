@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
 from app.integrations.bcgame_rounds import bcgame_round_service
+from app.integrations.detrade_observer import detrade_observer
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
@@ -62,15 +63,27 @@ def _worker_heartbeat_status() -> dict:
                 'components': status.components,
             }
     except Exception:
-        return {'seen': False, 'fresh': False, 'healthy': False, 'age_seconds': None, 'last_heartbeat': None, 'error_code': 'database_unavailable'}
+        return {
+            'seen': False,
+            'fresh': False,
+            'healthy': False,
+            'age_seconds': None,
+            'last_heartbeat': None,
+            'error_code': 'database_unavailable',
+        }
 
 
 @app.get('/health')
 async def health():
-    snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
+    snapshot = await market_data_service.cache.get_snapshot(
+        settings.analysis_pair,
+        settings.market_data_max_age_seconds,
+    )
     candles = await market_data_service.get_cached_candles(settings.analysis_pair)
     cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
+    observed = detrade_observer.latest
+
     return {
         'status': 'ok',
         'app': settings.app_name,
@@ -86,8 +99,7 @@ async def health():
         },
         'signal_mode': settings.signal_mode,
         'signal_timing_mode': settings.signal_timing_mode,
-        'manual_countdowns': settings.manual_countdowns(),
-        'manual_min_remaining_after_scan': settings.manual_sync_min_remaining_after_scan,
+        'manual_trigger': settings.signal_timing_mode.upper() == 'MANUAL_SYNC',
         'signals_enabled_default': settings.signals_enabled,
         'broadcasts_enabled_default': settings.broadcasts_enabled,
         'telegram_configured': bool(settings.telegram_bot_token),
@@ -99,9 +111,21 @@ async def health():
             'fresh': round_status.fresh,
             'age_seconds': round(round_status.age_seconds, 3) if round_status.age_seconds is not None else None,
             'round_id': round_status.round_id,
-            'error_code': 'round_sync_unavailable' if round_status.last_error else None,
-            'allowed_countdowns': settings.manual_countdowns() if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else None,
-            'minimum_remaining_after_scan': settings.manual_sync_min_remaining_after_scan if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else None,
+            'mode': 'manual_scan_now' if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else 'automatic',
+            'error_code': 'round_sync_unavailable' if round_status.last_error and settings.signal_timing_mode.upper() != 'MANUAL_SYNC' else None,
+        },
+        'detrade_observer': {
+            'enabled': settings.detrade_ws_enabled,
+            'observation_only': True,
+            'has_observation': observed is not None,
+            'fresh': bool(observed and observed.fresh),
+            'round_id': observed.round_id if observed else None,
+            'status': observed.status if observed else None,
+            'phase': observed.phase if observed else None,
+            'remaining_ms': observed.remaining_ms if observed else None,
+            'feed_age_ms': observed.data_age_ms if observed else None,
+            'token_configured': bool(settings.detrade_ws_token),
+            'error_code': 'observer_error' if detrade_observer.last_error else None,
         },
         'market_data': {
             'provider': market_data_service.provider.name,
@@ -143,7 +167,10 @@ def ready():
 
 @app.get('/market/status')
 async def market_status():
-    snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
+    snapshot = await market_data_service.cache.get_snapshot(
+        settings.analysis_pair,
+        settings.market_data_max_age_seconds,
+    )
     if snapshot is None:
         raise HTTPException(status_code=503, detail='market_data_unavailable')
     return {
@@ -159,16 +186,27 @@ async def market_status():
 
 
 @app.post('/telegram/webhook')
-async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)):
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
     if telegram_app is None:
         raise HTTPException(status_code=503, detail='telegram_not_configured')
     if not settings.telegram_webhook_secret:
         raise HTTPException(status_code=503, detail='telegram_webhook_secret_not_configured')
-    if not x_telegram_bot_api_secret_token or not hmac.compare_digest(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret):
+    if (
+        not x_telegram_bot_api_secret_token
+        or not hmac.compare_digest(
+            x_telegram_bot_api_secret_token,
+            settings.telegram_webhook_secret,
+        )
+    ):
         raise HTTPException(status_code=403, detail='invalid_webhook_secret')
+
     content_type = request.headers.get('content-type', '').split(';', 1)[0].strip().lower()
     if content_type != 'application/json':
         raise HTTPException(status_code=415, detail='application_json_required')
+
     content_length = request.headers.get('content-length')
     if content_length:
         try:
@@ -176,15 +214,18 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 raise HTTPException(status_code=413, detail='webhook_body_too_large')
         except ValueError as exc:
             raise HTTPException(status_code=400, detail='invalid_content_length') from exc
+
     body = await request.body()
     if len(body) > settings.telegram_webhook_max_body_bytes:
         raise HTTPException(status_code=413, detail='webhook_body_too_large')
+
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail='invalid_json') from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail='invalid_update')
+
     update_id = payload.get('update_id')
     if not isinstance(update_id, int):
         raise HTTPException(status_code=400, detail='invalid_update_id')
@@ -202,6 +243,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 return {'ok': True, 'duplicate': True}
             if not claim.claimed:
                 raise HTTPException(status_code=503, detail='update_already_processing')
+
         try:
             update = Update.de_json(payload, telegram_app.bot)
             await asyncio.wait_for(
@@ -216,6 +258,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             with SessionLocal() as db:
                 WebhookReceiptService(db).fail(update_id, type(exc).__name__)
             raise HTTPException(status_code=503, detail='update_processing_failed') from exc
+
         with SessionLocal() as db:
             WebhookReceiptService(db).succeed(update_id)
         return {'ok': True}
