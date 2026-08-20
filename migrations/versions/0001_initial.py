@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision: str = '0001_initial'
 down_revision: Union[str, None] = None
@@ -16,16 +17,28 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade() -> None:
-    user_status = sa.Enum('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', name='userstatus')
-    user_role = sa.Enum('USER', 'ADMIN', 'OWNER', name='userrole')
-    verification_status = sa.Enum('COLLECTING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'RESUBMIT', name='verificationstatus')
-    signal_direction = sa.Enum('UP', 'DOWN', 'NO_TRADE', name='signaldirection')
-    signal_status = sa.Enum('CANDIDATE', 'WAITING_ENTRY', 'ACTIVE', 'CANCELLED', 'EXPIRED', 'WIN', 'LOSS', 'TIE', 'NO_TRADE', name='signalstatus')
+def _enum(bind, *values: str, name: str):
+    """Create/reuse named PostgreSQL enums without duplicate CREATE TYPE events.
 
+    PostgreSQL named enums are schema objects. We create them explicitly with
+    checkfirst=True, then pass create_type=False into table definitions so
+    SQLAlchemy does not attempt to create the same type again during CREATE TABLE.
+    Other dialects keep using portable SQLAlchemy Enum for local validation.
+    """
+    if bind.dialect.name == 'postgresql':
+        enum_type = postgresql.ENUM(*values, name=name, create_type=False)
+        postgresql.ENUM(*values, name=name).create(bind, checkfirst=True)
+        return enum_type
+    return sa.Enum(*values, name=name)
+
+
+def upgrade() -> None:
     bind = op.get_bind()
-    for enum_type in (user_status, user_role, verification_status, signal_direction, signal_status):
-        enum_type.create(bind, checkfirst=True)
+    user_status = _enum(bind, 'PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', name='userstatus')
+    user_role = _enum(bind, 'USER', 'ADMIN', 'OWNER', name='userrole')
+    verification_status = _enum(bind, 'COLLECTING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'RESUBMIT', name='verificationstatus')
+    signal_direction = _enum(bind, 'UP', 'DOWN', 'NO_TRADE', name='signaldirection')
+    signal_status = _enum(bind, 'CANDIDATE', 'WAITING_ENTRY', 'ACTIVE', 'CANCELLED', 'EXPIRED', 'WIN', 'LOSS', 'TIE', 'NO_TRADE', name='signalstatus')
 
     op.create_table(
         'users',
