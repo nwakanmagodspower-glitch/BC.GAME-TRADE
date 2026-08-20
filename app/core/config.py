@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     owner_telegram_id: int | None = None
     telegram_webhook_max_body_bytes: int = 1_000_000
     telegram_update_processing_timeout_seconds: int = 60
+    telegram_webhook_max_concurrency: int = 32
+    telegram_webhook_queue_timeout_seconds: float = 0.25
+    telegram_user_update_limit: int = 30
+    telegram_user_update_window_seconds: float = 10.0
 
     bcgame_registration_url: str | None = None
     bcgame_deposit_url: str | None = None
