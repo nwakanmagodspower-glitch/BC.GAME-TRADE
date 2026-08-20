@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from datetime import datetime, timezone
 
 from app.core.config import get_settings
 from app.core.startup import validate_settings
@@ -15,10 +16,18 @@ settings = get_settings()
 
 def _critical_worker_health() -> dict[str, bool]:
     """Health used by LIVE signal gating, not merely process liveness."""
+    success = signal_lifecycle_worker.last_success_at
+    signal_cycle_fresh = False
+    if success is not None:
+        if success.tzinfo is None:
+            success = success.replace(tzinfo=timezone.utc)
+        signal_cycle_fresh = (
+            datetime.now(timezone.utc) - success.astimezone(timezone.utc)
+        ).total_seconds() <= settings.worker_heartbeat_max_age_seconds
     return {
         'coordinator_leader': background_job_coordinator.is_leader,
         'coordinator_ok': background_job_coordinator.last_error is None,
-        'signal_lifecycle_ok': signal_lifecycle_worker.last_error is None,
+        'signal_lifecycle_ok': signal_lifecycle_worker.last_error is None and signal_cycle_fresh,
         'market_stream_ok': market_data_service.connected and market_data_service.last_error is None,
     }
 
