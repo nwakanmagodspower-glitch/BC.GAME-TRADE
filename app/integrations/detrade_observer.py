@@ -63,9 +63,7 @@ class DeTradeObserver:
     """Observation-only DeTrade round feed.
 
     Reverse-engineered field names and routes are configurable. No token is ever
-    printed or included in exceptions created by this class. The observer does
-    not place orders and does not control signal timing unless a separate future
-    integration explicitly opts in.
+    printed or included in diagnostics. This component does not place orders.
     """
 
     def __init__(self) -> None:
@@ -164,15 +162,14 @@ class DeTradeObserver:
             number = int(float(value))
         except (TypeError, ValueError):
             return None
-        # Normalize seconds epochs to milliseconds if necessary.
         if 1_000_000_000 <= number < 10_000_000_000:
             number *= 1000
         return number
 
-    def _consume(self, decoded: Any) -> None:
+    def _consume(self, decoded: Any) -> bool:
         payload = self._find_round_payload(decoded)
         if payload is None:
-            return
+            return False
         self.latest = DeTradeRoundObservation(
             round_id=str(payload.get('id')) if payload.get('id') is not None else None,
             status=self._as_int(payload.get('status')),
@@ -185,17 +182,60 @@ class DeTradeObserver:
             received_at=datetime.now(timezone.utc),
         )
         self.last_error = None
+        return True
+
+    async def probe(self, timeout_seconds: float = 6.0) -> DeTradeRoundObservation | None:
+        """Connect briefly, capture one valid round payload, then disconnect."""
+        if not settings.detrade_ws_enabled:
+            self.last_error = 'DeTrade observer is disabled.'
+            return None
+        if not settings.detrade_ws_token:
+            self.last_error = 'DeTrade observer token is not configured.'
+            return None
+
+        async def _probe() -> DeTradeRoundObservation | None:
+            try:
+                async with websockets.connect(
+                    self._connection_url(),
+                    origin=settings.detrade_origin,
+                    additional_headers={'User-Agent': settings.detrade_user_agent},
+                    ping_interval=None,
+                    close_timeout=3,
+                    max_size=settings.detrade_max_frame_bytes,
+                    compression=None,
+                ) as ws:
+                    self.connected = True
+                    await ws.send(json.dumps(self._subscription_message(), separators=(',', ':')))
+                    async for frame in ws:
+                        try:
+                            if self._consume(self._decode_frame(frame)):
+                                return self.latest
+                        except Exception as exc:
+                            self.last_error = f'Frame decode error: {type(exc).__name__}'
+                    return None
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.last_error = f'Connection error: {type(exc).__name__}'
+                return None
+            finally:
+                self.connected = False
+
+        try:
+            return await asyncio.wait_for(_probe(), timeout=timeout_seconds)
+        except TimeoutError:
+            self.connected = False
+            self.last_error = 'Probe timed out before a valid round frame was received.'
+            return None
 
     async def _observe_once(self) -> None:
         if not settings.detrade_ws_token:
             self.last_error = 'DeTrade observer token is not configured.'
             await asyncio.sleep(settings.detrade_reconnect_seconds)
             return
-
-        url = self._connection_url()
         try:
             async with websockets.connect(
-                url,
+                self._connection_url(),
                 origin=settings.detrade_origin,
                 additional_headers={'User-Agent': settings.detrade_user_agent},
                 ping_interval=settings.detrade_ping_interval_seconds,
@@ -210,14 +250,12 @@ class DeTradeObserver:
                     if self._stop.is_set():
                         break
                     try:
-                        decoded = self._decode_frame(frame)
-                        self._consume(decoded)
+                        self._consume(self._decode_frame(frame))
                     except Exception as exc:
                         self.last_error = f'Frame decode error: {type(exc).__name__}'
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # Deliberately exclude the URL/token from diagnostics.
             self.last_error = f'Connection error: {type(exc).__name__}'
         finally:
             self.connected = False
