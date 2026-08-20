@@ -89,31 +89,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_deposit_step(update)
             return
         if step == OnboardingStep.BC_ID:
-            await update.effective_chat.send_message('Step 3 of 5 — BC.GAME User ID\n\nSend your BC.GAME User ID as text.')
+            await update.effective_chat.send_message('3️⃣ Enter Your BC.GAME User ID\n\nSend your BC.GAME User ID here as a message.')
             return
         if step == OnboardingStep.PROFILE_PROOF:
-            await update.effective_chat.send_message('Step 4 of 5 — Profile Proof\n\nSend a clear screenshot of your BC.GAME profile showing the User ID.')
+            await update.effective_chat.send_message('4️⃣ Confirm Your Account\n\nSend a clear screenshot of your BC.GAME profile showing your User ID.')
             return
         if step == OnboardingStep.DEPOSIT_PROOF:
-            await update.effective_chat.send_message(
-                'Step 5 of 5 — Deposit Proof\n\nSend one or more clear deposit screenshots. When finished, tap Finish Verification.',
-                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
-            )
+            request = service.current_request(user)
+            proof_count = len(request.deposit_proof_file_ids or [])
+            if proof_count:
+                await update.effective_chat.send_message(
+                    f'5️⃣ Confirm Your Deposit\n\n{proof_count} deposit screenshot(s) received. Add another if needed, or submit your verification.',
+                    reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
+                )
+            else:
+                await update.effective_chat.send_message(
+                    '5️⃣ Confirm Your Deposit\n\nSend at least one clear screenshot showing your BC.GAME deposit.\n\nThe Submit Verification button will appear after your screenshot is received.'
+                )
             return
         if step == OnboardingStep.REVIEW:
-            await update.effective_chat.send_message('⏳ Verification submitted. Your request is waiting for manual review.')
+            await update.effective_chat.send_message('⏳ Verification submitted successfully.\n\nYour account is now waiting for review. You will be notified here when a decision is made.')
             return
         if step == OnboardingStep.RESUBMIT:
-            await update.effective_chat.send_message('🔄 Resubmission requested. Send your BC.GAME User ID to start a new evidence packet.')
+            await update.effective_chat.send_message('🔄 New verification requested.\n\nSend your BC.GAME User ID to begin again.')
 
 
 async def _send_deposit_step(update: Update):
     keyboard = []
     if settings.bcgame_deposit_url:
         keyboard.append([InlineKeyboardButton('💳 Open Deposit Page', url=settings.bcgame_deposit_url)])
-    keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
+    keyboard.append([InlineKeyboardButton('✅ Continue After Deposit', callback_data='onboard:deposited')])
     await update.effective_chat.send_message(
-        'Step 2 of 5 — Deposit\n\nMake your deposit on BC.GAME. When complete, return here and continue.',
+        '2️⃣ Make Your Deposit\n\nOpen the BC.GAME deposit page and complete your deposit. Then return here and tap Continue After Deposit.',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -122,7 +129,6 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(query.from_user)
@@ -130,21 +136,31 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer('This onboarding action is not available.', show_alert=True)
             return
         if query.data == 'onboard:registered' and user.onboarding_step == OnboardingStep.REGISTRATION:
+            await query.answer()
             service.set_step(user, OnboardingStep.DEPOSIT)
-            await query.edit_message_text('Registration saved ✅')
+            await query.edit_message_text('Account step completed ✅')
             await _send_deposit_step(update)
             return
         if query.data == 'onboard:deposited' and user.onboarding_step == OnboardingStep.DEPOSIT:
+            await query.answer()
             service.set_step(user, OnboardingStep.BC_ID)
-            await query.edit_message_text('Deposit step saved ✅\n\nStep 3 of 5 — Send your BC.GAME User ID as text.')
+            await query.edit_message_text('Deposit step completed ✅\n\n3️⃣ Enter Your BC.GAME User ID\n\nSend your BC.GAME User ID here as a message.')
             return
         if query.data == 'onboard:submit' and user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
                 service.submit(user)
             except ValueError as exc:
-                await query.answer(str(exc), show_alert=True)
+                message = str(exc)
+                if message == 'Verification packet is incomplete':
+                    message = 'Please send at least one deposit screenshot before submitting.'
+                await query.answer(message, show_alert=True)
                 return
-            await query.edit_message_text('Verification submitted ✅\n\nYou will receive a message after manual review.')
+            await query.answer('Verification submitted ✅')
+            await query.edit_message_text(
+                '✅ Verification Submitted\n\n'
+                'Your details have been sent for review.\n\n'
+                'You will receive a message here as soon as your access is approved.'
+            )
             return
         await query.answer('That step is no longer active.', show_alert=True)
 
@@ -163,7 +179,7 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text('Please send a valid BC.GAME User ID.')
                 return
             service.set_bcgame_user_id(user, value)
-            await update.message.reply_text('User ID saved ✅\n\nNow send a profile screenshot showing that User ID.')
+            await update.message.reply_text('User ID received ✅\n\n4️⃣ Confirm Your Account\n\nNow send a clear screenshot of your BC.GAME profile showing that User ID.')
 
 
 async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,8 +198,10 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user.onboarding_step == OnboardingStep.PROFILE_PROOF:
             service.set_profile_proof(user, file_id)
             await update.message.reply_text(
-                'Profile screenshot saved ✅\n\nNow send your deposit screenshot(s).',
-                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
+                'Profile screenshot received ✅\n\n'
+                '5️⃣ Confirm Your Deposit\n\n'
+                'Now send at least one clear screenshot showing your BC.GAME deposit.\n\n'
+                'The Submit Verification button will appear after the deposit screenshot is received.'
             )
             return
         if user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
@@ -194,8 +212,9 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             count = len(request.deposit_proof_file_ids or [])
             await update.message.reply_text(
-                f'Deposit screenshot saved ✅ ({count})\n\nSend another if needed, or finish verification.',
-                reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
+                f'Deposit screenshot received ✅ ({count})\n\n'
+                'You can send another screenshot if needed, or submit your verification now.',
+                reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
             )
 
 
