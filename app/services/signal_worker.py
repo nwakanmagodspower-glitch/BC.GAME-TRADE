@@ -22,6 +22,7 @@ class SignalLifecycleWorker:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self.last_error: str | None = None
+        self.last_success_at: datetime | None = None
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -90,6 +91,7 @@ class SignalLifecycleWorker:
             try:
                 await self.run_once()
                 self.last_error = None
+                self.last_success_at = datetime.now(timezone.utc)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
