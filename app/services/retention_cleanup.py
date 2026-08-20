@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models.entities import Broadcast, BroadcastDelivery, BroadcastStatus, SignalNotification
+from app.models.entities import Broadcast, BroadcastDelivery, BroadcastStatus, Signal, SignalNotification
 from app.models.webhook import TelegramUpdateReceipt
 
 settings = get_settings()
@@ -18,18 +18,20 @@ settings = get_settings()
 class CleanupResult:
     webhook_receipts: int
     signal_notifications: int
+    signals: int
     broadcast_deliveries: int
 
     @property
     def total(self) -> int:
-        return self.webhook_receipts + self.signal_notifications + self.broadcast_deliveries
+        return self.webhook_receipts + self.signal_notifications + self.signals + self.broadcast_deliveries
 
 
 class RetentionCleanupService:
-    """Age-based cleanup for temporary operational records only.
+    """Age-based cleanup for temporary operational and signal-intelligence records.
 
-    Core product history is deliberately excluded: users, verification requests,
-    signals/results, broadcast summary rows, runtime settings, and audit logs.
+    User access/verification state is retained. Verification evidence is purged
+    immediately after owner review. Generated signals/results are intelligence
+    records with the configured retention window (10 days in the V1 Blueprint).
     """
 
     def __init__(self, retention_days: int | None = None, interval_seconds: int | None = None):
@@ -49,8 +51,16 @@ class RetentionCleanupService:
             webhook_result = db.execute(
                 delete(TelegramUpdateReceipt).where(TelegramUpdateReceipt.received_at < cutoff)
             )
+
+            old_signal_ids = select(Signal.id).where(Signal.created_at < cutoff)
             notification_result = db.execute(
-                delete(SignalNotification).where(SignalNotification.created_at < cutoff)
+                delete(SignalNotification).where(
+                    (SignalNotification.created_at < cutoff)
+                    | (SignalNotification.signal_id.in_(old_signal_ids))
+                )
+            )
+            signal_result = db.execute(
+                delete(Signal).where(Signal.created_at < cutoff)
             )
 
             old_completed_broadcast_ids = select(Broadcast.id).where(
@@ -68,6 +78,7 @@ class RetentionCleanupService:
             result = CleanupResult(
                 webhook_receipts=int(webhook_result.rowcount or 0),
                 signal_notifications=int(notification_result.rowcount or 0),
+                signals=int(signal_result.rowcount or 0),
                 broadcast_deliveries=int(delivery_result.rowcount or 0),
             )
 
