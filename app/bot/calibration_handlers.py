@@ -28,12 +28,6 @@ def _owner_private_chat(update: Update) -> bool:
 
 
 async def calibration_result_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Attach a user-confirmed BCGAME result to the existing signal intelligence record.
-
-    The automatic Signal.status remains the external-reference diagnostic result.
-    The real BCGAME observation is stored separately under features_snapshot so
-    calibration never confuses the two sources.
-    """
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
@@ -88,7 +82,6 @@ async def calibration_result_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def export_calibration_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send the owner a CSV snapshot of all currently retained signal intelligence."""
     if not _owner_private_chat(update):
         if update.effective_chat:
             await update.effective_chat.send_message('This command is available only in the owner private chat.')
@@ -112,13 +105,13 @@ async def export_calibration_command(update: Update, context: ContextTypes.DEFAU
     fieldnames = [
         'signal_id', 'created_at', 'strategy_version', 'market', 'product', 'direction',
         'external_reference_status', 'bcgame_result', 'bcgame_label_source',
-        'countdown_seconds', 'quality', 'bull_score', 'bear_score',
-        'scan_price', 'reference_entry_price', 'reference_expiry_price',
-        'trade_buy_ratio', 'trade_count_recent', 'tick_return_1s_pct',
-        'tick_return_3s_pct', 'tick_return_5s_pct', 'tick_acceleration_pct',
-        'tick_volatility_5s_pct', 'ema_fast', 'ema_slow', 'rsi_14',
-        'atr_14_pct', 'volume_ratio', 'taker_buy_ratio', 'structure',
-        'decision_reason', 'status_reason', 'features_json',
+        'scan_trigger_mode', 'scan_received_at', 'legacy_countdown_seconds',
+        'quality', 'bull_score', 'bear_score', 'scan_price',
+        'reference_entry_price', 'reference_expiry_price', 'trade_buy_ratio',
+        'trade_count_recent', 'tick_return_1s_pct', 'tick_return_3s_pct',
+        'tick_return_5s_pct', 'tick_acceleration_pct', 'tick_volatility_5s_pct',
+        'ema_fast', 'ema_slow', 'rsi_14', 'atr_14_pct', 'volume_ratio',
+        'taker_buy_ratio', 'structure', 'decision_reason', 'status_reason', 'features_json',
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
@@ -129,6 +122,7 @@ async def export_calibration_command(update: Update, context: ContextTypes.DEFAU
         decision = dict(features.get('_decision') or {})
         market = dict(features.get('_market') or {})
         round_meta = dict(features.get('_bcgame_round') or {})
+        trigger = dict(features.get('_scan_trigger') or {})
         calibration = dict(features.get('_calibration') or {})
         if calibration.get('bcgame_result') in {'WIN', 'LOSS'}:
             verified += 1
@@ -142,7 +136,9 @@ async def export_calibration_command(update: Update, context: ContextTypes.DEFAU
             'external_reference_status': signal.status.value,
             'bcgame_result': calibration.get('bcgame_result', ''),
             'bcgame_label_source': calibration.get('source', ''),
-            'countdown_seconds': round_meta.get('countdown_confirmed_seconds', ''),
+            'scan_trigger_mode': trigger.get('mode', ''),
+            'scan_received_at': trigger.get('received_at', ''),
+            'legacy_countdown_seconds': round_meta.get('countdown_confirmed_seconds', ''),
             'quality': decision.get('quality', ''),
             'bull_score': decision.get('bull_score', ''),
             'bear_score': decision.get('bear_score', ''),
@@ -174,6 +170,6 @@ async def export_calibration_command(update: Update, context: ContextTypes.DEFAU
     document.name = filename
 
     await update.effective_chat.send_message(
-        f'🧠 CALIBRATION EXPORT\n\nRetained signals: {len(signals)}\nBCGAME-confirmed results: {verified}\nRetention window: {settings.temporary_retention_days} days\n\nUpload this CSV when you want the engine analysed or recalibrated.'
+        f'🧠 CALIBRATION EXPORT\n\nRetained signals: {len(signals)}\nBCGAME-confirmed results: {verified}\nRetention window: {settings.temporary_retention_days} days\n\nNew scans include exact server-side Scan Now timestamps. Legacy countdown data is kept only for older records.'
     )
     await context.bot.send_document(chat_id=update.effective_chat.id, document=document, filename=filename)
