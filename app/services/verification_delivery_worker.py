@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from sqlalchemy import select
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -78,26 +78,36 @@ class VerificationDeliveryWorker:
 
             try:
                 async with Bot(settings.telegram_bot_token) as bot:
-                    await bot.send_photo(settings.owner_telegram_id, request.profile_proof_file_id, caption='BC.GAME profile proof')
-                    for index, file_id in enumerate(request.deposit_proof_file_ids or [], start=1):
-                        await bot.send_photo(settings.owner_telegram_id, file_id, caption=f'Deposit proof {index}')
-
-                    username = f'@{user.telegram_username}' if user.telegram_username else 'None'
-                    text = (
-                        '🔐 NEW VERIFICATION REQUEST\n\n'
-                        f'Request ID: {request.id}\n'
-                        f'Name: {user.first_name or "Unknown"}\n'
-                        f'Username: {username}\n'
-                        f'Telegram ID: {user.telegram_user_id}\n'
-                        f'BC.GAME User ID: {request.bcgame_user_id}\n\n'
-                        'All evidence for this packet was delivered above. Check the BC.GAME affiliate dashboard before deciding.'
+                    username = f'@{user.telegram_username}' if user.telegram_username else 'Not set'
+                    caption = (
+                        '🔐 NEW VERIFICATION\n\n'
+                        f'👤 {user.first_name or "Unknown"} • {username}\n'
+                        f'🆔 Telegram: {user.telegram_user_id}\n'
+                        f'🎮 BCGAME ID: {request.bcgame_user_id}\n'
+                        f'📦 Request #{request.id}\n\n'
+                        'Photo 1: BCGAME profile\n'
+                        'Photo 2+: Deposit proof\n\n'
+                        'Confirm the account in your affiliate dashboard before approving.'
                     )
+                    proof_ids = [request.profile_proof_file_id, *(request.deposit_proof_file_ids or [])]
+                    proof_ids = [file_id for file_id in proof_ids if file_id]
+                    if len(proof_ids) >= 2:
+                        media = [InputMediaPhoto(media=proof_ids[0], caption=caption)]
+                        media.extend(InputMediaPhoto(media=file_id) for file_id in proof_ids[1:10])
+                        await bot.send_media_group(settings.owner_telegram_id, media=media)
+                    elif proof_ids:
+                        await bot.send_photo(settings.owner_telegram_id, proof_ids[0], caption=caption)
+                    else:
+                        raise ValueError('verification_packet_has_no_evidence')
+
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}')],
-                        [InlineKeyboardButton('🔄 Resubmit', callback_data=f'admin:resubmit:{request.id}')],
-                        [InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}')],
+                        [
+                            InlineKeyboardButton('✅ Approve', callback_data=f'admin:approve:{request.id}'),
+                            InlineKeyboardButton('❌ Reject', callback_data=f'admin:reject:{request.id}'),
+                        ],
+                        [InlineKeyboardButton('🔄 Ask to Resubmit', callback_data=f'admin:resubmit:{request.id}')],
                     ])
-                    await bot.send_message(settings.owner_telegram_id, text, reply_markup=keyboard)
+                    await bot.send_message(settings.owner_telegram_id, f'👆 Review Request #{request.id}', reply_markup=keyboard)
                 delivery.status = VerificationDeliveryStatus.SENT
                 delivery.delivered_at = utcnow()
                 delivery.last_error = None
