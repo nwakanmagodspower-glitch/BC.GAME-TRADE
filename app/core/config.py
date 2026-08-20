@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     detrade_client_type: int = 1
     detrade_subscription_cmd: str = '/contest/BTC/USD/5/ticker/subscribe'
     detrade_ticker_route: str = '/contest/BTC/USD/5/ticker'
-    detrade_latency_safety_margin_ms: int = 700
+    detrade_latency_safety_margin_ms: int = 7000
     detrade_stale_after_ms: int = 1500
     detrade_ping_interval_seconds: float = 18.0
     detrade_ping_timeout_seconds: float = 10.0
