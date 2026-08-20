@@ -26,10 +26,6 @@ services:
         value: "true"
       - key: SIGNAL_TIMING_MODE
         value: MANUAL_SYNC
-      - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
-        value: "15,14,13,12"
-      - key: MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN
-        value: "7"
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -48,6 +44,38 @@ services:
         value: "false"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
+      - key: DETRADE_WS_ENABLED
+        sync: false
+      - key: DETRADE_WS_TOKEN
+        sync: false
+      - key: DETRADE_AUTH_MODE
+        value: QUERY
+      - key: DETRADE_WS_URL
+        value: wss://websocket.detrade.com/ws
+      - key: DETRADE_ORIGIN
+        value: https://bc.game
+      - key: DETRADE_DEVICE
+        value: web-pc
+      - key: DETRADE_CLIENT_TYPE
+        value: "1"
+      - key: DETRADE_SUBSCRIPTION_CMD
+        value: /contest/BTC/USD/5/ticker/subscribe
+      - key: DETRADE_TICKER_ROUTE
+        value: /contest/BTC/USD/5/ticker
+      - key: DETRADE_LATENCY_SAFETY_MARGIN_MS
+        value: "700"
+      - key: DETRADE_STALE_AFTER_MS
+        value: "1500"
+      - key: DETRADE_PING_INTERVAL_SECONDS
+        value: "18"
+      - key: DETRADE_PING_TIMEOUT_SECONDS
+        value: "10"
+      - key: DETRADE_RECONNECT_SECONDS
+        value: "2"
+      - key: DETRADE_RECONNECT_MAX_SECONDS
+        value: "30"
+      - key: DETRADE_MAX_FRAME_BYTES
+        value: "1000000"
       - key: SIGNAL_MIN_SCORE
         value: "6"
       - key: SIGNAL_MIN_MARGIN
@@ -55,7 +83,7 @@ services:
       - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
-        value: "750"
+        value: "250"
       - key: SIGNAL_USER_COOLDOWN_SECONDS
         value: "5"
       - key: SIGNAL_MIN_RECENT_TRADES
@@ -151,10 +179,6 @@ services:
         value: "true"
       - key: SIGNAL_TIMING_MODE
         value: MANUAL_SYNC
-      - key: MANUAL_SYNC_ALLOWED_COUNTDOWNS
-        value: "15,14,13,12"
-      - key: MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN
-        value: "7"
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -180,7 +204,7 @@ services:
       - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
-        value: "750"
+        value: "250"
       - key: SIGNAL_USER_COOLDOWN_SECONDS
         value: "5"
       - key: SIGNAL_MIN_RECENT_TRADES
