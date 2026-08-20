@@ -56,22 +56,29 @@ async def _send_help(chat) -> None:
     await chat.send_message(
         'ℹ️ HOW IT WORKS\n\n'
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
-        '1️⃣ GET READY\n'
-        'Open BCGAME Up/Down, choose BTC/USD and 5s, then enter the amount you want to use before scanning.\n\n'
-        '2️⃣ WATCH THE COUNTDOWN\n'
-        'Wait for a fresh round. BCGAME gives a 15-second order countdown.\n\n'
-        '3️⃣ SCAN EARLY\n'
-        'When the timer shows 15, 14, 13 or 12 seconds, return to the bot and tap the exact matching countdown button immediately.\n\n'
-        '4️⃣ READ THE SIGNAL\n'
+        '1️⃣ SET UP THE CORRECT MARKET\n'
+        'Open BCGAME Up/Down and select:\n'
+        '• Pair: BTC/USD\n'
+        '• Duration: 5 Seconds\n'
+        '• Range: $1–$50\n\n'
+        'This system is built specifically for the 5s • $1–$50 Up/Down market. Do not use its signals on the other 5-second ranges.\n\n'
+        '2️⃣ ENTER YOUR TRADE AMOUNT\n'
+        'Enter the amount you want to trade before requesting a signal. Do not tap UP or DOWN yet.\n\n'
+        '3️⃣ WATCH THE 15-SECOND COUNTDOWN\n'
+        'Wait for a fresh round. When the order window begins, BCGAME counts down from 15 seconds.\n\n'
+        '4️⃣ SCAN EARLY\n'
+        'When BCGAME shows 15, 14, 13 or 12 seconds, return to the bot and tap the exact matching countdown button immediately.\n\n'
+        '5️⃣ READ THE SIGNAL\n'
         '🟢 UP — upward setup detected\n'
         '🔴 DOWN — downward setup detected\n'
         '⚪ NO TRADE — setup is not strong enough\n'
         '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-        '5️⃣ PLACE IT MANUALLY\n'
-        'If you receive UP or DOWN while enough time remains, open BCGAME and tap the same direction before the order countdown reaches 0. If you are late, skip the round.\n\n'
-        '6️⃣ RESULT\n'
-        'At 0, the round locks its Start Rate. Five seconds later the End Rate is recorded. A higher End Rate means UP; a lower End Rate means DOWN.\n\n'
-        '⚠️ Signals are market analysis, not guaranteed outcomes. The bot never places a wager for you.'
+        '6️⃣ PLACE THE TRADE\n'
+        'If you receive UP or DOWN with enough time remaining, return to BCGAME and tap the same direction before the countdown reaches 0. If you are late, skip the round.\n\n'
+        '7️⃣ RESULT\n'
+        'At 0, BCGAME records the Start Rate. Five seconds later it records the End Rate.\n\n'
+        'End Rate > Start Rate → UP wins\n'
+        'End Rate ≤ Start Rate → DOWN wins'
     )
 
 
@@ -115,9 +122,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
             await update.effective_chat.send_message(
                 '⚡ WELCOME TO BCGAME AI SIGNALS\n\n'
-                'Get BTC/USD 5-second Up/Down market analysis directly inside Telegram.\n\n'
+                'Get BTC/USD 5-second Up/Down signals directly inside Telegram.\n\n'
                 '🔐 PRIVATE ACCESS\n'
-                'Access is free for verified users who register through our link.\n\n'
+                'To qualify, register through our link and make a deposit of $10 or more.\n\n'
                 '1️⃣ CREATE YOUR ACCOUNT\n'
                 'Tap the button below to register. Once your account is ready, come back and tap “I Have Registered”.',
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -136,9 +143,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             request = service.current_request(user)
             proof_count = len(request.deposit_proof_file_ids or [])
             if proof_count:
-                await update.effective_chat.send_message(f'5️⃣ DEPOSIT PROOF\n\n✅ {proof_count} deposit screenshot(s) received. Submit now or add another if needed.', reply_markup=_button('✅ Submit Verification', 'onboard:submit'))
+                await update.effective_chat.send_message(
+                    f'5️⃣ DEPOSIT PROOF\n\n✅ {proof_count} deposit screenshot(s) received.\n\nMinimum qualifying deposit: $10 or more.\n\nSubmit now or add another screenshot if needed.',
+                    reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
+                )
             else:
-                await update.effective_chat.send_message('5️⃣ DEPOSIT PROOF\n\nSend one clear screenshot showing your BCGAME deposit. The submit button will appear after it is received.')
+                await update.effective_chat.send_message(
+                    '5️⃣ DEPOSIT PROOF\n\nSend one clear screenshot showing your BCGAME deposit of $10 or more. The submit button will appear after it is received.'
+                )
             return
         if step == OnboardingStep.REVIEW:
             await update.effective_chat.send_message('⏳ VERIFICATION UNDER REVIEW\n\nYour evidence has been submitted. You will receive a message here once your access is approved.')
@@ -153,7 +165,9 @@ async def _send_deposit_step(update: Update):
         keyboard.append([InlineKeyboardButton('💳 Open BCGAME Deposit', url=settings.bcgame_deposit_url)])
     keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
     await update.effective_chat.send_message(
-        '2️⃣ FUND YOUR ACCOUNT\n\nMake your deposit on BCGAME using the button below. Once completed, return here and tap “I Have Deposited”.',
+        '2️⃣ FUND YOUR ACCOUNT\n\n'
+        '💰 Minimum qualifying deposit: $10 or more.\n\n'
+        'Make your deposit on BCGAME using the button below. Once completed, return here and tap “I Have Deposited”.',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -237,7 +251,11 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if user.onboarding_step == OnboardingStep.PROFILE_PROOF:
             service.set_profile_proof(user, file_id)
-            await update.message.reply_text('✅ PROFILE SCREENSHOT RECEIVED\n\n5️⃣ DEPOSIT PROOF\n\nNow send one clear screenshot showing your BCGAME deposit.')
+            await update.message.reply_text(
+                '✅ PROFILE SCREENSHOT RECEIVED\n\n'
+                '5️⃣ DEPOSIT PROOF\n\n'
+                'Now send one clear screenshot showing your BCGAME deposit of $10 or more.'
+            )
             return
         if user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
@@ -246,7 +264,10 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(str(exc))
                 return
             count = len(request.deposit_proof_file_ids or [])
-            await update.message.reply_text(f'✅ DEPOSIT PROOF RECEIVED ({count})\n\nEverything required is ready. Tap below to send your verification for review.', reply_markup=_button('✅ Submit Verification', 'onboard:submit'))
+            await update.message.reply_text(
+                f'✅ DEPOSIT PROOF RECEIVED ({count})\n\nMinimum qualifying deposit: $10 or more.\n\nEverything required is ready. Tap below to send your verification for review.',
+                reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
+            )
 
 
 async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
