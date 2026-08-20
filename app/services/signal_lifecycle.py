@@ -95,12 +95,13 @@ class SignalLifecycleService:
         signal.reference_expiry_price = snapshot.price
         entry = signal.reference_entry_price
         expiry = signal.reference_expiry_price
-        if expiry == entry:
-            signal.status = SignalStatus.TIE
-        elif signal.direction == SignalDirection.UP:
+
+        # BC.GAME's supplied rule is binary: UP wins only when End > Start;
+        # otherwise DOWN wins. Equality therefore belongs to DOWN, not TIE.
+        if signal.direction == SignalDirection.UP:
             signal.status = SignalStatus.WIN if expiry > entry else SignalStatus.LOSS
         else:
-            signal.status = SignalStatus.WIN if expiry < entry else SignalStatus.LOSS
+            signal.status = SignalStatus.WIN if expiry <= entry else SignalStatus.LOSS
 
         feature_data = dict(signal.features_snapshot or {})
         market_meta = dict(feature_data.get('_market') or {})
