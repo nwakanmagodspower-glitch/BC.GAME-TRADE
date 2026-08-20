@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.database import engine
+from app.integrations.detrade_observer import detrade_observer
 from app.services.broadcast_worker import broadcast_worker
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_worker import signal_lifecycle_worker
@@ -17,8 +18,8 @@ class BackgroundJobCoordinator:
 
     Render zero-downtime deploys can temporarily overlap the old and new web
     instances. A PostgreSQL advisory lock lets only one process own lifecycle,
-    broadcast, and cleanup work at a time. A replacement instance keeps trying
-    and takes over shortly after the previous instance releases the lock.
+    broadcast, cleanup, and observation work at a time. A replacement instance
+    keeps trying and takes over shortly after the previous instance releases the lock.
     """
 
     LOCK_KEY = 0x424347414D455452  # stable app-specific 64-bit advisory-lock key
@@ -52,10 +53,12 @@ class BackgroundJobCoordinator:
         await broadcast_worker.start()
         await verification_delivery_worker.start()
         await retention_cleanup_service.start()
+        await detrade_observer.start()
         self.is_leader = True
 
     async def _relinquish(self) -> None:
         if self.is_leader:
+            await detrade_observer.stop()
             await retention_cleanup_service.stop()
             await broadcast_worker.stop()
             await verification_delivery_worker.stop()
@@ -96,7 +99,6 @@ class BackgroundJobCoordinator:
                     if self._try_lock():
                         await self._become_leader()
                 elif self._connection is not None:
-                    # Verify the lock-holding DB connection is still alive.
                     self._connection.execute(text('SELECT 1'))
                 self.last_error = None
             except asyncio.CancelledError:
