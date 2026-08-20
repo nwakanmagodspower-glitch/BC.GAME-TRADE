@@ -32,5 +32,5 @@ async def manual_scan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await query.message.reply_text(
             format_signal(result.signal),
-            reply_markup=build_signal_keyboard(result.signal.direction),
+            reply_markup=build_signal_keyboard(result.signal.direction, result.signal.id),
         )
