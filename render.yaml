@@ -2,6 +2,8 @@ services:
   - type: web
     name: bcgame-trade-api
     runtime: docker
+    branch: main
+    autoDeployTrigger: commit
     plan: starter
     region: frankfurt
     healthCheckPath: /health
@@ -126,6 +128,8 @@ services:
   - type: worker
     name: bcgame-trade-worker
     runtime: docker
+    branch: main
+    autoDeployTrigger: commit
     plan: starter
     region: frankfurt
     maxShutdownDelaySeconds: 60
