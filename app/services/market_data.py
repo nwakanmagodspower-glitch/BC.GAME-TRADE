@@ -30,7 +30,7 @@ class MarketDataCache:
         self._latest: dict[str, MarketTick] = {}
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_buffer_size))
         self._candles: dict[str, list[Candle]] = {}
-        self._candles_updated_at: dict[str, datetime] = {}
+        self._candles_provider_time: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
         self.max_future_skew_seconds = settings.market_data_future_skew_seconds if max_future_skew_seconds is None else max_future_skew_seconds
 
@@ -51,25 +51,38 @@ class MarketDataCache:
                 self._trades[symbol].append(tick)
 
     async def set_candles(self, symbol: str, candles: list[Candle]) -> None:
+        if not candles:
+            raise ValueError('candle cache cannot be populated with an empty series')
+        now = datetime.now(timezone.utc)
+        provider_times: list[datetime] = []
+        for candle in candles:
+            if candle.open_time.tzinfo is None or candle.close_time.tzinfo is None:
+                raise ValueError('candle timestamps must be timezone-aware')
+            if candle.open_time > now + timedelta(seconds=self.max_future_skew_seconds):
+                raise ValueError('candle open_time is too far in the future')
+            # The provider open timestamp is the safest freshness anchor for an
+            # in-progress kline; close_time can legitimately be in the future.
+            provider_times.append(candle.open_time.astimezone(timezone.utc))
+        provider_time = max(provider_times)
         async with self._lock:
             self._candles[symbol.upper()] = list(candles)
-            self._candles_updated_at[symbol.upper()] = datetime.now(timezone.utc)
+            self._candles_provider_time[symbol.upper()] = provider_time
 
     async def get_candles(self, symbol: str, max_age_seconds: int | None = None) -> list[Candle] | None:
         async with self._lock:
             candles = self._candles.get(symbol.upper())
-            updated_at = self._candles_updated_at.get(symbol.upper())
+            provider_time = self._candles_provider_time.get(symbol.upper())
         if candles and max_age_seconds is not None:
-            if updated_at is None or (datetime.now(timezone.utc) - updated_at).total_seconds() > max_age_seconds:
+            if provider_time is None or (datetime.now(timezone.utc) - provider_time).total_seconds() > max_age_seconds:
                 return None
         return list(candles) if candles else None
 
     async def get_candle_age_seconds(self, symbol: str) -> float | None:
         async with self._lock:
-            updated_at = self._candles_updated_at.get(symbol.upper())
-        if updated_at is None:
+            provider_time = self._candles_provider_time.get(symbol.upper())
+        if provider_time is None:
             return None
-        return max(0.0, (datetime.now(timezone.utc) - updated_at).total_seconds())
+        return max(0.0, (datetime.now(timezone.utc) - provider_time).total_seconds())
 
     async def get_snapshot(self, symbol: str, max_age_seconds: int) -> MarketSnapshot | None:
         async with self._lock:
@@ -125,9 +138,6 @@ class MarketDataService:
         if self._task and not self._task.done():
             return
         self._stop.clear()
-        # Bootstrap improves first-scan readiness, but a temporary REST failure
-        # must never crash the entire Render service. The background loops below
-        # recover automatically and health remains fail-closed until data is fresh.
         try:
             await self.bootstrap(symbol)
             self.last_error = None
