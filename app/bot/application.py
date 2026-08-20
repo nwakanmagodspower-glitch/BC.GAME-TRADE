@@ -8,6 +8,7 @@ from app.bot.calibration_handlers import calibration_result_callback, export_cal
 from app.bot.handlers import (
     admin_review_callback, menu_callback, onboarding_callback, photo_input, start, text_input,
 )
+from app.bot.round_status_handler import round_status_command
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -24,6 +25,7 @@ def build_telegram_application() -> Application | None:
     application.add_handler(CommandHandler('suspend', suspend_command))
     application.add_handler(CommandHandler('restore', restore_command))
     application.add_handler(CommandHandler('export_calibration', export_calibration_command))
+    application.add_handler(CommandHandler('round_status', round_status_command))
     application.add_handler(CallbackQueryHandler(broadcast_callback, pattern=r'^adminops:broadcast_(confirm|cancel):'))
     application.add_handler(CallbackQueryHandler(admin_ops_callback, pattern=r'^adminops:'))
     application.add_handler(CallbackQueryHandler(admin_review_callback, pattern=r'^admin:'))
