@@ -15,15 +15,10 @@ def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = None) -> InlineKeyboardMarkup:
+def build_signal_keyboard(direction: SignalDirection) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-    if direction in {SignalDirection.UP, SignalDirection.DOWN} and signal_id is not None:
-        rows.append([
-            InlineKeyboardButton('✅ BCGAME WIN', callback_data=f'calibration:win:{signal_id}'),
-            InlineKeyboardButton('❌ BCGAME LOSS', callback_data=f'calibration:loss:{signal_id}'),
-        ])
     rows.append([InlineKeyboardButton('🔄 Scan Next Round', callback_data='menu:scan_now')])
     return InlineKeyboardMarkup(rows)
 
@@ -37,8 +32,8 @@ def format_scan_context() -> str:
         f'Range: ${settings.default_stake_band}\n\n'
         '1️⃣ Open BCGAME Up/Down and enter the amount you want to trade. Do not tap UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin.\n\n'
-        '3️⃣ As soon as you are ready, tap ⚡ Scan Now. The scan starts immediately when the bot receives your tap — there is no 15/14/13/12 estimate anymore.\n\n'
-        '🤖 The system will return:\n'
+        '3️⃣ Tap ⚡ Scan Now as soon as you are ready. The market scan starts when the bot receives your tap.\n\n'
+        '🤖 Possible responses:\n'
         '🟢 UP  •  🔴 DOWN  •  ⚪ NO TRADE  •  ⚠️ UNAVAILABLE\n\n'
         'If network delay makes the signal arrive too late for that round, skip it and scan the next fresh round.'
     )
@@ -59,7 +54,7 @@ def format_signal(signal: Signal) -> str:
     quality = ((signal.features_snapshot or {}).get('_decision') or {}).get('quality', 'QUALIFIED')
 
     action = (
-        'Recorded for PAPER validation only. Do not place a BCGAME trade.'
+        'Recorded for PAPER validation only.'
         if mode == 'PAPER'
         else '🚀 Open BCGAME now and tap the same direction before the order window closes. If there is not enough time left, skip the round.'
     )
