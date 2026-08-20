@@ -73,13 +73,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if step == OnboardingStep.REGISTRATION:
             keyboard = []
             if settings.bcgame_registration_url:
-                keyboard.append([InlineKeyboardButton('🔗 Register on BC.GAME', url=settings.bcgame_registration_url)])
-            keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
+                keyboard.append([InlineKeyboardButton('🔗 Create BC.GAME Account', url=settings.bcgame_registration_url)])
+            keyboard.append([InlineKeyboardButton('✅ Continue', callback_data='onboard:registered')])
             await update.effective_chat.send_message(
-                'Welcome to BC.GAME BTC 5s Signals.\n\n'
-                'Access is verified manually so signals remain limited to approved users.\n\n'
-                'Step 1 of 5 — Registration\n'
-                'Create your BC.GAME account using the link below, then return here.',
+                '⚡ BC.GAME BTC 5s Signals\n\n'
+                'Get real-time BTC/USD 5-second Up/Down market analysis and trade signals.\n\n'
+                '🔐 Private Access\n'
+                'Complete the quick verification process to unlock the signal dashboard.\n\n'
+                '1️⃣ Create Your Account\n'
+                'Register on BC.GAME using the button below. When you are done, return here and tap Continue.',
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
             return
