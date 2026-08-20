@@ -138,7 +138,7 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         if query.data == 'onboard:submit' and user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
-                request = service.submit(user)
+                service.submit(user)
             except ValueError as exc:
                 await query.answer(str(exc), show_alert=True)
                 return
@@ -196,12 +196,18 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=_button('✅ Finish Verification', 'onboard:submit'),
             )
 
+
 async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
-    if not settings.owner_telegram_id or query.from_user.id != settings.owner_telegram_id:
-        await query.answer('Not authorized.', show_alert=True)
+    if (
+        not settings.owner_telegram_id
+        or query.from_user.id != settings.owner_telegram_id
+        or not update.effective_chat
+        or update.effective_chat.type != 'private'
+    ):
+        await query.answer('Owner review is available only in the owner private chat.', show_alert=True)
         return
     try:
         _, action, request_id_text = query.data.split(':', 2)
