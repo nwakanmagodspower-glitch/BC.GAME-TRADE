@@ -72,9 +72,15 @@ class SignalRecordService:
             'external_reference_only': True,
         }
         if round_snapshot is not None:
+            confirmed_countdown = max(
+                0,
+                int(round((round_snapshot.order_closes_at - round_snapshot.observed_at).total_seconds())),
+            )
             feature_data['_bcgame_round'] = {
                 'round_id': round_snapshot.round_id,
                 'source': round_snapshot.source,
+                'observed_at': round_snapshot.observed_at.isoformat(),
+                'countdown_confirmed_seconds': confirmed_countdown if round_snapshot.source == 'MANUAL_SYNC' else None,
                 'order_closes_at': round_snapshot.order_closes_at.isoformat(),
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
