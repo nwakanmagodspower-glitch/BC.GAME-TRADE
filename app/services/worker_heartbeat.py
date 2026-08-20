@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from app.core.database import SessionLocal
@@ -10,22 +12,30 @@ from app.models.entities import RuntimeSetting
 class WorkerHeartbeatService:
     KEY = 'background_worker_heartbeat'
 
-    def __init__(self, interval_seconds: float = 10.0):
+    def __init__(self, interval_seconds: float = 10.0, health_provider: Callable[[], dict] | None = None):
         self.interval_seconds = interval_seconds
+        self.health_provider = health_provider
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self.last_error: str | None = None
 
     def beat_once(self) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        components = self.health_provider() if self.health_provider else {}
+        healthy = all(bool(value) for value in components.values()) if components else True
+        payload = json.dumps({
+            'timestamp': now.isoformat(),
+            'healthy': healthy,
+            'components': components,
+        }, separators=(',', ':'), sort_keys=True)
         with SessionLocal() as db:
             record = db.get(RuntimeSetting, self.KEY)
             if record is None:
-                record = RuntimeSetting(key=self.KEY, value=now)
+                record = RuntimeSetting(key=self.KEY, value=payload)
                 db.add(record)
             else:
-                record.value = now
-                record.updated_at = datetime.now(timezone.utc)
+                record.value = payload
+                record.updated_at = now
             db.commit()
 
     async def start(self) -> None:
