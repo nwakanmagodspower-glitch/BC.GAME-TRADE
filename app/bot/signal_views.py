@@ -18,10 +18,15 @@ def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def build_signal_keyboard(direction: SignalDirection) -> InlineKeyboardMarkup:
+def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
+    if direction in {SignalDirection.UP, SignalDirection.DOWN} and signal_id is not None:
+        rows.append([
+            InlineKeyboardButton('✅ BCGAME WIN', callback_data=f'calibration:win:{signal_id}'),
+            InlineKeyboardButton('❌ BCGAME LOSS', callback_data=f'calibration:loss:{signal_id}'),
+        ])
     rows.append([InlineKeyboardButton('🔄 Scan Next Round', callback_data='menu:signal')])
     return InlineKeyboardMarkup(rows)
 
