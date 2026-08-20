@@ -43,6 +43,26 @@ class Settings(BaseSettings):
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
 
+    # Reverse-engineered DeTrade round observer. Disabled by default and does
+    # not control signal timing until explicitly validated and opted in.
+    detrade_ws_enabled: bool = False
+    detrade_ws_url: str = 'wss://websocket.detrade.com/ws'
+    detrade_ws_token: str | None = None
+    detrade_auth_mode: str = 'QUERY'  # QUERY or MESSAGE
+    detrade_origin: str = 'https://bc.game'
+    detrade_user_agent: str = 'Mozilla/5.0'
+    detrade_device: str = 'web-pc'
+    detrade_client_type: int = 1
+    detrade_subscription_cmd: str = '/contest/BTC/USD/5/ticker/subscribe'
+    detrade_ticker_route: str = '/contest/BTC/USD/5/ticker'
+    detrade_latency_safety_margin_ms: int = 700
+    detrade_stale_after_ms: int = 1500
+    detrade_ping_interval_seconds: float = 18.0
+    detrade_ping_timeout_seconds: float = 10.0
+    detrade_reconnect_seconds: float = 2.0
+    detrade_reconnect_max_seconds: float = 30.0
+    detrade_max_frame_bytes: int = 1_000_000
+
     signal_min_score: int = 6
     signal_min_margin: int = 3
     signal_trade_flow_lookback_seconds: int = 15
