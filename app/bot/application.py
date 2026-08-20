@@ -8,7 +8,6 @@ from app.bot.calibration_handlers import calibration_result_callback, export_cal
 from app.bot.handlers import (
     admin_review_callback, menu_callback, onboarding_callback, photo_input, start, text_input,
 )
-from app.bot.manual_signal_handlers import manual_scan_callback
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -30,8 +29,6 @@ def build_telegram_application() -> Application | None:
     application.add_handler(CallbackQueryHandler(admin_review_callback, pattern=r'^admin:'))
     application.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r'^onboard:'))
     application.add_handler(CallbackQueryHandler(calibration_result_callback, pattern=r'^calibration:(win|loss):\d+$'))
-    # The time-critical 15/14/13/12 callbacks bypass the generic menu branch.
-    application.add_handler(CallbackQueryHandler(manual_scan_callback, pattern=r'^menu:scan:(15|14|13|12)$'))
     application.add_handler(CallbackQueryHandler(menu_callback, pattern=r'^menu:'))
     application.add_handler(MessageHandler(filters.PHOTO, photo_input))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input))
