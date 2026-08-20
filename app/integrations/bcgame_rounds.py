@@ -39,7 +39,7 @@ class BCGameRoundStatus:
 
 
 class BCGameRoundService:
-    """Timing boundary for manual V1 and future automatic round sync."""
+    """Timing boundary for manual trigger mode and future automatic round sync."""
 
     def __init__(self) -> None:
         self.last_error: str | None = None
@@ -47,12 +47,12 @@ class BCGameRoundService:
 
     def status(self, now: datetime | None = None) -> BCGameRoundStatus:
         if settings.signal_timing_mode.upper() == 'MANUAL_SYNC':
-            return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_SYNC', 'Manual 15/14/13/12 countdown confirmation is active.')
+            return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_TRIGGER', 'Manual Scan Now timing is active; no BCGAME countdown is assumed.')
         if not settings.bcgame_round_sync_enabled:
-            return BCGameRoundStatus(False, False, False, None, None, 'Automatic BC.GAME round synchronization is not connected.')
+            return BCGameRoundStatus(False, False, False, None, None, 'Automatic BCGAME round synchronization is not connected.')
         snapshot = self.last_snapshot
         if snapshot is None:
-            return BCGameRoundStatus(True, False, False, None, None, self.last_error or 'No automatic BC.GAME round snapshot has been observed.')
+            return BCGameRoundStatus(True, False, False, None, None, self.last_error or 'No automatic BCGAME round snapshot has been observed.')
         current = now or datetime.now(timezone.utc)
         observed = snapshot.observed_at if snapshot.observed_at.tzinfo else snapshot.observed_at.replace(tzinfo=timezone.utc)
         age = max(0.0, (current - observed.astimezone(timezone.utc)).total_seconds())
@@ -61,12 +61,13 @@ class BCGameRoundService:
 
     async def current_actionable_round(self) -> BCGameRoundSnapshot | None:
         if not settings.bcgame_round_sync_enabled:
-            self.last_error = 'Automatic BC.GAME round synchronization is not connected.'
+            self.last_error = 'Automatic BCGAME round synchronization is not connected.'
             return None
-        self.last_error = 'Automatic BC.GAME round synchronization provider is not implemented yet.'
+        self.last_error = 'Automatic BCGAME round synchronization provider is not implemented yet.'
         return None
 
     def manual_snapshot(self, countdown_seconds: int, observed_at: datetime | None = None) -> BCGameRoundSnapshot:
+        """Legacy helper retained for old records/tests; live manual UI no longer calls it."""
         if countdown_seconds not in settings.manual_countdowns():
             raise ValueError('Unsupported manual countdown value.')
         now = observed_at or datetime.now(timezone.utc)
