@@ -206,6 +206,7 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
         or query.from_user.id != settings.owner_telegram_id
         or not update.effective_chat
         or update.effective_chat.type != 'private'
+        or update.effective_chat.id != settings.owner_telegram_id
     ):
         await query.answer('Owner review is available only in the owner private chat.', show_alert=True)
         return
@@ -274,9 +275,9 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer()
             recent = db.query(Signal).filter(Signal.requested_by_user_id == user.id).order_by(Signal.id.desc()).limit(10).all()
             if not recent:
-                await query.message.reply_text('You do not have any signal results yet.', reply_markup=_approved_menu())
+                await query.message.reply_text('You do not have any recent signal results yet.', reply_markup=_approved_menu())
                 return
-            lines = ['📈 MY RECENT 5s SIGNALS', '']
+            lines = ['📈 MY RECENT 5s SIGNALS', 'Latest 10 • records expire after 10 days', '']
             for signal in recent:
                 lines.append(f'#{signal.id}  {signal.direction.value} — {_result_label(signal)}')
             await query.message.reply_text('\n'.join(lines), reply_markup=_approved_menu())
@@ -286,9 +287,23 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer()
             await query.message.reply_text(
                 'ℹ️ HOW IT WORKS\n\n'
-                'BC.GAME accepts UP/DOWN orders during its countdown. When the countdown ends, BC.GAME records the Start Rate at the first flag. Five seconds later it records the End Rate at the second flag.\n\n'
-                'UP wins when End Rate is above Start Rate. DOWN wins otherwise according to the game instructions.\n\n'
-                'This bot analyzes short-term BTC market pressure and can return UP, DOWN, NO TRADE, or UNAVAILABLE. It does not guarantee outcomes and does not place trades automatically.',
+                '⚡ BC.GAME BTC/USD — 5s Up/Down\n\n'
+                '1️⃣ Prepare your trade\n'
+                'Open BC.GAME Up/Down, select BTC/USD and 5 seconds, then enter your stake before requesting a signal.\n\n'
+                '2️⃣ Wait for a fresh round\n'
+                'When the new order countdown starts, watch the BC.GAME timer.\n\n'
+                '3️⃣ Scan at 15–12 seconds\n'
+                'When BC.GAME shows 15, 14, 13, or 12 seconds, return here and tap the matching countdown button immediately.\n\n'
+                '4️⃣ Read the result\n'
+                '🟢 UP = upward pressure detected\n'
+                '🔴 DOWN = downward pressure detected\n'
+                '⚪ NO TRADE = conditions are not strong enough\n'
+                '⚠️ UNAVAILABLE = timing or market data is not safe enough for a valid signal\n\n'
+                '5️⃣ Place the trade manually\n'
+                'If you receive UP or DOWN with enough time remaining, return to BC.GAME and tap the same direction before the countdown reaches 0.\n\n'
+                '6️⃣ Settlement\n'
+                'At 0, BC.GAME records the Start Rate. Five seconds later it records the End Rate. If End Rate is above Start Rate, UP wins; otherwise DOWN wins according to the game rules.\n\n'
+                'Signals are market analysis, not guaranteed outcomes. The bot never places a wager for you.',
                 reply_markup=_approved_menu(),
             )
             return
