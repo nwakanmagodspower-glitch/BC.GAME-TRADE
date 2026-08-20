@@ -4,14 +4,13 @@ from telegram.ext import ContextTypes
 from app.bot.signal_views import build_scan_prompt_keyboard, build_signal_keyboard, format_scan_context, format_signal
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models.entities import OnboardingStep, Signal, UserStatus
+from app.models.entities import OnboardingStep, UserStatus
 from app.services.onboarding import OnboardingService
 from app.services.user_signals import UserSignalService
 
 settings = get_settings()
 
 SIGNAL_BUTTON = '⚡ BTC 5s Signal'
-RESULTS_BUTTON = '📈 My Results'
 HELP_BUTTON = 'ℹ️ How It Works'
 SUPPORT_BUTTON = '🆘 Support'
 
@@ -22,7 +21,7 @@ def _button(label: str, data: str) -> InlineKeyboardMarkup:
 
 def _approved_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        [[SIGNAL_BUTTON, RESULTS_BUTTON], [HELP_BUTTON, SUPPORT_BUTTON]],
+        [[SIGNAL_BUTTON], [HELP_BUTTON, SUPPORT_BUTTON]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -30,49 +29,6 @@ def _approved_menu() -> ReplyKeyboardMarkup:
 
 def _is_access_blocked(user) -> bool:
     return bool(user.is_blocked or user.status == UserStatus.SUSPENDED)
-
-
-def _display_result(signal: Signal) -> str:
-    status = signal.status.value
-    if signal.direction.value == 'NO_TRADE' or status == 'NO_TRADE':
-        return '⚪ NO TRADE — Skipped'
-    if status == 'WIN':
-        icon = '🟢' if signal.direction.value == 'UP' else '🔴'
-        return f'{icon} {signal.direction.value} — ✅ WIN'
-    if status == 'LOSS':
-        icon = '🟢' if signal.direction.value == 'UP' else '🔴'
-        return f'{icon} {signal.direction.value} — ❌ LOSS'
-    if status in {'EXPIRED', 'PENDING'}:
-        icon = '🟢' if signal.direction.value == 'UP' else '🔴' if signal.direction.value == 'DOWN' else '⚪'
-        return f'{icon} {signal.direction.value} — ⏳ Pending'
-    return f'{signal.direction.value} — {status}'
-
-
-async def _send_results(chat, db, user) -> None:
-    recent = db.query(Signal).filter(Signal.requested_by_user_id == user.id).order_by(Signal.id.desc()).limit(10).all()
-    if not recent:
-        await chat.send_message('📈 MY RESULTS\n\nNo recent signals yet. Your latest results will appear here after you start scanning.')
-        return
-
-    wins = sum(1 for signal in recent if signal.status.value == 'WIN')
-    losses = sum(1 for signal in recent if signal.status.value == 'LOSS')
-    skipped = sum(1 for signal in recent if signal.direction.value == 'NO_TRADE' or signal.status.value == 'NO_TRADE')
-    settled = wins + losses
-    win_rate = round((wins / settled) * 100) if settled else 0
-
-    lines = ['📈 MY RECENT RESULTS', 'Last 10 signal checks', '']
-    lines.extend(_display_result(signal) for signal in recent)
-    lines.extend([
-        '',
-        '📊 PERFORMANCE',
-        f'✅ Wins: {wins}',
-        f'❌ Losses: {losses}',
-        f'🎯 Win Rate: {win_rate}%' if settled else '🎯 Win Rate: —',
-        f'⚪ Skipped: {skipped}',
-        '',
-        'Results automatically clear after 10 days.',
-    ])
-    await chat.send_message('\n'.join(lines))
 
 
 async def _send_help(chat) -> None:
@@ -241,8 +197,6 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = update.message.text.strip()
             if text == SIGNAL_BUTTON:
                 await update.message.reply_text(format_scan_context(), reply_markup=build_scan_prompt_keyboard())
-            elif text == RESULTS_BUTTON:
-                await _send_results(update.effective_chat, db, user)
             elif text == HELP_BUTTON:
                 await _send_help(update.effective_chat)
             elif text == SUPPORT_BUTTON:
@@ -355,10 +309,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             signal = result.signal
             await query.message.reply_text(format_signal(signal), reply_markup=build_signal_keyboard(signal.direction))
-            return
-        if query.data == 'menu:results':
-            await query.answer()
-            await _send_results(query.message.chat, db, user)
             return
         if query.data == 'menu:help':
             await query.answer()
