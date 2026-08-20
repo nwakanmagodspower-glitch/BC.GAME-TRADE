@@ -24,6 +24,7 @@ def _is_owner(update: Update) -> bool:
         and update.effective_chat.type == 'private'
         and settings.owner_telegram_id
         and update.effective_user.id == settings.owner_telegram_id
+        and update.effective_chat.id == settings.owner_telegram_id
     )
 
 
