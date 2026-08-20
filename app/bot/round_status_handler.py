@@ -26,7 +26,7 @@ async def round_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not settings.detrade_ws_enabled:
         await update.effective_chat.send_message(
-            '🛰 DETRADE OBSERVER\n\nStatus: disabled\n\nEnable DETRADE_WS_ENABLED after configuring the private token.'
+            '🛰 DETRADE TIMER CHECK\n\nStatus: disabled\n\nConfigure the private DeTrade token and enable the observer before testing.'
         )
         return
 
@@ -35,21 +35,27 @@ async def round_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if observation is None:
         error = detrade_observer.last_error or 'No valid round frame was received.'
         await update.effective_chat.send_message(
-            '🛰 DETRADE OBSERVER\n\n'
+            '🛰 DETRADE TIMER CHECK\n\n'
             'Round data: not received\n'
             f'Diagnostic: {error}\n\n'
-            'No token or WebSocket URL is printed in diagnostics.'
+            'The observer never prints the authentication token or token-bearing WebSocket URL.'
         )
         return
 
     remaining = observation.remaining_ms
     remaining_text = f'{remaining / 1000:.3f}s' if remaining is not None else 'unknown'
+    start_text = str(observation.price_start_time_ms) if observation.price_start_time_ms is not None else 'unknown'
+    cutoff_text = str(observation.trade_cutoff_time_ms) if observation.trade_cutoff_time_ms is not None else 'not supplied'
+
     await update.effective_chat.send_message(
         '🛰 DETRADE ROUND OBSERVER\n\n'
         f'Round ID: {observation.round_id or "unknown"}\n'
-        f'Status: {observation.status if observation.status is not None else "unknown"}\n'
+        f'Phase: {observation.phase}\n'
+        f'Status code: {observation.status if observation.status is not None else "unknown"}\n'
         f'Remaining: {remaining_text}\n'
         f'Can trade: {"YES" if observation.can_trade else "NO"}\n'
-        f'Feed age: {observation.data_age_ms} ms\n\n'
-        'Observation only — this feed is not controlling signal timing yet.'
+        f'Feed age: {observation.data_age_ms} ms\n'
+        f'Price start: {start_text}\n'
+        f'Trade cutoff: {cutoff_text}\n\n'
+        'Observation only — this feed is not controlling live signal timing yet.'
     )
