@@ -35,27 +35,39 @@ class SignalRecordService:
                 down_players=snapshot.down_players,
                 source=snapshot.source,
             )
-            self.db.add(row); self.db.flush()
+            self.db.add(row)
+            self.db.flush()
         return row
 
-    def record_scan(self, result: IntelligenceResult, requested_by_user_id: int | None = None, round_snapshot: BCGameRoundSnapshot | None = None) -> Signal:
+    def record_scan(
+        self,
+        result: IntelligenceResult,
+        requested_by_user_id: int | None = None,
+        round_snapshot: BCGameRoundSnapshot | None = None,
+        trigger_mode: str | None = None,
+    ) -> Signal:
         if not result.service_available:
             raise ValueError('Unavailable market/service states cannot be persisted as strategy signals.')
         if result.market.upper() != settings.analysis_pair.upper():
             raise ValueError('Unsupported V1 analysis market cannot be persisted.')
 
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
-        if is_trade and round_snapshot is None:
-            raise ValueError('Directional five-second signals require a timing snapshot.')
 
-        # Manual countdown snapshots are per-user timing estimates, not genuine
-        # BC.GAME round IDs. Keep them in the signal metadata only. The round
-        # table is reserved for future structured DeTrade/BC.GAME round IDs.
         round_row = None
         if round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
             round_row = self._persist_round(round_snapshot)
 
-        status = SignalStatus.WAITING_ENTRY if is_trade else SignalStatus.NO_TRADE
+        # With manual trigger timing, a directional signal is a calibration record,
+        # not a fabricated BCGAME round lifecycle. It remains CANDIDATE until the
+        # real BCGAME result is attached by the user. AUTO_SYNC keeps the timed
+        # WAITING_ENTRY lifecycle when a genuine round snapshot exists.
+        if is_trade and round_snapshot is not None:
+            status = SignalStatus.WAITING_ENTRY
+        elif is_trade:
+            status = SignalStatus.CANDIDATE
+        else:
+            status = SignalStatus.NO_TRADE
+
         feature_data = result.features.to_dict() if result.features is not None else {}
         if result.decision is not None:
             feature_data['_decision'] = {
@@ -70,6 +82,12 @@ class SignalRecordService:
             'provider': result.market_snapshot.provider if result.market_snapshot else None,
             'event_time': result.market_snapshot.event_time.isoformat() if result.market_snapshot else None,
             'external_reference_only': True,
+        }
+        feature_data['_scan_trigger'] = {
+            'mode': trigger_mode or ('AUTO_SYNC' if round_snapshot else 'MANUAL_TRIGGER'),
+            'received_at': utcnow().isoformat(),
+            'countdown_confirmed_seconds': None,
+            'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source != 'MANUAL_SYNC'),
         }
         if round_snapshot is not None:
             confirmed_countdown = max(
@@ -111,5 +129,7 @@ class SignalRecordService:
             features_snapshot=feature_data,
             decision_reason=result.reason,
         )
-        self.db.add(signal); self.db.commit(); self.db.refresh(signal)
+        self.db.add(signal)
+        self.db.commit()
+        self.db.refresh(signal)
         return signal
