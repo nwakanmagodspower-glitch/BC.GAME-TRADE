@@ -96,6 +96,14 @@ services:
         value: "1000000"
       - key: TELEGRAM_UPDATE_PROCESSING_TIMEOUT_SECONDS
         value: "60"
+      - key: TELEGRAM_WEBHOOK_MAX_CONCURRENCY
+        value: "32"
+      - key: TELEGRAM_WEBHOOK_QUEUE_TIMEOUT_SECONDS
+        value: "0.25"
+      - key: TELEGRAM_USER_UPDATE_LIMIT
+        value: "30"
+      - key: TELEGRAM_USER_UPDATE_WINDOW_SECONDS
+        value: "10"
       - key: TEMPORARY_RETENTION_DAYS
         value: "10"
       - key: CLEANUP_INTERVAL_SECONDS
