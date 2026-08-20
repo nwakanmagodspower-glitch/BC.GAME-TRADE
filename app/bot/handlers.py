@@ -1,7 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.bot.signal_views import build_scan_prompt_keyboard, build_signal_keyboard, format_scan_context, format_signal
+from app.bot.signal_views import build_scan_prompt_keyboard, build_signal_keyboard, format_signal
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.entities import OnboardingStep, UserStatus
@@ -31,6 +31,18 @@ def _is_access_blocked(user) -> bool:
     return bool(user.is_blocked or user.status == UserStatus.SUSPENDED)
 
 
+async def _run_signal_scan(chat, db, user) -> None:
+    result = await UserSignalService(db).request_scan(user.id)
+    if not result.available or result.signal is None:
+        await chat.send_message(result.reason, reply_markup=build_scan_prompt_keyboard())
+        return
+    signal = result.signal
+    await chat.send_message(
+        format_signal(signal),
+        reply_markup=build_signal_keyboard(signal.direction, signal.id),
+    )
+
+
 async def _send_help(chat) -> None:
     await chat.send_message(
         'ℹ️ HOW IT WORKS\n\n'
@@ -43,17 +55,17 @@ async def _send_help(chat) -> None:
         'This system is built specifically for the 5s • $1–$50 Up/Down market. Do not use its signals on the other 5-second ranges.\n\n'
         '2️⃣ ENTER YOUR TRADE AMOUNT\n'
         'Enter the amount you want to trade before requesting a signal. Do not tap UP or DOWN yet.\n\n'
-        '3️⃣ WATCH THE 15-SECOND COUNTDOWN\n'
-        'Wait for a fresh round. When the order window begins, BCGAME counts down from 15 seconds.\n\n'
-        '4️⃣ SCAN EARLY\n'
-        'When BCGAME shows 15, 14, 13 or 12 seconds, return to the bot and tap the exact matching countdown button immediately.\n\n'
+        '3️⃣ WAIT FOR A FRESH ROUND\n'
+        'Watch BCGAME and wait for a new order countdown to begin.\n\n'
+        '4️⃣ SCAN NOW\n'
+        'As soon as the fresh round starts, return to Telegram and tap ⚡ BTC 5s Signal. That tap itself starts the market scan immediately. There is no 15/14/13/12 selector anymore.\n\n'
         '5️⃣ READ THE SIGNAL\n'
         '🟢 UP — upward setup detected\n'
         '🔴 DOWN — downward setup detected\n'
         '⚪ NO TRADE — setup is not strong enough\n'
-        '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
+        '⚠️ UNAVAILABLE — market data is not ready or safe enough\n\n'
         '6️⃣ PLACE THE TRADE\n'
-        'If you receive UP or DOWN with enough time remaining, return to BCGAME and tap the same direction before the countdown reaches 0. If you are late, skip the round.\n\n'
+        'If you receive UP or DOWN with enough time remaining, return to BCGAME and tap the same direction before the order countdown reaches 0. If network delay makes you late, skip the round.\n\n'
         '7️⃣ RESULT\n'
         'At 0, BCGAME records the Start Rate. Five seconds later it records the End Rate.\n\n'
         'End Rate > Start Rate → UP wins\n'
@@ -196,7 +208,7 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user.status == UserStatus.APPROVED and not user.is_blocked:
             text = update.message.text.strip()
             if text == SIGNAL_BUTTON:
-                await update.message.reply_text(format_scan_context(), reply_markup=build_scan_prompt_keyboard())
+                await _run_signal_scan(update.effective_chat, db, user)
             elif text == HELP_BUTTON:
                 await _send_help(update.effective_chat)
             elif text == SUPPORT_BUTTON:
@@ -297,18 +309,9 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer()
             await query.message.reply_text('Choose an option below.', reply_markup=_approved_menu())
             return
-        if query.data == 'menu:signal':
-            await query.answer()
-            await query.message.reply_text(format_scan_context(), reply_markup=build_scan_prompt_keyboard())
-            return
-        if query.data == 'menu:scan_now':
-            await query.answer('Checking the next BCGAME round…')
-            result = await UserSignalService(db).request_scan(user.id)
-            if not result.available:
-                await query.message.reply_text(result.reason, reply_markup=build_scan_prompt_keyboard())
-                return
-            signal = result.signal
-            await query.message.reply_text(format_signal(signal), reply_markup=build_signal_keyboard(signal.direction, signal.id))
+        if query.data in {'menu:signal', 'menu:scan_now'}:
+            await query.answer('Scanning live BTC market…')
+            await _run_signal_scan(query.message.chat, db, user)
             return
         if query.data == 'menu:help':
             await query.answer()
