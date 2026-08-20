@@ -42,7 +42,7 @@ class UserSignalService:
 
         if settings.app_env.lower() == 'production' and not settings.run_background_jobs:
             worker = get_worker_status(self.db)
-            if not worker.fresh:
+            if not worker.fresh or not worker.healthy:
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
         existing = self.db.scalar(
@@ -81,11 +81,6 @@ class UserSignalService:
         if not intelligence.service_available:
             return UserSignalResult(None, False, intelligence.reason)
 
-        # In manual sync the user already confirmed a visible countdown. If
-        # analysis/Telegram handling took too long, fail rather than provide a
-        # late current-round signal.
-        # Serialize the commit boundary per user and revalidate all revocable
-        # controls after asynchronous market work.
         user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -94,6 +89,11 @@ class UserSignalService:
         if not enabled or settings.signal_mode.upper() != 'LIVE':
             self.db.rollback()
             return UserSignalResult(None, False, 'Signals are currently disabled.')
+        if settings.app_env.lower() == 'production' and not settings.run_background_jobs:
+            worker = get_worker_status(self.db)
+            if not worker.fresh or not worker.healthy:
+                self.db.rollback()
+                return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
         existing = self.db.scalar(
             select(Signal).where(
                 Signal.requested_by_user_id == user_id,
