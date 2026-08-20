@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     default_stake_band: str = '1-50'
     strategy_version: str = 'BTC_UPDOWN_5S_V1.1'
 
+    # MANUAL_SYNC now means the user's Scan Now tap is the timing event. No
+    # countdown value is inferred. Legacy countdown settings remain only for
+    # backwards compatibility with older deployments/records.
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
     manual_sync_min_remaining_after_scan: float = 7.0
@@ -48,7 +51,7 @@ class Settings(BaseSettings):
     detrade_ws_enabled: bool = False
     detrade_ws_url: str = 'wss://websocket.detrade.com/ws'
     detrade_ws_token: str | None = None
-    detrade_auth_mode: str = 'QUERY'  # QUERY or MESSAGE
+    detrade_auth_mode: str = 'QUERY'
     detrade_origin: str = 'https://bc.game'
     detrade_user_agent: str = 'Mozilla/5.0'
     detrade_device: str = 'web-pc'
@@ -69,7 +72,7 @@ class Settings(BaseSettings):
     signal_min_recent_trades: int = 12
     signal_min_tick_span_seconds: float = 4.0
     signal_settlement_window_seconds: int = 2
-    signal_scan_coalesce_ms: int = 750
+    signal_scan_coalesce_ms: int = 250
     signal_user_cooldown_seconds: float = 5.0
     worker_heartbeat_max_age_seconds: int = 30
 
