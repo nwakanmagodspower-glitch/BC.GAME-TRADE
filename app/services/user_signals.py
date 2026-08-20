@@ -45,35 +45,24 @@ class UserSignalService:
             if not worker.fresh or not worker.healthy:
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
-        existing = self.db.scalar(
-            select(Signal).where(
-                Signal.requested_by_user_id == user_id,
-                Signal.status.in_([SignalStatus.WAITING_ENTRY, SignalStatus.ACTIVE]),
-            ).order_by(Signal.id.desc())
-        )
-        if existing is not None:
-            return UserSignalResult(existing, False, 'You already have a current-round signal waiting or active.')
-
         now = datetime.now(timezone.utc)
         if user.last_scan_requested_at is not None:
             previous = user.last_scan_requested_at
             if previous.tzinfo is None:
                 previous = previous.replace(tzinfo=timezone.utc)
             if (now - previous).total_seconds() < settings.signal_user_cooldown_seconds:
-                return UserSignalResult(None, False, 'Please wait for the next fresh countdown before scanning again.')
-        user.last_scan_requested_at = now
-        self.db.commit()
+                return UserSignalResult(None, False, 'Please wait briefly before scanning again.')
 
+        # MANUAL_SYNC no longer asks the user to guess 15/14/13/12. The button
+        # press itself is the observed scan event. Until a genuine BCGAME round
+        # feed exists, we do not invent a Start Rate timestamp or countdown.
         timing_mode = settings.signal_timing_mode.upper()
         if timing_mode == 'MANUAL_SYNC':
-            if countdown_seconds is None or countdown_seconds not in settings.manual_countdowns():
-                return UserSignalResult(None, False, 'Choose the button that matches the BC.GAME timer: 15, 14, 13, or 12 seconds.')
-            observed_at = datetime.now(timezone.utc)
-            round_snapshot = bcgame_round_service.manual_snapshot(countdown_seconds, observed_at=observed_at)
+            round_snapshot = None
         elif timing_mode == 'AUTO_SYNC':
             round_snapshot = await bcgame_round_service.current_actionable_round()
             if round_snapshot is None:
-                return UserSignalResult(None, False, 'Automatic BC.GAME round timing is unavailable. No signal was generated.')
+                return UserSignalResult(None, False, 'Automatic BCGAME round timing is unavailable. No signal was generated.')
         else:
             return UserSignalResult(None, False, 'Signal timing mode is unavailable.')
 
@@ -81,6 +70,8 @@ class UserSignalService:
         if not intelligence.service_available:
             return UserSignalResult(None, False, intelligence.reason)
 
+        # Recheck authorization and service state after analysis so a user cannot
+        # retain a signal if access changes while the scan is being computed.
         user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -94,21 +85,13 @@ class UserSignalService:
             if not worker.fresh or not worker.healthy:
                 self.db.rollback()
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
-        existing = self.db.scalar(
-            select(Signal).where(
-                Signal.requested_by_user_id == user_id,
-                Signal.status.in_([SignalStatus.WAITING_ENTRY, SignalStatus.ACTIVE]),
-            ).order_by(Signal.id.desc())
+
+        # Consume cooldown only after a valid market analysis is available.
+        user.last_scan_requested_at = datetime.now(timezone.utc)
+        signal = SignalRecordService(self.db).record_scan(
+            intelligence,
+            requested_by_user_id=user_id,
+            round_snapshot=round_snapshot,
+            trigger_mode='MANUAL_TRIGGER' if timing_mode == 'MANUAL_SYNC' else 'AUTO_SYNC',
         )
-        if existing is not None:
-            self.db.rollback()
-            return UserSignalResult(existing, False, 'You already have a current-round signal waiting or active.')
-
-        now = datetime.now(timezone.utc)
-        remaining = round_snapshot.seconds_until_order_close(now)
-        if remaining < settings.manual_sync_min_remaining_after_scan:
-            self.db.rollback()
-            return UserSignalResult(None, False, 'Too little time remains for this round. Skip it and scan the next fresh 15-second countdown.')
-
-        signal = SignalRecordService(self.db).record_scan(intelligence, requested_by_user_id=user_id, round_snapshot=round_snapshot)
         return UserSignalResult(signal, True, intelligence.reason)
