@@ -30,11 +30,15 @@ async def round_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    observation = detrade_observer.latest
+    await update.effective_chat.send_message('🛰 Checking the live DeTrade round…')
+    observation = await detrade_observer.probe(timeout_seconds=6.0)
     if observation is None:
-        error = detrade_observer.last_error or 'Waiting for the first round frame.'
+        error = detrade_observer.last_error or 'No valid round frame was received.'
         await update.effective_chat.send_message(
-            f'🛰 DETRADE OBSERVER\n\nConnected: {"YES" if detrade_observer.connected else "NO"}\nRound data: not received yet\nDiagnostic: {error}'
+            '🛰 DETRADE OBSERVER\n\n'
+            'Round data: not received\n'
+            f'Diagnostic: {error}\n\n'
+            'No token or WebSocket URL is printed in diagnostics.'
         )
         return
 
@@ -46,7 +50,6 @@ async def round_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
         f'Status: {observation.status if observation.status is not None else "unknown"}\n'
         f'Remaining: {remaining_text}\n'
         f'Can trade: {"YES" if observation.can_trade else "NO"}\n'
-        f'Feed age: {observation.data_age_ms} ms\n'
-        f'Connected: {"YES" if detrade_observer.connected else "NO"}\n\n'
+        f'Feed age: {observation.data_age_ms} ms\n\n'
         'Observation only — this feed is not controlling signal timing yet.'
     )
