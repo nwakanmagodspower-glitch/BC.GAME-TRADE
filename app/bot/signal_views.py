@@ -34,7 +34,7 @@ def format_scan_context() -> str:
         '3) Enter your stake first.\n'
         '4) Wait for a fresh 15-second countdown.\n\n'
         'When BC.GAME shows 15, 14, 13, or 12 seconds, tap the matching button below immediately.\n\n'
-        'The bot returns UP, DOWN, or NO TRADE for that current round.'
+        'The bot can return UP, DOWN, NO TRADE, or UNAVAILABLE. If the response arrives too late for the round, skip it.'
     )
 
 
@@ -53,29 +53,27 @@ def format_signal(signal: Signal) -> str:
     quality = ((signal.features_snapshot or {}).get('_decision') or {}).get('quality', 'QUALIFIED')
     round_meta = (signal.features_snapshot or {}).get('_bcgame_round') or {}
     source = round_meta.get('source', 'UNKNOWN')
-    start = signal.entry_at.strftime('%H:%M:%S UTC') if signal.entry_at else 'Estimated'
-    end = signal.expiry_at.strftime('%H:%M:%S UTC') if signal.expiry_at else 'Estimated'
+    confirmed = round_meta.get('countdown_confirmed_seconds')
 
-    manual_note = ''
+    timing_lines = []
     if source == 'MANUAL_SYNC':
-        manual_note = (
-            '\n\n⏱ Manual timer sync\n'
-            'Use this direction only for the round whose countdown you just confirmed. '
-            'If BC.GAME is already below about 7 seconds when this arrives, skip the round.'
-        )
+        timing_lines.append('Timing: Manual countdown sync')
+        if confirmed is not None:
+            timing_lines.append(f'Countdown confirmed: {confirmed}s')
+    timing_text = '\n'.join(timing_lines)
+    if timing_text:
+        timing_text += '\n'
 
     action = (
         'Recorded for PAPER validation only. Do not place a BC.GAME trade.'
         if mode == 'PAPER'
-        else 'Tap the same direction on BC.GAME before its countdown reaches 0.'
+        else 'Place the same direction on BC.GAME before the countdown reaches 0. If the timer is already too low, skip this round.'
     )
     return (
         '⚡ BTC/USD — BC.GAME 5s UP/DOWN\n\n'
-        f'{icon} {signal.direction.value}\n'
+        f'{icon} {signal.direction.value}\n\n'
         f'Quality: {quality}\n'
-        f'Contract: 5s • ${settings.default_stake_band}\n'
-        f'Estimated Start: {start}\n'
-        f'Estimated End: {end}\n\n'
-        + action
-        + manual_note + paper
+        f'{timing_text}'
+        f'Contract: 5 seconds • ${settings.default_stake_band}\n\n'
+        + action + paper
     )
