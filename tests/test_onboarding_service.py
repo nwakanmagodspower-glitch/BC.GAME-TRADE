@@ -36,27 +36,32 @@ def mark_owner_packet_delivered(db, request):
     db.commit()
 
 
-def test_verification_flow_requires_complete_packet_and_remembers_approval():
+def test_verification_flow_requires_complete_packet_and_remembers_approval_without_evidence():
     db, service = make_service()
     try:
         user, submitted = build_submitted_request(service)
         mark_owner_packet_delivered(db, submitted)
         assert submitted.status == VerificationStatus.SUBMITTED
         assert user.onboarding_step == OnboardingStep.REVIEW
-        _, approved_user, changed = service.review(submitted.id, admin_id=999, action='approve')
+        reviewed, approved_user, changed = service.review(submitted.id, admin_id=999, action='approve')
         assert changed is True
         assert approved_user.status == UserStatus.APPROVED
         assert approved_user.onboarding_step == OnboardingStep.APPROVED
         assert approved_user.approved_by == 999
+        assert reviewed.bcgame_user_id is None
+        assert reviewed.profile_proof_file_id is None
+        assert reviewed.deposit_proof_file_ids is None
+        assert db.scalar(select(VerificationDelivery).where(VerificationDelivery.verification_request_id == reviewed.id)) is None
         _, same_user, changed_again = service.review(submitted.id, admin_id=999, action='approve')
         assert changed_again is False
         assert same_user.status == UserStatus.APPROVED
-        with pytest.raises(ValueError): service.review(submitted.id, admin_id=999, action='reject')
+        with pytest.raises(ValueError):
+            service.review(submitted.id, admin_id=999, action='reject')
     finally:
         db.close()
 
 
-def test_resubmit_preserves_old_packet_and_creates_new_packet():
+def test_resubmit_purges_old_evidence_and_creates_new_packet():
     db, service = make_service()
     try:
         user, submitted = build_submitted_request(service)
@@ -67,9 +72,9 @@ def test_resubmit_preserves_old_packet_and_creates_new_packet():
         assert request.status == VerificationStatus.RESUBMIT
         assert user.status == UserStatus.PENDING
         assert user.onboarding_step == OnboardingStep.BC_ID
-        assert request.bcgame_user_id == 'BC123'
-        assert request.profile_proof_file_id == 'profile-file'
-        assert request.deposit_proof_file_ids == ['deposit-file-1']
+        assert request.bcgame_user_id is None
+        assert request.profile_proof_file_id is None
+        assert request.deposit_proof_file_ids is None
 
         new_request = service.set_bcgame_user_id(user, 'BC456')
         assert new_request.id != old_id
@@ -78,6 +83,7 @@ def test_resubmit_preserves_old_packet_and_creates_new_packet():
         history = db.scalars(select(VerificationRequest).where(VerificationRequest.user_id == user.id).order_by(VerificationRequest.id)).all()
         assert len(history) == 2
         assert history[0].status == VerificationStatus.RESUBMIT
+        assert history[0].bcgame_user_id is None
         assert history[1].status == VerificationStatus.COLLECTING
     finally:
         db.close()
