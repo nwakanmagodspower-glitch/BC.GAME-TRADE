@@ -37,19 +37,12 @@ class Settings(BaseSettings):
     default_stake_band: str = '1-50'
     strategy_version: str = 'BTC_UPDOWN_5S_V1.1'
 
-    # MANUAL_SYNC: Scan Now itself is the timing event.
-    # HYBRID_SYNC: prefer verified DeTrade round timing, but preserve manual
-    # operation only when the DeTrade source is genuinely unavailable.
-    # AUTO_SYNC: require authoritative round timing and fail closed otherwise.
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
     manual_sync_min_remaining_after_scan: float = 7.0
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
 
-    # Reverse-engineered and browser-validated DeTrade BTC/USD 5s round feed.
-    # Token remains ephemeral/private and must never be logged or persisted by
-    # application code. QUERY is the verified authentication transport.
     detrade_ws_enabled: bool = False
     detrade_ws_url: str = 'wss://websocket.detrade.com/ws'
     detrade_ws_token: str | None = None
@@ -57,6 +50,8 @@ class Settings(BaseSettings):
     detrade_origin: str = 'https://bc.game'
     detrade_user_agent: str = 'Mozilla/5.0'
     detrade_device: str = 'web-pc'
+    # This value represents the matching DeTrade accountType returned with the token.
+    # It remains named CLIENT_TYPE for backward compatibility with the deployed env.
     detrade_client_type: int = 1
     detrade_subscription_cmd: str = '/contest/BTC/USD/5/ticker/subscribe'
     detrade_ticker_route: str = '/contest/BTC/USD/5/ticker'
@@ -65,7 +60,8 @@ class Settings(BaseSettings):
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
     detrade_probe_coalesce_ms: int = 300
-    detrade_ping_interval_seconds: float = 18.0
+    # Browser/CDP validation confirmed an application-level `ping` about every 5s.
+    detrade_ping_interval_seconds: float = 5.0
     detrade_ping_timeout_seconds: float = 10.0
     detrade_reconnect_seconds: float = 2.0
     detrade_reconnect_max_seconds: float = 30.0
