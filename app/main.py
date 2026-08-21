@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     if not startup_check.ok:
         raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
     await market_data_service.start(settings.analysis_pair)
+    await detrade_observer.start()
     if settings.run_background_jobs:
         await background_job_coordinator.start()
     if telegram_app is not None:
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
             await telegram_app.stop(); await telegram_app.shutdown()
         if settings.run_background_jobs:
             await background_job_coordinator.stop()
+        await detrade_observer.stop()
         await market_data_service.stop()
 
 
@@ -117,6 +119,7 @@ async def health():
         'detrade_observer': {
             'enabled': settings.detrade_ws_enabled,
             'observation_only': True,
+            'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
             'round_id': observed.round_id if observed else None,
@@ -124,7 +127,7 @@ async def health():
             'phase': observed.phase if observed else None,
             'remaining_ms': observed.remaining_ms if observed else None,
             'feed_age_ms': observed.data_age_ms if observed else None,
-            'token_configured': bool(settings.detrade_ws_token),
+            'authorization_configured': bool(settings.detrade_ws_token and settings.detrade_ws_token.strip().lower() != 'temporary'),
             'error_code': 'observer_error' if detrade_observer.last_error else None,
         },
         'market_data': {
