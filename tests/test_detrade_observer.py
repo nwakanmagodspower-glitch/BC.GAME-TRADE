@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
 import time
 
+import app.integrations.detrade_observer as detrade_module
 from app.integrations.detrade_observer import DeTradeObserver, DeTradeRoundObservation
 
 
@@ -18,7 +20,7 @@ def round_payload(status=1001):
 
 def test_verified_subscription_is_zlib_wrapped_and_contains_token(monkeypatch):
     observer = DeTradeObserver()
-    monkeypatch.setattr(observer.__class__.__module__ and __import__('app.integrations.detrade_observer', fromlist=['settings']).settings, 'detrade_ws_token', 'secret')
+    monkeypatch.setattr(detrade_module.settings, 'detrade_ws_token', 'secret')
     encoded = observer._encode_message(observer._subscription_message())
     decoded = observer._decode_frame(encoded)
     assert decoded['cmd'] == '/contest/BTC/USD/5/ticker/subscribe'
@@ -28,8 +30,7 @@ def test_verified_subscription_is_zlib_wrapped_and_contains_token(monkeypatch):
 
 
 def test_price_start_time_is_authoritative_countdown_boundary(monkeypatch):
-    module = __import__('app.integrations.detrade_observer', fromlist=['settings'])
-    monkeypatch.setattr(module.settings, 'detrade_latency_safety_margin_ms', 1000)
+    monkeypatch.setattr(detrade_module.settings, 'detrade_latency_safety_margin_ms', 1000)
     observation = DeTradeRoundObservation(
         round_id='round-1',
         status=1001,
@@ -41,7 +42,7 @@ def test_price_start_time_is_authoritative_countdown_boundary(monkeypatch):
         end_price=None,
         previous_round_result=None,
         received_monotonic=time.monotonic(),
-        received_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc),
+        received_at=datetime.now(timezone.utc),
     )
     assert observation.authoritative_cutoff_ms == 15_000
     assert 4_800 <= observation.remaining_ms <= 5_000
@@ -49,8 +50,7 @@ def test_price_start_time_is_authoritative_countdown_boundary(monkeypatch):
 
 
 def test_unknown_and_1008_are_non_tradeable(monkeypatch):
-    module = __import__('app.integrations.detrade_observer', fromlist=['settings'])
-    monkeypatch.setattr(module.settings, 'detrade_latency_safety_margin_ms', 0)
+    monkeypatch.setattr(detrade_module.settings, 'detrade_latency_safety_margin_ms', 0)
     for status in (1002, 1003, 1004, 1005, 1006, 1007, 1008, 9999):
         observation = DeTradeRoundObservation(
             round_id='round-1',
@@ -63,7 +63,7 @@ def test_unknown_and_1008_are_non_tradeable(monkeypatch):
             end_price=None,
             previous_round_result=None,
             received_monotonic=time.monotonic(),
-            received_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc),
+            received_at=datetime.now(timezone.utc),
         )
         assert observation.can_trade is False
 
