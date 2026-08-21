@@ -26,7 +26,6 @@ def test_safe_defaults_are_valid():
     assert settings.signals_enabled is False
     assert settings.broadcasts_enabled is False
     assert settings.signal_timing_mode == 'MANUAL_SYNC'
-    assert settings.manual_countdowns() == (15, 14, 13, 12)
     assert settings.game_market == 'BTC/USD'
     assert settings.analysis_pair == 'BTCUSDT'
     assert settings.default_product == 'BC_UPDOWN_5S'
@@ -42,9 +41,39 @@ def test_live_manual_sync_is_allowed():
     assert validate_settings(production(signal_mode='LIVE', signals_enabled=True, signal_timing_mode='MANUAL_SYNC', bcgame_round_sync_enabled=False)).ok
 
 
-def test_auto_sync_requires_real_provider_switch():
+def test_hybrid_and_auto_sync_require_round_sync_switch():
+    assert not validate_settings(production(signal_timing_mode='HYBRID_SYNC', bcgame_round_sync_enabled=False)).ok
+    assert validate_settings(production(signal_timing_mode='HYBRID_SYNC', bcgame_round_sync_enabled=True)).ok
     assert not validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=False)).ok
     assert validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=True)).ok
+
+
+def test_detrade_enabled_requires_private_token():
+    assert not validate_settings(production(
+        signal_timing_mode='HYBRID_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token=None,
+    )).ok
+    assert validate_settings(production(
+        signal_timing_mode='HYBRID_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token='ephemeral-secret',
+    )).ok
+
+
+def test_detrade_verified_route_and_safety_values_are_validated():
+    assert not validate_settings(production(
+        detrade_ws_enabled=True,
+        detrade_ws_token='secret',
+        detrade_subscription_cmd='/wrong/route',
+    )).ok
+    assert not validate_settings(production(
+        detrade_ws_enabled=True,
+        detrade_ws_token='secret',
+        detrade_probe_timeout_seconds=0,
+    )).ok
 
 
 def test_production_rejects_sqlite():
@@ -61,12 +90,6 @@ def test_v1_product_contract_is_locked():
     assert not validate_settings(production(default_product='BC_UPDOWN')).ok
     assert not validate_settings(production(default_expiry_seconds=300)).ok
     assert not validate_settings(production(default_stake_band='50-100')).ok
-
-
-def test_manual_countdown_contract_is_locked():
-    assert not validate_settings(production(manual_sync_allowed_countdowns='15,14,13')).ok
-    assert not validate_settings(production(manual_sync_allowed_countdowns='15,14,13,12,11')).ok
-    assert not validate_settings(production(manual_sync_min_remaining_after_scan=0)).ok
 
 
 def test_missing_production_secret_fails():
