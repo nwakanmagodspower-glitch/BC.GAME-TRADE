@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
+from app.integrations.detrade_observer import detrade_observer
 
 settings = get_settings()
 
@@ -29,6 +30,18 @@ class BCGameRoundSnapshot:
 
 
 @dataclass(frozen=True)
+class BCGameRoundDecision:
+    synchronized: bool
+    actionable: bool
+    snapshot: BCGameRoundSnapshot | None
+    reason: str
+    phase: str | None = None
+    status_code: int | None = None
+    remaining_seconds: float | None = None
+    feed_age_ms: int | None = None
+
+
+@dataclass(frozen=True)
 class BCGameRoundStatus:
     enabled: bool
     seen: bool
@@ -39,32 +52,97 @@ class BCGameRoundStatus:
 
 
 class BCGameRoundService:
-    """Timing boundary for manual trigger mode and future automatic round sync."""
+    """Single timing boundary for manual, hybrid, and authoritative round sync."""
 
     def __init__(self) -> None:
         self.last_error: str | None = None
         self.last_snapshot: BCGameRoundSnapshot | None = None
 
     def status(self, now: datetime | None = None) -> BCGameRoundStatus:
-        if settings.signal_timing_mode.upper() == 'MANUAL_SYNC':
-            return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_TRIGGER', 'Manual Scan Now timing is active; no BCGAME countdown is assumed.')
+        timing_mode = settings.signal_timing_mode.upper()
+        if timing_mode == 'MANUAL_SYNC':
+            return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_TRIGGER', 'Manual Scan Now timing is active.')
         if not settings.bcgame_round_sync_enabled:
-            return BCGameRoundStatus(False, False, False, None, None, 'Automatic BCGAME round synchronization is not connected.')
+            return BCGameRoundStatus(False, False, False, None, None, 'Automatic BCGAME round synchronization is disabled.')
         snapshot = self.last_snapshot
         if snapshot is None:
-            return BCGameRoundStatus(True, False, False, None, None, self.last_error or 'No automatic BCGAME round snapshot has been observed.')
+            return BCGameRoundStatus(True, False, False, None, None, self.last_error or 'No synchronized BCGAME round has been observed yet.')
         current = now or datetime.now(timezone.utc)
         observed = snapshot.observed_at if snapshot.observed_at.tzinfo else snapshot.observed_at.replace(tzinfo=timezone.utc)
         age = max(0.0, (current - observed.astimezone(timezone.utc)).total_seconds())
         fresh = age <= settings.bcgame_round_sync_max_age_seconds
         return BCGameRoundStatus(True, True, fresh, age, snapshot.round_id, self.last_error)
 
-    async def current_actionable_round(self) -> BCGameRoundSnapshot | None:
+    async def current_round_decision(self) -> BCGameRoundDecision:
         if not settings.bcgame_round_sync_enabled:
-            self.last_error = 'Automatic BCGAME round synchronization is not connected.'
-            return None
-        self.last_error = 'Automatic BCGAME round synchronization provider is not implemented yet.'
-        return None
+            self.last_error = 'Automatic BCGAME round synchronization is disabled.'
+            return BCGameRoundDecision(False, False, None, self.last_error)
+        if not settings.detrade_ws_enabled:
+            self.last_error = 'DeTrade timing is not enabled.'
+            return BCGameRoundDecision(False, False, None, self.last_error)
+        if not settings.detrade_ws_token:
+            self.last_error = 'DeTrade timing authorization is not configured.'
+            return BCGameRoundDecision(False, False, None, self.last_error)
+
+        observation = await detrade_observer.probe(timeout_seconds=settings.detrade_probe_timeout_seconds)
+        if observation is None:
+            self.last_error = detrade_observer.last_error or 'No authoritative DeTrade round frame was received.'
+            return BCGameRoundDecision(False, False, None, self.last_error)
+
+        remaining_ms = observation.remaining_ms
+        remaining_seconds = remaining_ms / 1000 if remaining_ms is not None else None
+        decision_base = {
+            'phase': observation.phase,
+            'status_code': observation.status,
+            'remaining_seconds': remaining_seconds,
+            'feed_age_ms': observation.data_age_ms,
+        }
+
+        # Once a valid authoritative frame is received, never silently fall back
+        # around a known late/closed/stale round. That would defeat the timer gate.
+        if not observation.round_id or observation.price_start_time_ms is None or observation.price_end_time_ms is None:
+            self.last_error = 'The synchronized round frame is incomplete.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+        if not observation.fresh:
+            self.last_error = 'The synchronized BCGAME round timer is stale. Wait for the next fresh round.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+        if observation.status != 1001:
+            self.last_error = f'This BCGAME round is not accepting entries ({observation.phase}). Wait for the next round.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+        if remaining_ms is None or remaining_ms <= settings.detrade_latency_safety_margin_ms:
+            self.last_error = 'This BCGAME round is already too close to the cutoff. Wait for the next fresh round.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+
+        evaluation_window_ms = observation.price_end_time_ms - observation.price_start_time_ms
+        expected_window_ms = settings.default_expiry_seconds * 1000
+        if abs(evaluation_window_ms - expected_window_ms) > 1000:
+            self.last_error = 'The synchronized round does not match the configured 5-second contract.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+
+        estimated_server_ms = observation.estimated_server_time_ms
+        if estimated_server_ms is None:
+            self.last_error = 'The synchronized round does not contain usable server time.'
+            return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
+
+        observed_at = datetime.fromtimestamp(estimated_server_ms / 1000, tz=timezone.utc)
+        start_at = datetime.fromtimestamp(observation.price_start_time_ms / 1000, tz=timezone.utc)
+        end_at = datetime.fromtimestamp(observation.price_end_time_ms / 1000, tz=timezone.utc)
+        snapshot = BCGameRoundSnapshot(
+            round_id=observation.round_id,
+            observed_at=observed_at,
+            order_closes_at=start_at,
+            start_rate_at=start_at,
+            end_rate_at=end_at,
+            stake_band=settings.default_stake_band,
+            source='DETRADE_SYNC',
+        )
+        self.last_snapshot = snapshot
+        self.last_error = None
+        return BCGameRoundDecision(True, True, snapshot, 'Authoritative DeTrade round timing is active.', **decision_base)
+
+    async def current_actionable_round(self) -> BCGameRoundSnapshot | None:
+        decision = await self.current_round_decision()
+        return decision.snapshot if decision.actionable else None
 
     def manual_snapshot(self, countdown_seconds: int, observed_at: datetime | None = None) -> BCGameRoundSnapshot:
         """Legacy helper retained for old records/tests; live manual UI no longer calls it."""
