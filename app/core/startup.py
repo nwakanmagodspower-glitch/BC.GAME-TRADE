@@ -138,7 +138,10 @@ def validate_settings(settings: Settings) -> StartupCheck:
         if settings.detrade_auth_mode.upper() != 'QUERY':
             warnings.append('Authenticated browser validation confirmed QUERY authentication for the DeTrade round feed.')
         if not settings.detrade_ws_token:
-            errors.append('DETRADE_WS_ENABLED=true requires DETRADE_WS_TOKEN until an official ephemeral token provider is integrated')
+            if timing_mode == 'AUTO_SYNC':
+                errors.append('AUTO_SYNC requires DETRADE_WS_TOKEN until an official ephemeral token provider is integrated')
+            else:
+                warnings.append('DeTrade timing is enabled but no token is configured; HYBRID_SYNC will use manual Scan Now fallback until authorization is available.')
         if settings.detrade_latency_safety_margin_ms < 0:
             errors.append('DETRADE_LATENCY_SAFETY_MARGIN_MS cannot be negative')
         if settings.detrade_dispatch_min_remaining_ms < 0:
