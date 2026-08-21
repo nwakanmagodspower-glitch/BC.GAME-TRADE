@@ -70,6 +70,10 @@ services:
         value: "1500"
       - key: DETRADE_PROBE_TIMEOUT_SECONDS
         value: "2.5"
+      - key: DETRADE_PING_INTERVAL_SECONDS
+        value: "5"
+      - key: DETRADE_PING_TIMEOUT_SECONDS
+        value: "10"
       - key: DETRADE_RECONNECT_SECONDS
         value: "2"
       - key: DETRADE_RECONNECT_MAX_SECONDS
