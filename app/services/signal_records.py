@@ -57,10 +57,6 @@ class SignalRecordService:
         if round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
             round_row = self._persist_round(round_snapshot)
 
-        # With manual trigger timing, a directional signal is a calibration record,
-        # not a fabricated BCGAME round lifecycle. It remains CANDIDATE until the
-        # real BCGAME result is attached by the user. AUTO_SYNC keeps the timed
-        # WAITING_ENTRY lifecycle when a genuine round snapshot exists.
         if is_trade and round_snapshot is not None:
             status = SignalStatus.WAITING_ENTRY
         elif is_trade:
@@ -84,21 +80,21 @@ class SignalRecordService:
             'external_reference_only': True,
         }
         feature_data['_scan_trigger'] = {
-            'mode': trigger_mode or ('AUTO_SYNC' if round_snapshot else 'MANUAL_TRIGGER'),
+            'mode': trigger_mode or ('DETRADE_SYNC' if round_snapshot else 'MANUAL_TRIGGER'),
             'received_at': utcnow().isoformat(),
             'countdown_confirmed_seconds': None,
-            'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source != 'MANUAL_SYNC'),
+            'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
         }
         if round_snapshot is not None:
-            confirmed_countdown = max(
-                0,
-                int(round((round_snapshot.order_closes_at - round_snapshot.observed_at).total_seconds())),
+            remaining_seconds = max(
+                0.0,
+                (round_snapshot.order_closes_at - round_snapshot.observed_at).total_seconds(),
             )
             feature_data['_bcgame_round'] = {
                 'round_id': round_snapshot.round_id,
                 'source': round_snapshot.source,
                 'observed_at': round_snapshot.observed_at.isoformat(),
-                'countdown_confirmed_seconds': confirmed_countdown if round_snapshot.source == 'MANUAL_SYNC' else None,
+                'remaining_seconds_at_scan': round(remaining_seconds, 3),
                 'order_closes_at': round_snapshot.order_closes_at.isoformat(),
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
