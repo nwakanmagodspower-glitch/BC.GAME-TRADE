@@ -67,6 +67,7 @@ class SignalRecordService:
         else:
             status = SignalStatus.NO_TRADE
 
+        recorded_at = utcnow()
         feature_data = result.features.to_dict() if result.features is not None else {}
         if result.decision is not None:
             feature_data['_decision'] = {
@@ -84,14 +85,14 @@ class SignalRecordService:
         }
         feature_data['_scan_trigger'] = {
             'mode': trigger_mode or ('DETRADE_SYNC' if round_snapshot else 'MANUAL_TRIGGER'),
-            'received_at': utcnow().isoformat(),
+            'received_at': recorded_at.isoformat(),
             'countdown_confirmed_seconds': None,
             'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
         }
         if round_snapshot is not None:
             remaining_seconds = max(
                 0.0,
-                (round_snapshot.order_closes_at - round_snapshot.observed_at).total_seconds(),
+                (round_snapshot.order_closes_at - recorded_at).total_seconds(),
             )
             feature_data['_bcgame_round'] = {
                 'round_id': round_snapshot.round_id,
@@ -119,7 +120,7 @@ class SignalRecordService:
             status=status,
             strategy_version=settings.strategy_version,
             confidence=None,
-            created_at=utcnow(),
+            created_at=recorded_at,
             entry_at=round_snapshot.start_rate_at if round_snapshot else None,
             entry_window_start=None,
             entry_window_end=round_snapshot.order_closes_at if round_snapshot else None,
