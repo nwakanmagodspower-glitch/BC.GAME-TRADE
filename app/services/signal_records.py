@@ -53,8 +53,11 @@ class SignalRecordService:
 
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
 
+        # Round rows are useful for actual directional signals. NO_TRADE scans keep
+        # their lightweight round metadata in the signal feature JSON only, which
+        # avoids creating thousands of unnecessary BCGameRound rows.
         round_row = None
-        if round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
+        if is_trade and round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
             round_row = self._persist_round(round_snapshot)
 
         if is_trade and round_snapshot is not None:
