@@ -14,6 +14,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import websockets
 
 from app.core.config import get_settings
+from app.integrations.detrade_token_provider import (
+    DeTradeCredentials,
+    DeTradeTokenProvider,
+    detrade_token_provider,
+)
 
 settings = get_settings()
 AUTH_FAILURE_CODES = {603, 3100}
@@ -35,8 +40,6 @@ class DeTradeRoundObservation:
 
     @property
     def authoritative_cutoff_ms(self) -> int | None:
-        # Browser validation confirmed that the visible BCGAME betting countdown
-        # terminates at priceStartTime. tradeCutoffTime is retained for diagnostics.
         return self.price_start_time_ms
 
     @property
@@ -87,19 +90,16 @@ class DeTradeRoundObservation:
 
 
 class DeTradeObserver:
-    """Observation-only DeTrade BTC/USD 5s round feed.
+    """Read-only authoritative BCGAME/DeTrade BTC/USD 5s round clock."""
 
-    The protocol shape in this module is based on authenticated browser/CDP
-    observation of BCGAME Up/Down. No order command exists here. Tokens and
-    token-bearing URLs are never included in diagnostics.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, token_provider: DeTradeTokenProvider = detrade_token_provider) -> None:
+        self.token_provider = token_provider
         self.latest: DeTradeRoundObservation | None = None
         self.last_error: str | None = None
         self.connected: bool = False
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self._probe_lock = asyncio.Lock()
 
     @staticmethod
     def _browser_cid() -> str:
@@ -124,30 +124,24 @@ class DeTradeObserver:
         self._task = None
         self.connected = False
 
-    def _connection_url(self) -> str:
-        base = settings.detrade_ws_url
-        token = settings.detrade_ws_token
-        if not token:
-            return base
-        parts = urlsplit(base)
+    def _connection_url(self, credentials: DeTradeCredentials) -> str:
+        parts = urlsplit(settings.detrade_ws_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query.update({
-            'token': token,
+            'token': credentials.token,
             'device': settings.detrade_device,
-            'type': str(settings.detrade_client_type),
+            'type': str(credentials.account_type),
             'cid': self._browser_cid(),
         })
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
-    def _subscription_message(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            'cmd': settings.detrade_subscription_cmd,
+    def _authenticated_message(self, credentials: DeTradeCredentials, cmd: str) -> dict[str, Any]:
+        return {
+            'cmd': cmd,
+            'token': credentials.token,
             'cid': self._browser_cid(),
             'reqId': str(uuid.uuid4()),
         }
-        if settings.detrade_ws_token:
-            payload['token'] = settings.detrade_ws_token
-        return payload
 
     @staticmethod
     def _encode_message(payload: dict[str, Any]) -> bytes:
@@ -158,21 +152,15 @@ class DeTradeObserver:
     def _decode_frame(frame: str | bytes) -> Any:
         if isinstance(frame, str):
             return json.loads(frame)
-
         raw = bytes(frame)
         try:
             return json.loads(zlib.decompress(raw).decode('utf-8'))
         except (zlib.error, UnicodeDecodeError, json.JSONDecodeError):
             pass
-
-        # Plain JSON control frames were observed as a legitimate fallback.
         try:
             return json.loads(raw.decode('utf-8'))
         except (UnicodeDecodeError, json.JSONDecodeError):
             pass
-
-        # Retain raw-deflate compatibility for defensive decoding only; the
-        # validated trading client uses zlib-wrapped DEFLATE.
         try:
             return json.loads(zlib.decompress(raw, -zlib.MAX_WBITS).decode('utf-8'))
         except (zlib.error, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -202,8 +190,7 @@ class DeTradeObserver:
             return None
         if isinstance(value, dict):
             keys = set(value)
-            required = {'id', 'status', 'currentTime', 'priceStartTime', 'priceEndTime'}
-            if required <= keys:
+            if {'id', 'status', 'currentTime', 'priceStartTime', 'priceEndTime'} <= keys:
                 return value
             for key, nested in value.items():
                 if any(secret in str(key).lower() for secret in ('token', 'cookie', 'authorization', 'session', 'jwt', 'accesscode')):
@@ -239,11 +226,11 @@ class DeTradeObserver:
         except (TypeError, ValueError):
             return None
 
-    def _consume(self, decoded: Any) -> bool:
+    async def _consume(self, decoded: Any) -> bool:
         if self._contains_auth_failure(decoded):
-            self.last_error = 'DeTrade authentication refresh is required.'
+            await self.token_provider.invalidate()
+            self.last_error = 'DeTrade authorization expired or requires refresh.'
             return False
-
         payload = self._find_round_payload(decoded)
         if payload is None:
             return False
@@ -263,81 +250,102 @@ class DeTradeObserver:
         self.last_error = None
         return True
 
-    async def probe(self, timeout_seconds: float | None = None) -> DeTradeRoundObservation | None:
-        """Connect briefly, capture one valid authoritative round frame, disconnect.
+    async def _heartbeat(self, ws: Any, credentials: DeTradeCredentials) -> None:
+        while not self._stop.is_set():
+            await asyncio.sleep(settings.detrade_ping_interval_seconds)
+            await ws.send(self._encode_message(self._authenticated_message(credentials, 'ping')))
 
-        Short probes deliberately avoid depending on the still-unverified DeTrade
-        application ping command. This is the safest first production integration.
-        """
-        if not settings.detrade_ws_enabled:
-            self.last_error = 'DeTrade observer is disabled.'
-            return None
-        if not settings.detrade_ws_token:
-            self.last_error = 'DeTrade observer token is not configured.'
-            return None
-
-        timeout = timeout_seconds or settings.detrade_probe_timeout_seconds
-
-        async def _probe() -> DeTradeRoundObservation | None:
-            try:
-                async with websockets.connect(
-                    self._connection_url(),
-                    origin=settings.detrade_origin,
-                    additional_headers={'User-Agent': settings.detrade_user_agent},
-                    ping_interval=None,
-                    close_timeout=2,
-                    max_size=settings.detrade_max_frame_bytes,
-                    compression=None,
-                ) as ws:
-                    self.connected = True
-                    await ws.send(self._encode_message(self._subscription_message()))
+    async def _session(self, credentials: DeTradeCredentials, *, first_frame_only: bool) -> DeTradeRoundObservation | None:
+        try:
+            async with websockets.connect(
+                self._connection_url(credentials),
+                origin=settings.detrade_origin,
+                additional_headers={'User-Agent': settings.detrade_user_agent},
+                ping_interval=None,
+                close_timeout=2,
+                max_size=settings.detrade_max_frame_bytes,
+                compression=None,
+            ) as ws:
+                self.connected = True
+                await ws.send(self._encode_message(
+                    self._authenticated_message(credentials, settings.detrade_subscription_cmd)
+                ))
+                heartbeat = asyncio.create_task(self._heartbeat(ws, credentials))
+                try:
                     async for frame in ws:
                         try:
                             decoded = self._decode_frame(frame)
-                            if self._contains_auth_failure(decoded):
-                                self.last_error = 'DeTrade authentication refresh is required.'
-                                return None
-                            if self._consume(decoded):
-                                return self.latest
                         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                             self.last_error = 'A DeTrade frame could not be decoded.'
-                    return None
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Never include exception text because websocket libraries may
-                # include the token-bearing URL in exception messages.
-                self.last_error = 'DeTrade connection failed.'
-                return None
-            finally:
-                self.connected = False
-
-        try:
-            return await asyncio.wait_for(_probe(), timeout=timeout)
-        except TimeoutError:
+                            continue
+                        if self._contains_auth_failure(decoded):
+                            await self.token_provider.invalidate()
+                            self.last_error = 'DeTrade authorization expired or requires refresh.'
+                            return None
+                        if await self._consume(decoded) and first_frame_only:
+                            return self.latest
+                finally:
+                    heartbeat.cancel()
+                    try:
+                        await heartbeat
+                    except asyncio.CancelledError:
+                        pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.last_error = 'DeTrade connection failed.'
+        finally:
             self.connected = False
+        return self.latest if self.latest and self.latest.fresh else None
+
+    async def probe(self, timeout_seconds: float | None = None) -> DeTradeRoundObservation | None:
+        if not settings.detrade_ws_enabled:
+            self.last_error = 'DeTrade observer is disabled.'
+            return None
+        if self.latest and self.latest.fresh:
+            return self.latest
+
+        credentials = await self.token_provider.get_credentials()
+        if credentials is None:
+            self.last_error = 'DeTrade authorization is not available yet.'
+            return None
+
+        timeout = timeout_seconds or settings.detrade_probe_timeout_seconds
+        if self._task and not self._task.done():
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if self.latest and self.latest.fresh:
+                    return self.latest
+                if self.last_error and 'authorization' in self.last_error.lower():
+                    return None
+                await asyncio.sleep(0.05)
             self.last_error = 'DeTrade timer probe timed out.'
             return None
 
-    async def _observe_once(self) -> None:
-        # Persistent observation remains diagnostic-only until the exact
-        # application-level ping command is verified. Use short probes for live
-        # timing decisions so we never invent a heartbeat command.
-        observation = await self.probe(timeout_seconds=settings.detrade_probe_timeout_seconds)
-        if observation is None:
-            await asyncio.sleep(settings.detrade_reconnect_seconds)
+        async with self._probe_lock:
+            try:
+                return await asyncio.wait_for(self._session(credentials, first_frame_only=True), timeout=timeout)
+            except TimeoutError:
+                self.connected = False
+                self.last_error = 'DeTrade timer probe timed out.'
+                return None
 
     async def _run(self) -> None:
         backoff = max(1.0, settings.detrade_reconnect_seconds)
         while not self._stop.is_set():
-            await self._observe_once()
+            credentials = await self.token_provider.get_credentials(force_refresh=False)
+            if credentials is None:
+                self.last_error = 'DeTrade authorization is not available yet.'
+                await asyncio.sleep(min(backoff, 5.0))
+                backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
+                continue
+            await self._session(credentials, first_frame_only=False)
             if self._stop.is_set():
                 return
             await asyncio.sleep(backoff)
+            backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
             if self.latest and self.latest.fresh:
                 backoff = max(1.0, settings.detrade_reconnect_seconds)
-            else:
-                backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
 
 
 detrade_observer = DeTradeObserver()
