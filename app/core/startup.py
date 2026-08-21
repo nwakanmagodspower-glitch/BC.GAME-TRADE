@@ -41,8 +41,8 @@ def validate_settings(settings: Settings) -> StartupCheck:
 
     if mode not in {'PAPER', 'LIVE'}:
         errors.append('SIGNAL_MODE must be PAPER or LIVE')
-    if timing_mode not in {'MANUAL_SYNC', 'AUTO_SYNC'}:
-        errors.append('SIGNAL_TIMING_MODE must be MANUAL_SYNC or AUTO_SYNC')
+    if timing_mode not in {'MANUAL_SYNC', 'HYBRID_SYNC', 'AUTO_SYNC'}:
+        errors.append('SIGNAL_TIMING_MODE must be MANUAL_SYNC, HYBRID_SYNC, or AUTO_SYNC')
 
     if settings.game_market.upper() != 'BTC/USD':
         errors.append('V1 requires GAME_MARKET=BTC/USD')
@@ -119,37 +119,42 @@ def validate_settings(settings: Settings) -> StartupCheck:
     if settings.verification_delivery_max_attempts < 1:
         errors.append('VERIFICATION_DELIVERY_MAX_ATTEMPTS must be at least 1')
 
-    # MANUAL_SYNC now means manual Scan Now trigger only. The user no longer
-    # supplies or guesses a 15/14/13/12 countdown value.
     if timing_mode == 'MANUAL_SYNC':
-        warnings.append('Manual Scan Now timing is active until authoritative BCGAME round sync is validated.')
+        warnings.append('Manual Scan Now timing is active; authoritative BCGAME round timing is not gating signals.')
         if settings.bcgame_round_sync_enabled:
             warnings.append('BCGAME round sync is enabled, but MANUAL_SYNC remains the active signal timing mode.')
 
-    if timing_mode == 'AUTO_SYNC' and not settings.bcgame_round_sync_enabled:
-        errors.append('AUTO_SYNC requires BCGAME_ROUND_SYNC_ENABLED=true')
+    if timing_mode in {'HYBRID_SYNC', 'AUTO_SYNC'} and not settings.bcgame_round_sync_enabled:
+        errors.append(f'{timing_mode} requires BCGAME_ROUND_SYNC_ENABLED=true')
+
+    if timing_mode == 'HYBRID_SYNC':
+        warnings.append('HYBRID_SYNC prefers DeTrade timing and falls back to manual Scan Now only when the authoritative source is unavailable.')
 
     if settings.detrade_ws_enabled:
         if not _valid_provider_url(settings.detrade_ws_url, {'wss'}):
             errors.append('DETRADE_WS_URL must be WSS without embedded credentials')
         elif urlparse(settings.detrade_ws_url).hostname != 'websocket.detrade.com':
             errors.append('DETRADE_WS_URL must target websocket.detrade.com')
-        if settings.detrade_auth_mode.upper() not in {'QUERY', 'MESSAGE'}:
-            errors.append('DETRADE_AUTH_MODE must be QUERY or MESSAGE')
+        if settings.detrade_auth_mode.upper() != 'QUERY':
+            warnings.append('Authenticated browser validation confirmed QUERY authentication for the DeTrade round feed.')
         if not settings.detrade_ws_token:
-            errors.append('DETRADE_WS_ENABLED=true requires DETRADE_WS_TOKEN')
+            errors.append('DETRADE_WS_ENABLED=true requires DETRADE_WS_TOKEN until an official ephemeral token provider is integrated')
         if settings.detrade_latency_safety_margin_ms < 0:
             errors.append('DETRADE_LATENCY_SAFETY_MARGIN_MS cannot be negative')
+        if settings.detrade_dispatch_min_remaining_ms < 0:
+            errors.append('DETRADE_DISPATCH_MIN_REMAINING_MS cannot be negative')
+        if settings.detrade_dispatch_min_remaining_ms >= settings.detrade_latency_safety_margin_ms:
+            warnings.append('DETRADE_DISPATCH_MIN_REMAINING_MS should normally be lower than the initial timer safety margin.')
         if settings.detrade_stale_after_ms <= 0:
             errors.append('DETRADE_STALE_AFTER_MS must be greater than zero')
-        if settings.detrade_ping_interval_seconds <= 0 or settings.detrade_ping_timeout_seconds <= 0:
-            errors.append('DeTrade ping interval and timeout must be greater than zero')
+        if settings.detrade_probe_timeout_seconds <= 0:
+            errors.append('DETRADE_PROBE_TIMEOUT_SECONDS must be greater than zero')
         if settings.detrade_reconnect_seconds <= 0 or settings.detrade_reconnect_max_seconds < settings.detrade_reconnect_seconds:
             errors.append('DeTrade reconnect settings are invalid')
         if settings.detrade_max_frame_bytes < 16_384:
             errors.append('DETRADE_MAX_FRAME_BYTES is too small')
         if settings.detrade_subscription_cmd != '/contest/BTC/USD/5/ticker/subscribe':
-            warnings.append('DETRADE_SUBSCRIPTION_CMD differs from the inspected BTC/USD 5s route.')
+            errors.append('DETRADE_SUBSCRIPTION_CMD must match the verified BTC/USD 5s route')
 
     if settings.signals_enabled and mode != 'LIVE':
         errors.append('SIGNALS_ENABLED=true requires SIGNAL_MODE=LIVE')
