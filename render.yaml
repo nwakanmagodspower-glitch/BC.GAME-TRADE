@@ -47,7 +47,7 @@ services:
       - key: DETRADE_WS_ENABLED
         value: "true"
       - key: DETRADE_WS_TOKEN
-        sync: false
+        value: temporary
       - key: DETRADE_AUTH_MODE
         value: QUERY
       - key: DETRADE_WS_URL
