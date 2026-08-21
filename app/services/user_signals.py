@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.integrations.bcgame_rounds import bcgame_round_service
-from app.models.entities import Signal, SignalStatus, User, UserStatus
+from app.models.entities import Signal, User, UserStatus
 from app.services.admin_ops import AdminOpsService
 from app.services.signal_intelligence import signal_intelligence_service
 from app.services.signal_records import SignalRecordService
@@ -53,22 +53,40 @@ class UserSignalService:
             if (now - previous).total_seconds() < settings.signal_user_cooldown_seconds:
                 return UserSignalResult(None, False, 'Please wait briefly before scanning again.')
 
-        # MANUAL_SYNC no longer asks the user to guess 15/14/13/12. The button
-        # press itself is the observed scan event. Until a genuine BCGAME round
-        # feed exists, we do not invent a Start Rate timestamp or countdown.
         timing_mode = settings.signal_timing_mode.upper()
+        round_snapshot = None
+        trigger_mode = 'MANUAL_TRIGGER'
+
         if timing_mode == 'MANUAL_SYNC':
-            round_snapshot = None
-        elif timing_mode == 'AUTO_SYNC':
-            round_snapshot = await bcgame_round_service.current_actionable_round()
-            if round_snapshot is None:
-                return UserSignalResult(None, False, 'Automatic BCGAME round timing is unavailable. No signal was generated.')
+            pass
+        elif timing_mode in {'HYBRID_SYNC', 'AUTO_SYNC'}:
+            timing = await bcgame_round_service.current_round_decision()
+            if timing.actionable and timing.snapshot is not None:
+                round_snapshot = timing.snapshot
+                trigger_mode = 'DETRADE_SYNC'
+            elif timing.synchronized:
+                # A valid authoritative round was seen and it is unsafe/closed.
+                # Never bypass that information with a manual fallback.
+                return UserSignalResult(None, False, timing.reason)
+            elif timing_mode == 'AUTO_SYNC':
+                return UserSignalResult(None, False, 'Live BCGAME round timing is temporarily unavailable. No signal was generated.')
+            else:
+                # HYBRID_SYNC preserves the working manual product only when the
+                # authoritative source itself is unavailable/unconfigured.
+                trigger_mode = 'MANUAL_FALLBACK'
         else:
             return UserSignalResult(None, False, 'Signal timing mode is unavailable.')
 
         intelligence = await signal_intelligence_service.scan(settings.analysis_pair)
         if not intelligence.service_available:
-            return UserSignalResult(None, False, intelligence.reason)
+            return UserSignalResult(None, False, 'Market analysis is temporarily unavailable. Please try the next fresh round.')
+
+        # If authoritative timing was used, make sure the scan did not consume so
+        # much of the betting window that delivery would be impractical.
+        if round_snapshot is not None:
+            remaining_after_scan = round_snapshot.seconds_until_order_close(datetime.now(timezone.utc))
+            if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
+                return UserSignalResult(None, False, 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.')
 
         # Recheck authorization and service state after analysis so a user cannot
         # retain a signal if access changes while the scan is being computed.
@@ -86,12 +104,12 @@ class UserSignalService:
                 self.db.rollback()
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
-        # Consume cooldown only after a valid market analysis is available.
+        # Consume cooldown only after a valid, deliverable market analysis exists.
         user.last_scan_requested_at = datetime.now(timezone.utc)
         signal = SignalRecordService(self.db).record_scan(
             intelligence,
             requested_by_user_id=user_id,
             round_snapshot=round_snapshot,
-            trigger_mode='MANUAL_TRIGGER' if timing_mode == 'MANUAL_SYNC' else 'AUTO_SYNC',
+            trigger_mode=trigger_mode,
         )
         return UserSignalResult(signal, True, intelligence.reason)
