@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
-from app.integrations.detrade_observer import detrade_observer
+from app.integrations.detrade_observer import DeTradeRoundObservation, detrade_observer
 
 settings = get_settings()
 
@@ -57,6 +58,7 @@ class BCGameRoundService:
     def __init__(self) -> None:
         self.last_error: str | None = None
         self.last_snapshot: BCGameRoundSnapshot | None = None
+        self._probe_lock = asyncio.Lock()
 
     def status(self, now: datetime | None = None) -> BCGameRoundStatus:
         timing_mode = settings.signal_timing_mode.upper()
@@ -73,6 +75,19 @@ class BCGameRoundService:
         fresh = age <= settings.bcgame_round_sync_max_age_seconds
         return BCGameRoundStatus(True, True, fresh, age, snapshot.round_id, self.last_error)
 
+    async def _fresh_observation(self) -> DeTradeRoundObservation | None:
+        latest = detrade_observer.latest
+        if latest is not None and latest.data_age_ms <= settings.detrade_probe_coalesce_ms:
+            return latest
+
+        # Single-flight concurrent scan bursts so hundreds of users do not open
+        # hundreds of identical DeTrade websocket probes for the same round.
+        async with self._probe_lock:
+            latest = detrade_observer.latest
+            if latest is not None and latest.data_age_ms <= settings.detrade_probe_coalesce_ms:
+                return latest
+            return await detrade_observer.probe(timeout_seconds=settings.detrade_probe_timeout_seconds)
+
     async def current_round_decision(self) -> BCGameRoundDecision:
         if not settings.bcgame_round_sync_enabled:
             self.last_error = 'Automatic BCGAME round synchronization is disabled.'
@@ -84,7 +99,7 @@ class BCGameRoundService:
             self.last_error = 'DeTrade timing authorization is not configured.'
             return BCGameRoundDecision(False, False, None, self.last_error)
 
-        observation = await detrade_observer.probe(timeout_seconds=settings.detrade_probe_timeout_seconds)
+        observation = await self._fresh_observation()
         if observation is None:
             self.last_error = detrade_observer.last_error or 'No authoritative DeTrade round frame was received.'
             return BCGameRoundDecision(False, False, None, self.last_error)
