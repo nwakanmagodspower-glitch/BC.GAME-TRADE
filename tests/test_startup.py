@@ -48,13 +48,23 @@ def test_hybrid_and_auto_sync_require_round_sync_switch():
     assert validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=True)).ok
 
 
-def test_detrade_enabled_requires_private_token():
-    assert not validate_settings(production(
+def test_hybrid_allows_missing_detrade_token_but_auto_requires_it():
+    hybrid = validate_settings(production(
         signal_timing_mode='HYBRID_SYNC',
         bcgame_round_sync_enabled=True,
         detrade_ws_enabled=True,
         detrade_ws_token=None,
+    ))
+    assert hybrid.ok
+    assert any('manual Scan Now fallback' in warning for warning in hybrid.warnings)
+
+    assert not validate_settings(production(
+        signal_timing_mode='AUTO_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token=None,
     )).ok
+
     assert validate_settings(production(
         signal_timing_mode='HYBRID_SYNC',
         bcgame_round_sync_enabled=True,
