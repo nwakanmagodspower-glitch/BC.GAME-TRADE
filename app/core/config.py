@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     detrade_dispatch_min_remaining_ms: int = 4500
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
+    detrade_probe_coalesce_ms: int = 300
     detrade_ping_interval_seconds: float = 18.0
     detrade_ping_timeout_seconds: float = 10.0
     detrade_reconnect_seconds: float = 2.0
