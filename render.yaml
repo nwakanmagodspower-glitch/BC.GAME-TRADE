@@ -25,7 +25,7 @@ services:
       - key: BROADCASTS_ENABLED
         value: "true"
       - key: SIGNAL_TIMING_MODE
-        value: MANUAL_SYNC
+        value: HYBRID_SYNC
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -41,7 +41,7 @@ services:
       - key: STRATEGY_VERSION
         value: BTC_UPDOWN_5S_V1.1
       - key: BCGAME_ROUND_SYNC_ENABLED
-        value: "false"
+        value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
       - key: DETRADE_WS_ENABLED
@@ -64,12 +64,12 @@ services:
         value: /contest/BTC/USD/5/ticker
       - key: DETRADE_LATENCY_SAFETY_MARGIN_MS
         value: "7000"
+      - key: DETRADE_DISPATCH_MIN_REMAINING_MS
+        value: "4500"
       - key: DETRADE_STALE_AFTER_MS
         value: "1500"
-      - key: DETRADE_PING_INTERVAL_SECONDS
-        value: "18"
-      - key: DETRADE_PING_TIMEOUT_SECONDS
-        value: "10"
+      - key: DETRADE_PROBE_TIMEOUT_SECONDS
+        value: "2.5"
       - key: DETRADE_RECONNECT_SECONDS
         value: "2"
       - key: DETRADE_RECONNECT_MAX_SECONDS
@@ -178,7 +178,7 @@ services:
       - key: BROADCASTS_ENABLED
         value: "true"
       - key: SIGNAL_TIMING_MODE
-        value: MANUAL_SYNC
+        value: HYBRID_SYNC
       - key: GAME_MARKET
         value: BTC/USD
       - key: ANALYSIS_PAIR
@@ -194,7 +194,7 @@ services:
       - key: STRATEGY_VERSION
         value: BTC_UPDOWN_5S_V1.1
       - key: BCGAME_ROUND_SYNC_ENABLED
-        value: "false"
+        value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
       - key: SIGNAL_MIN_SCORE
