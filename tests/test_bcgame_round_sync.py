@@ -1,7 +1,6 @@
+import asyncio
 from datetime import datetime, timezone
 import time
-
-import pytest
 
 import app.integrations.bcgame_rounds as round_module
 from app.integrations.bcgame_rounds import BCGameRoundService
@@ -26,8 +25,7 @@ def observation(*, status=1001, remaining_ms=12_000):
     )
 
 
-@pytest.mark.asyncio
-async def test_safe_verified_round_becomes_actionable(monkeypatch):
+def test_safe_verified_round_becomes_actionable(monkeypatch):
     monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_token', 'secret')
@@ -37,7 +35,7 @@ async def test_safe_verified_round_becomes_actionable(monkeypatch):
         return observation(status=1001, remaining_ms=12_000)
 
     monkeypatch.setattr(round_module.detrade_observer, 'probe', fake_probe)
-    decision = await BCGameRoundService().current_round_decision()
+    decision = asyncio.run(BCGameRoundService().current_round_decision())
 
     assert decision.synchronized is True
     assert decision.actionable is True
@@ -47,8 +45,7 @@ async def test_safe_verified_round_becomes_actionable(monkeypatch):
     assert decision.remaining_seconds is not None and decision.remaining_seconds > 11
 
 
-@pytest.mark.asyncio
-async def test_known_closed_round_never_falls_through_as_actionable(monkeypatch):
+def test_known_closed_round_never_falls_through_as_actionable(monkeypatch):
     monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_token', 'secret')
@@ -57,7 +54,7 @@ async def test_known_closed_round_never_falls_through_as_actionable(monkeypatch)
         return observation(status=1003, remaining_ms=0)
 
     monkeypatch.setattr(round_module.detrade_observer, 'probe', fake_probe)
-    decision = await BCGameRoundService().current_round_decision()
+    decision = asyncio.run(BCGameRoundService().current_round_decision())
 
     assert decision.synchronized is True
     assert decision.actionable is False
@@ -65,11 +62,10 @@ async def test_known_closed_round_never_falls_through_as_actionable(monkeypatch)
     assert 'not accepting entries' in decision.reason
 
 
-@pytest.mark.asyncio
-async def test_unconfigured_feed_is_distinguishable_from_known_unsafe_round(monkeypatch):
+def test_unconfigured_feed_is_distinguishable_from_known_unsafe_round(monkeypatch):
     monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', False)
-    decision = await BCGameRoundService().current_round_decision()
+    decision = asyncio.run(BCGameRoundService().current_round_decision())
 
     assert decision.synchronized is False
     assert decision.actionable is False
