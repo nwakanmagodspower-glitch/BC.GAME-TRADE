@@ -26,36 +26,41 @@ async def round_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not settings.detrade_ws_enabled:
         await update.effective_chat.send_message(
-            '🛰 DETRADE TIMER CHECK\n\nStatus: disabled\n\nConfigure the private DeTrade token and enable the observer before testing.'
+            '🛰 DETRADE TIMER CHECK\n\n'
+            'Status: not enabled on this deployment\n'
+            f'Signal timing mode: {settings.signal_timing_mode.upper()}\n\n'
+            'The normal signal system can still use its manual Scan Now fallback in HYBRID_SYNC mode.'
         )
         return
 
-    await update.effective_chat.send_message('🛰 Checking the live DeTrade round…')
-    observation = await detrade_observer.probe(timeout_seconds=6.0)
+    await update.effective_chat.send_message('🛰 Checking the live BCGAME/DeTrade round…')
+    observation = await detrade_observer.probe(timeout_seconds=settings.detrade_probe_timeout_seconds)
     if observation is None:
         error = detrade_observer.last_error or 'No valid round frame was received.'
         await update.effective_chat.send_message(
             '🛰 DETRADE TIMER CHECK\n\n'
             'Round data: not received\n'
             f'Diagnostic: {error}\n\n'
-            'The observer never prints the authentication token or token-bearing WebSocket URL.'
+            'No token, cookie, access code, or token-bearing URL is printed by this command.'
         )
         return
 
     remaining = observation.remaining_ms
     remaining_text = f'{remaining / 1000:.3f}s' if remaining is not None else 'unknown'
-    start_text = str(observation.price_start_time_ms) if observation.price_start_time_ms is not None else 'unknown'
-    cutoff_text = str(observation.trade_cutoff_time_ms) if observation.trade_cutoff_time_ms is not None else 'not supplied'
+    evaluation_ms = None
+    if observation.price_start_time_ms is not None and observation.price_end_time_ms is not None:
+        evaluation_ms = observation.price_end_time_ms - observation.price_start_time_ms
+    evaluation_text = f'{evaluation_ms / 1000:.3f}s' if evaluation_ms is not None else 'unknown'
 
     await update.effective_chat.send_message(
-        '🛰 DETRADE ROUND OBSERVER\n\n'
+        '🛰 BCGAME ROUND TIMER\n\n'
         f'Round ID: {observation.round_id or "unknown"}\n'
         f'Phase: {observation.phase}\n'
         f'Status code: {observation.status if observation.status is not None else "unknown"}\n'
-        f'Remaining: {remaining_text}\n'
-        f'Can trade: {"YES" if observation.can_trade else "NO"}\n'
-        f'Feed age: {observation.data_age_ms} ms\n'
-        f'Price start: {start_text}\n'
-        f'Trade cutoff: {cutoff_text}\n\n'
-        'Observation only — this feed is not controlling live signal timing yet.'
+        f'Remaining to Start Rate: {remaining_text}\n'
+        f'5s evaluation window: {evaluation_text}\n'
+        f'Can safely scan: {"YES" if observation.can_trade else "NO"}\n'
+        f'Feed age: {observation.data_age_ms} ms\n\n'
+        f'Signal timing mode: {settings.signal_timing_mode.upper()}\n'
+        'Status 1008 and all unknown states are treated as non-tradeable.'
     )
