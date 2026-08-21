@@ -45,7 +45,7 @@ services:
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
       - key: DETRADE_WS_ENABLED
-        sync: false
+        value: "true"
       - key: DETRADE_WS_TOKEN
         sync: false
       - key: DETRADE_AUTH_MODE
