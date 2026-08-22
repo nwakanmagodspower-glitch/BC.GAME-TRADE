@@ -32,56 +32,49 @@ def format_scan_context() -> str:
         f'Range: ${settings.default_stake_band}\n\n'
         '1️⃣ Open BCGAME Up/Down and enter the amount you want to trade. Do not tap UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin.\n\n'
-        '3️⃣ Tap ⚡ Scan Now. When synchronized BCGAME timing is available, the bot checks the active round before scanning.\n\n'
+        '3️⃣ Tap ⚡ Scan Now. The bot checks the active round and market before giving a signal.\n\n'
         '🤖 Possible responses:\n'
         '🟢 UP  •  🔴 DOWN  •  ⚪ NO TRADE  •  ⚠️ UNAVAILABLE\n\n'
-        'If the round is already too close to cutoff, skip it and scan the next fresh round.'
+        'If the round is already too late, skip it and scan the next fresh round.'
     )
 
 
-def _timing_text(signal: Signal) -> str:
+def _entry_window_text(signal: Signal) -> str:
     data = signal.features_snapshot or {}
     round_meta = data.get('_bcgame_round') or {}
-    trigger = data.get('_scan_trigger') or {}
     if round_meta.get('source') == 'DETRADE_SYNC':
         remaining = round_meta.get('remaining_seconds_at_scan')
-        remaining_text = f'~{float(remaining):.1f}s' if isinstance(remaining, (int, float)) else 'available'
-        round_id = round_meta.get('round_id') or 'unknown'
-        return (
-            f'Round: #{round_id}\n'
-            f'BCGAME timer at scan: {remaining_text}\n'
-            'Timing: synchronized\n'
-        )
-    if trigger.get('mode') == 'MANUAL_FALLBACK':
-        return 'Timing: manual fallback — synchronized round feed was unavailable\n'
-    return 'Timing: Scan Now trigger\n'
+        if isinstance(remaining, (int, float)):
+            return f'⏱️ Entry window: ~{float(remaining):.1f}s\n'
+    return ''
 
 
 def format_signal(signal: Signal) -> str:
     mode = settings.signal_mode.upper()
-    paper = '\n\n🧪 PAPER VALIDATION — external market references are not BCGAME settlement truth.' if mode == 'PAPER' else ''
-    timing = _timing_text(signal)
+    paper = '\n\n🧪 PAPER VALIDATION' if mode == 'PAPER' else ''
 
     if signal.direction == SignalDirection.NO_TRADE or signal.status == SignalStatus.NO_TRADE:
         return (
             '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
             '⚪ NO TRADE\n\n'
-            + timing + '\n'
-            'This scan did not meet the signal quality gate. Skip it and wait for the next fresh round.' + paper
+            'This setup is not strong enough. Skip this round and wait for the next fresh one.'
+            + paper
         )
 
     icon = '🟢' if signal.direction == SignalDirection.UP else '🔴'
     quality = ((signal.features_snapshot or {}).get('_decision') or {}).get('quality', 'QUALIFIED')
+    entry_window = _entry_window_text(signal)
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
-        else '🚀 Open BCGAME now and tap the same direction before the order window closes. If there is not enough time left, skip the round.'
+        else f'🚀 Open BCGAME and place {signal.direction.value} now.'
     )
     return (
-        '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
-        f'{icon} SIGNAL: {signal.direction.value}\n\n'
-        f'Quality: {quality}\n'
-        + timing
-        + f'Contract: 5 seconds • ${settings.default_stake_band}\n\n'
-        + action + paper
+        '⚡ BCGAME BTC/USD — 5s\n\n'
+        f'{icon} {signal.direction.value}\n\n'
+        f'🔥 Signal Strength: {quality}\n'
+        + entry_window
+        + '\n'
+        + action
+        + paper
     )
