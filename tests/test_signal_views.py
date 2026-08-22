@@ -37,7 +37,7 @@ def test_no_trade_never_shows_bcgame_link(monkeypatch):
     assert '🚀 Open BCGAME Up/Down' not in button_texts(markup)
 
 
-def test_synchronized_signal_shows_round_and_timer(monkeypatch):
+def test_synchronized_signal_hides_round_id_and_keeps_simple_entry_window(monkeypatch):
     monkeypatch.setattr(signal_views.settings, 'signal_mode', 'LIVE')
     now = datetime.now(timezone.utc)
     signal = Signal(
@@ -58,9 +58,27 @@ def test_synchronized_signal_shows_round_and_timer(monkeypatch):
         },
     )
     text = signal_views.format_signal(signal)
-    assert 'Round: #1352602872069133' in text
-    assert 'BCGAME timer at scan: ~12.4s' in text
-    assert 'Timing: synchronized' in text
+    assert '🟢 UP' in text
+    assert 'Signal Strength: STRONG' in text
+    assert 'Entry window: ~12.4s' in text
+    assert '1352602872069133' not in text
+    assert 'Timing: synchronized' not in text
+    assert 'Round:' not in text
+
+
+def test_no_trade_message_is_simple():
+    signal = Signal(
+        direction=SignalDirection.NO_TRADE,
+        status=SignalStatus.NO_TRADE,
+        strategy_version='BTC_UPDOWN_5S_V1.1',
+        market='BTC/USD',
+        product='BC_UPDOWN_5S',
+    )
+    text = signal_views.format_signal(signal)
+    assert '⚪ NO TRADE' in text
+    assert 'not strong enough' in text
+    assert 'Timing:' not in text
+    assert 'Round:' not in text
 
 
 def test_paper_direction_is_explicitly_non_actionable(monkeypatch):
@@ -78,4 +96,4 @@ def test_paper_direction_is_explicitly_non_actionable(monkeypatch):
     )
     text = signal_views.format_signal(signal)
     assert 'Recorded for PAPER validation only.' in text
-    assert 'Open BCGAME now' not in text
+    assert 'Open BCGAME and place' not in text
