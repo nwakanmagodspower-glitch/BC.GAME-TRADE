@@ -26,10 +26,6 @@ class SignalNotificationService:
         }:
             return False
 
-        # The manual-sync user already received the time-critical actionable
-        # signal from the web service. Do not fan out hundreds of synchronized
-        # background messages at Start/End time. Diagnostic status remains in
-        # PostgreSQL and is available through My Results/admin evaluation.
         if self._timing_source(signal) == 'MANUAL_SYNC':
             return False
 
@@ -61,42 +57,41 @@ class SignalNotificationService:
         mode = settings.signal_mode.upper()
 
         if signal.status == SignalStatus.ACTIVE:
-            end_time = signal.expiry_at.strftime('%H:%M:%S UTC') if signal.expiry_at else 'Pending'
             if mode == 'PAPER':
                 return (
                     '🧪 PAPER ROUND STARTED\n\n'
-                    'BTC/USD — BCGAME 5s UP/DOWN\n'
-                    f'Model direction: {signal.direction.value}\n'
-                    f'5-second End Rate time: {end_time}\n\n'
-                    'BCGAME order window is already closed. Validation only.'
+                    f'{signal.direction.value} • BTC/USD • 5s\n\n'
+                    'The entry window is closed. Waiting for the 5s result.'
                 )
+            icon = '🟢' if signal.direction.value == 'UP' else '🔴'
             return (
-                '🔒 ROUND LOCKED — 5s MEASUREMENT STARTED\n\n'
-                f'Direction: {signal.direction.value}\n'
-                f'End Rate time: {end_time}\n\n'
-                'Do not attempt a late order. Wait for the result.'
+                '🔒 ENTRY CLOSED\n\n'
+                f'{icon} {signal.direction.value} signal locked in.\n'
+                '⏳ Checking the 5s result...'
             )
 
         if signal.status == SignalStatus.CANCELLED:
             prefix = '🧪 PAPER SIGNAL CANCELLED' if mode == 'PAPER' else '⚠️ SIGNAL CANCELLED'
-            return f'{prefix}\n\n{signal.status_reason or "The setup was invalidated before Start Rate."}'
-
-        if signal.status == SignalStatus.EXPIRED:
-            prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNRESOLVED'
             return (
                 f'{prefix}\n\n'
-                'A trustworthy result reference was not captured inside the required window, so the system did not guess a WIN/LOSS.\n\n'
-                f'{signal.status_reason or "Result source unavailable."}'
+                'Market conditions changed before entry.\n\n'
+                'Skip this round and wait for the next signal.'
             )
 
-        start = f'{signal.reference_entry_price:,.5f}' if signal.reference_entry_price is not None else 'Unavailable'
-        end = f'{signal.reference_expiry_price:,.5f}' if signal.reference_expiry_price is not None else 'Unavailable'
+        if signal.status == SignalStatus.EXPIRED:
+            prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNAVAILABLE'
+            return (
+                f'{prefix}\n\n'
+                'The result could not be confirmed safely. No WIN or LOSS was guessed.\n\n'
+                '🔄 Continue with the next round.'
+            )
+
         icon = '✅' if signal.status == SignalStatus.WIN else ('❌' if signal.status == SignalStatus.LOSS else '➖')
         prefix = '🧪 PAPER ' if mode == 'PAPER' else ''
+        direction_icon = '🟢' if signal.direction.value == 'UP' else ('🔴' if signal.direction.value == 'DOWN' else '⚪')
         return (
-            f'{prefix}{icon} 5s SIGNAL RESULT — {signal.status.value}\n\n'
-            f'Direction: {signal.direction.value}\n'
-            f'External start reference: {start}\n'
-            f'External end reference: {end}\n\n'
-            'BCGAME Start Rate / End Rate is the product truth. External-reference results remain diagnostic until BCGAME round-result ingestion is verified.'
+            f'{prefix}{icon} {signal.status.value}\n\n'
+            f'{direction_icon} {signal.direction.value}\n'
+            '⚡ BTC/USD • 5s\n\n'
+            '🔄 Ready for the next round.'
         )
