@@ -42,9 +42,7 @@ class SignalRecordService:
                     self.db.flush()
             except IntegrityError:
                 row = self.db.scalar(
-                    select(BCGameRound).where(
-                        BCGameRound.external_round_id == snapshot.round_id
-                    )
+                    select(BCGameRound).where(BCGameRound.external_round_id == snapshot.round_id)
                 )
                 if row is None:
                     raise
@@ -60,7 +58,7 @@ class SignalRecordService:
         if not result.service_available:
             raise ValueError('Unavailable market/service states cannot be persisted as strategy signals.')
         if result.market.upper() != settings.analysis_pair.upper():
-            raise ValueError('Unsupported V1 analysis market cannot be persisted.')
+            raise ValueError('Unsupported analysis market cannot be persisted.')
 
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
         round_row = None
@@ -82,13 +80,6 @@ class SignalRecordService:
                 'bull_score': result.decision.bull_score,
                 'bear_score': result.decision.bear_score,
                 'margin': result.decision.margin,
-                'seconds_until_start': result.seconds_until_start,
-                'contract_duration_seconds': result.contract_duration_seconds,
-                'prediction_horizon_seconds': (
-                    result.seconds_until_start + result.contract_duration_seconds
-                    if result.seconds_until_start is not None and result.contract_duration_seconds is not None
-                    else None
-                ),
             }
         feature_data['_market'] = {
             'game_market': settings.game_market,
@@ -103,9 +94,18 @@ class SignalRecordService:
             'received_at': recorded_at.isoformat(),
             'countdown_confirmed_seconds': None,
             'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
+        }
+        feature_data['_prediction_horizon'] = {
             'seconds_until_start': result.seconds_until_start,
             'contract_duration_seconds': result.contract_duration_seconds,
+            'prediction_horizon_seconds': (
+                result.seconds_until_start + result.contract_duration_seconds
+                if result.seconds_until_start is not None and result.contract_duration_seconds is not None
+                else None
+            ),
         }
+        if result.cross_venue is not None:
+            feature_data['_cross_venue'] = result.cross_venue
         if round_snapshot is not None:
             remaining_seconds = max(0.0, round_snapshot.seconds_until_order_close(recorded_at))
             feature_data['_bcgame_round'] = {
@@ -116,7 +116,6 @@ class SignalRecordService:
                 'order_closes_at': round_snapshot.order_closes_at.isoformat(),
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
-                'contract_duration_seconds': result.contract_duration_seconds,
                 'stake_band': round_snapshot.stake_band,
                 'up_payout_pct': round_snapshot.up_payout_pct,
                 'down_payout_pct': round_snapshot.down_payout_pct,
