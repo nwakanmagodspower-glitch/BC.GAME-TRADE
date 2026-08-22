@@ -86,11 +86,12 @@ class Settings(BaseSettings):
     market_data_future_skew_seconds: float = 2.0
 
     # V1.4 public cross-venue order-book confirmation. This runs as one shared
-    # worker service and never opens a connection per Telegram user.
+    # web-process service and never opens a connection per Telegram user.
     cross_venue_enabled: bool = True
     cross_venue_binance_ws_url: str = 'wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms'
     cross_venue_bybit_ws_url: str = 'wss://stream.bybit.com/v5/public/spot'
     cross_venue_depth_levels: int = 5
+    cross_venue_bybit_subscription_depth: int = 50
     cross_venue_max_age_seconds: float = 2.0
     cross_venue_imbalance_threshold: float = 0.12
     cross_venue_microprice_bias_bps: float = 0.02
