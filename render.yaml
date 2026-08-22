@@ -39,7 +39,7 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.4
+        value: BTC_UPDOWN_5S_V1.4.1
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
@@ -216,7 +216,7 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.4
+        value: BTC_UPDOWN_5S_V1.4.1
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
