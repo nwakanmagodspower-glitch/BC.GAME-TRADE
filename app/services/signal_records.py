@@ -133,6 +133,10 @@ class SignalRecordService:
             if isinstance(raw_edge, (int, float)):
                 engine_edge = min(0.99, abs(float(raw_edge)) / 1.5)
 
+        strategy_version = settings.strategy_version
+        if result.engine_details and result.engine_details.get('engine') == 'BTC_5S_UNIFIED_V2':
+            strategy_version = f'{settings.strategy_version}-UNIFIED_V2'
+
         signal = Signal(
             requested_by_user_id=requested_by_user_id,
             bcgame_round_id=round_row.id if round_row else None,
@@ -140,7 +144,7 @@ class SignalRecordService:
             product=settings.default_product,
             direction=result.direction,
             status=status,
-            strategy_version=settings.strategy_version,
+            strategy_version=strategy_version,
             confidence=engine_edge,
             created_at=recorded_at,
             entry_at=round_snapshot.start_rate_at if round_snapshot else None,
