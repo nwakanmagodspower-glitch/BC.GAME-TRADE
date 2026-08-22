@@ -11,7 +11,7 @@ def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-    rows.append([InlineKeyboardButton('⚡ Scan Now', callback_data='menu:scan_now')])
+    rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
     return InlineKeyboardMarkup(rows)
 
 
@@ -19,7 +19,7 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-    rows.append([InlineKeyboardButton('🔄 Scan Next Round', callback_data='menu:scan_now')])
+    rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
     return InlineKeyboardMarkup(rows)
 
 
@@ -30,12 +30,14 @@ def format_scan_context() -> str:
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
         f'Range: ${settings.default_stake_band}\n\n'
-        '1️⃣ Open BCGAME Up/Down and enter the amount you want to trade. Do not tap UP or DOWN yet.\n\n'
+        '1️⃣ Open BCGAME Up/Down and set your amount. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin.\n\n'
-        '3️⃣ Tap ⚡ Scan Now. The bot checks the active round and market before giving a signal.\n\n'
-        '🤖 Possible responses:\n'
-        '🟢 UP  •  🔴 DOWN  •  ⚪ NO TRADE  •  ⚠️ UNAVAILABLE\n\n'
-        'If the round is already too late, skip it and scan the next fresh round.'
+        '3️⃣ Tap ⚡ Scan Market. The bot checks timing and market quality before returning a decision.\n\n'
+        '🟢 UP — qualified upward setup\n'
+        '🔴 DOWN — qualified downward setup\n'
+        '⚪ NO TRADE — no qualified setup\n'
+        '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
+        'If the round is already late, skip it rather than forcing an entry.'
     )
 
 
@@ -57,7 +59,7 @@ def format_signal(signal: Signal) -> str:
         return (
             '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
             '⚪ NO TRADE\n\n'
-            'This setup is not strong enough. Skip this round and wait for the next fresh one.'
+            'No qualified setup right now. Skip this round rather than forcing an entry.'
             + paper
         )
 
@@ -67,12 +69,12 @@ def format_signal(signal: Signal) -> str:
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
-        else f'🚀 Open BCGAME and place {signal.direction.value} now.'
+        else f'🚀 Direction: {signal.direction.value}. Use it only if the BCGAME entry window is still open.'
     )
     return (
-        '⚡ BCGAME BTC/USD — 5s\n\n'
-        f'{icon} {signal.direction.value}\n\n'
-        f'🔥 Signal Strength: {quality}\n'
+        '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
+        f'{icon} {signal.direction.value} SIGNAL\n\n'
+        f'🔥 Strength: {quality}\n'
         + entry_window
         + '\n'
         + action

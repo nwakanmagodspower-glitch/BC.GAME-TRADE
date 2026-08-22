@@ -20,20 +20,13 @@ class SignalNotificationService:
     async def notify_status(self, signal: Signal) -> bool:
         if not settings.telegram_bot_token or signal.requested_by_user_id is None:
             return False
-
-        # A directional signal is delivered before lifecycle bookkeeping begins.
-        # Never send CANCELLED afterward: the user may already have entered the
-        # BCGAME round. Later failures are diagnostic/unresolved, not a reversal
-        # of the original signal direction.
         if signal.status == SignalStatus.CANCELLED:
             return False
-
         if signal.status not in {
             SignalStatus.ACTIVE, SignalStatus.EXPIRED,
             SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
         }:
             return False
-
         if self._timing_source(signal) == 'MANUAL_SYNC':
             return False
 
@@ -67,15 +60,16 @@ class SignalNotificationService:
         if signal.status == SignalStatus.ACTIVE:
             if mode == 'PAPER':
                 return (
-                    '🧪 PAPER ROUND STARTED\n\n'
+                    '🧪 PAPER ROUND LOCKED\n\n'
                     f'{signal.direction.value} • BTC/USD • 5s\n\n'
-                    'The entry window is closed. Waiting for the 5s result.'
+                    'The entry window is closed. Waiting for the reference result.'
                 )
             icon = '🟢' if signal.direction.value == 'UP' else '🔴'
             return (
-                '🔒 ENTRY CLOSED\n\n'
-                f'{icon} {signal.direction.value} signal remains locked.\n'
-                '⏳ Checking the 5s reference result...'
+                '🔒 SIGNAL LOCKED\n\n'
+                f'{icon} {signal.direction.value} • BTC/USD • 5s\n\n'
+                'The delivered direction is final for this round.\n'
+                '⏳ Checking the reference result...'
             )
 
         if signal.status == SignalStatus.EXPIRED:
@@ -84,15 +78,14 @@ class SignalNotificationService:
                 f'{prefix}\n\n'
                 'The internal reference result could not be confirmed safely. '
                 'The original signal direction has not changed.\n\n'
-                '🔄 Continue with the next round.'
+                'Use BCGAME Start Rate and End Rate as the result source for this round.'
             )
 
         icon = '✅' if signal.status == SignalStatus.WIN else ('❌' if signal.status == SignalStatus.LOSS else '➖')
         prefix = '🧪 PAPER ' if mode == 'PAPER' else ''
         direction_icon = '🟢' if signal.direction.value == 'UP' else ('🔴' if signal.direction.value == 'DOWN' else '⚪')
         return (
-            f'{prefix}{icon} {signal.status.value}\n\n'
-            f'{direction_icon} {signal.direction.value}\n'
-            '⚡ BTC/USD • 5s\n\n'
-            '🔄 Ready for the next round.'
+            f'{prefix}{icon} ROUND RESULT: {signal.status.value}\n\n'
+            f'{direction_icon} {signal.direction.value} • BTC/USD • 5s\n\n'
+            'Round complete. Use the main menu whenever you want another market scan.'
         )
