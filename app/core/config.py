@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
-    strategy_version: str = 'BTC_UPDOWN_5S_V1.1'
+    strategy_version: str = 'BTC_UPDOWN_5S_V1.2'
 
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
@@ -61,15 +61,16 @@ class Settings(BaseSettings):
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
     detrade_probe_coalesce_ms: int = 300
-    # Browser/CDP validation confirmed an application-level `ping` about every 5s.
     detrade_ping_interval_seconds: float = 5.0
     detrade_ping_timeout_seconds: float = 10.0
     detrade_reconnect_seconds: float = 2.0
     detrade_reconnect_max_seconds: float = 30.0
     detrade_max_frame_bytes: int = 1_000_000
 
-    signal_min_score: int = 6
-    signal_min_margin: int = 3
+    # Precision-first V1.2 defaults. Production may override these only when a
+    # verified BCGAME-labelled calibration set justifies doing so.
+    signal_min_score: int = 8
+    signal_min_margin: int = 4
     signal_trade_flow_lookback_seconds: int = 15
     signal_min_recent_trades: int = 12
     signal_min_tick_span_seconds: float = 4.0
