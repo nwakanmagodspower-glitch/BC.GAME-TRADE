@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, replace
+from typing import Any
 
 from app.core.config import get_settings
 from app.models.entities import SignalDirection
+from app.services.cross_venue_microstructure import CrossVenueSnapshot, cross_venue_microstructure_service
 from app.services.market_data import MarketSnapshot, market_data_service
 from app.signals.decision import SignalDecision, decide
 from app.signals.features import FeatureSnapshot, build_features
@@ -27,6 +29,7 @@ class IntelligenceResult:
     service_available: bool = True
     seconds_until_start: float | None = None
     contract_duration_seconds: float | None = None
+    cross_venue: dict[str, Any] | None = None
 
 
 class SignalIntelligenceService:
@@ -46,8 +49,6 @@ class SignalIntelligenceService:
         if market != settings.analysis_pair.upper():
             return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, f'Unsupported V1 market: {market}.', False, seconds_until_start, contract_duration_seconds)
 
-        # Timing-aware scans must not reuse a cached decision produced for a
-        # materially different prediction horizon.
         allow_cache = seconds_until_start is None and contract_duration_seconds is None
         max_cache_age = max(0.0, settings.signal_scan_coalesce_ms / 1000.0)
         now_mono = time.monotonic()
@@ -78,10 +79,47 @@ class SignalIntelligenceService:
         age = time.time() - snapshot.event_time.timestamp()
         return -settings.market_data_future_skew_seconds <= age <= settings.market_data_max_age_seconds
 
+    @staticmethod
+    def _direction_matches_consensus(direction: SignalDirection, cross: CrossVenueSnapshot) -> bool:
+        return (
+            direction == SignalDirection.UP and cross.consensus == 'UP'
+        ) or (
+            direction == SignalDirection.DOWN and cross.consensus == 'DOWN'
+        )
+
+    def _apply_cross_venue_gate(
+        self,
+        decision: SignalDecision,
+        cross: CrossVenueSnapshot,
+    ) -> SignalDecision:
+        if decision.direction == SignalDirection.NO_TRADE or not settings.cross_venue_enabled:
+            return decision
+        if not cross.fresh:
+            # Cross-venue confirmation is additive. A temporary public-feed outage
+            # falls back to the already conservative V1.3 gates rather than taking
+            # the entire signal service offline.
+            return decision
+        if not cross.healthy_spread:
+            return replace(
+                decision,
+                direction=SignalDirection.NO_TRADE,
+                quality='NO_TRADE',
+                reason='Cross-venue spread/liquidity is abnormal for a five-second entry.',
+            )
+        if cross.consensus in {'UP', 'DOWN'} and not self._direction_matches_consensus(decision.direction, cross):
+            return replace(
+                decision,
+                direction=SignalDirection.NO_TRADE,
+                quality='NO_TRADE',
+                reason='Binance and Bybit order books contradict the directional setup.',
+            )
+        return decision
+
     def _apply_horizon_gate(
         self,
         decision: SignalDecision,
         features: FeatureSnapshot,
+        cross: CrossVenueSnapshot,
         *,
         seconds_until_start: float | None,
         contract_duration_seconds: float | None,
@@ -91,9 +129,6 @@ class SignalIntelligenceService:
         if seconds_until_start is None or contract_duration_seconds is None:
             return decision
 
-        # This product is specifically the ~5 second Start Rate -> End Rate
-        # contract. If the authoritative round says something materially
-        # different, do not pretend the existing model targets that horizon.
         if not 4.5 <= contract_duration_seconds <= 5.5:
             return replace(
                 decision,
@@ -123,21 +158,23 @@ class SignalIntelligenceService:
             if direction_up
             else features.ema_fast < features.ema_slow and features.structure != 'BULLISH'
         )
+        cross_confirmed = cross.fresh and cross.healthy_spread and self._direction_matches_consensus(decision.direction, cross)
 
-        # The farther away BCGAME's Start Rate is, the less predictive a current
-        # one-second impulse is. Require progressively stronger persistence rather
-        # than treating every scan as a five-second-from-now prediction.
+        directional_score = decision.bull_score if direction_up else decision.bear_score
+
+        # V1.4 uses independent Binance+Bybit book confirmation to avoid simply
+        # loosening V1.3. Strong cross-venue agreement earns a modest reduction in
+        # the far-horizon threshold; disagreement never earns a signal.
         if seconds_until_start >= 10.0:
-            required_score = 10
-            required_margin = 6
+            required_score = 9 if cross_confirmed else 10
+            required_margin = 5 if cross_confirmed else 6
+            strong_flow_limit = 0.62 if cross_confirmed else 0.65
             strong_flow = (
-                flow is not None and flow >= 0.65
+                flow is not None and flow >= strong_flow_limit
                 if direction_up
-                else flow is not None and flow <= 0.35
+                else flow is not None and flow <= (1.0 - strong_flow_limit)
             )
-            if (
-                decision.bull_score < required_score if direction_up else decision.bear_score < required_score
-            ) or decision.margin < required_margin or not strong_flow or not aligned_momentum or not aligned_context:
+            if directional_score < required_score or decision.margin < required_margin or not strong_flow or not aligned_momentum or not aligned_context:
                 return replace(
                     decision,
                     direction=SignalDirection.NO_TRADE,
@@ -145,9 +182,8 @@ class SignalIntelligenceService:
                     reason='Setup is not persistent enough for the remaining time before BCGAME Start Rate.',
                 )
         elif seconds_until_start >= 7.0:
-            required_score = 9
-            required_margin = 5
-            directional_score = decision.bull_score if direction_up else decision.bear_score
+            required_score = 8 if cross_confirmed else 9
+            required_margin = 4 if cross_confirmed else 5
             if directional_score < required_score or decision.margin < required_margin or not aligned_flow or not aligned_momentum:
                 return replace(
                     decision,
@@ -156,9 +192,6 @@ class SignalIntelligenceService:
                     reason='Setup is not strong enough for this BCGAME prediction horizon.',
                 )
         else:
-            # Very late scans are handled by the timing service, but keep a final
-            # intelligence guard here so the model never treats a late impulse as
-            # a clean setup.
             if not aligned_flow or not aligned_momentum:
                 return replace(
                     decision,
@@ -167,6 +200,8 @@ class SignalIntelligenceService:
                     reason='Late-round momentum is not sufficiently aligned.',
                 )
 
+        if cross_confirmed and decision.quality == 'VALID':
+            return replace(decision, quality='STRONG')
         return decision
 
     async def _compute(
@@ -177,10 +212,12 @@ class SignalIntelligenceService:
         contract_duration_seconds: float | None,
     ) -> IntelligenceResult:
         snapshot = await market_data_service.cache.get_snapshot(market, max_age_seconds=settings.market_data_max_age_seconds)
+        cross = cross_venue_microstructure_service.snapshot()
+        cross_data = cross.to_dict() if settings.cross_venue_enabled else None
         if snapshot is None:
-            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, 'Live market data is temporarily unavailable.', False, seconds_until_start, contract_duration_seconds)
+            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, 'Live market data is temporarily unavailable.', False, seconds_until_start, contract_duration_seconds, cross_data)
         if not snapshot.fresh:
-            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, 'Market data is stale. Try again shortly.', False, seconds_until_start, contract_duration_seconds)
+            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, 'Market data is stale. Try again shortly.', False, seconds_until_start, contract_duration_seconds, cross_data)
 
         try:
             candles = await market_data_service.get_cached_candles(market)
@@ -198,26 +235,18 @@ class SignalIntelligenceService:
             features = build_features(candles, ticks)
         except Exception as exc:
             return IntelligenceResult(
-                market,
-                SignalDirection.NO_TRADE,
-                'UNAVAILABLE',
-                snapshot.price,
-                snapshot,
-                None,
-                None,
-                f'Market analysis is temporarily unavailable ({type(exc).__name__}).',
-                False,
-                seconds_until_start,
-                contract_duration_seconds,
+                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
+                f'Market analysis is temporarily unavailable ({type(exc).__name__}).', False,
+                seconds_until_start, contract_duration_seconds, cross_data,
             )
 
         score = score_features(features)
-        min_score = max(8, settings.signal_min_score)
-        min_margin = max(4, settings.signal_min_margin)
-        decision = decide(score, min_score=min_score, min_margin=min_margin)
+        decision = decide(score, min_score=max(8, settings.signal_min_score), min_margin=max(4, settings.signal_min_margin))
+        decision = self._apply_cross_venue_gate(decision, cross)
         decision = self._apply_horizon_gate(
             decision,
             features,
+            cross,
             seconds_until_start=seconds_until_start,
             contract_duration_seconds=contract_duration_seconds,
         )
@@ -234,6 +263,7 @@ class SignalIntelligenceService:
             service_available=True,
             seconds_until_start=seconds_until_start,
             contract_duration_seconds=contract_duration_seconds,
+            cross_venue=cross_data,
         )
 
 
