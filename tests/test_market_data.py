@@ -60,6 +60,29 @@ def test_market_data_cache_keeps_only_recent_trade_window():
     asyncio.run(run())
 
 
+def test_default_style_buffer_preserves_multi_second_window_during_burst():
+    async def run():
+        cache = MarketDataCache(trade_buffer_size=50_000)
+        now = datetime.now(timezone.utc)
+        # Simulate 10k trades spread across five seconds. The old 5k cap would
+        # retain only about half this time span and could falsely fail readiness.
+        for i in range(10_000):
+            age_seconds = 5.0 - (i * 5.0 / 9_999)
+            await cache.set_tick(MarketTick(
+                'BTCUSDT',
+                60000 + (i * 0.001),
+                0.01,
+                now - timedelta(seconds=age_seconds),
+                'TEST',
+                bool(i % 2),
+            ))
+        count, span = await cache.get_trade_window_metrics('BTCUSDT', lookback_seconds=15)
+        assert count == 10_000
+        assert span >= 4.9
+
+    asyncio.run(run())
+
+
 def test_market_data_cache_rejects_future_ticks_and_uses_provider_candle_time():
     async def run():
         cache = MarketDataCache(max_future_skew_seconds=1)
