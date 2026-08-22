@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
-    strategy_version: str = 'BTC_UPDOWN_5S_V1.4.1'
+    strategy_version: str = 'BTC_UPDOWN_5S_V1.4.2'
 
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     # for the 1s/3s/5s feature windows instead of losing time coverage in bursts.
     market_trade_buffer_size: int = 50_000
 
-    # V1.4.1 public cross-venue order-book confirmation. This runs as one shared
+    # V1.4.2 public cross-venue order-book confirmation. This runs as one shared
     # web-process service and never opens a connection per Telegram user.
     cross_venue_enabled: bool = True
     cross_venue_binance_ws_url: str = 'wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms'
