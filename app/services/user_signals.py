@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.integrations.bcgame_rounds import bcgame_round_service
-from app.models.entities import Signal, User, UserStatus
+from app.models.entities import Signal, SignalStatus, User, UserStatus
 from app.services.admin_ops import AdminOpsService
 from app.services.signal_intelligence import signal_intelligence_service
 from app.services.signal_records import SignalRecordService
@@ -43,12 +43,40 @@ class UserSignalService:
         worker = get_worker_status(self.db)
         return bool(worker.fresh and worker.healthy)
 
+    @staticmethod
+    def _aware(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+    def _current_signal(self, user_id: int, *, lock: bool = False) -> Signal | None:
+        query = (
+            select(Signal)
+            .where(
+                Signal.requested_by_user_id == user_id,
+                Signal.status.in_([SignalStatus.WAITING_ENTRY, SignalStatus.ACTIVE]),
+            )
+            .order_by(Signal.id.desc())
+        )
+        if lock:
+            query = query.with_for_update()
+        return self.db.scalar(query)
+
+    def _clear_stale_current_signal(self, signal: Signal, now: datetime) -> bool:
+        expiry = self._aware(signal.expiry_at)
+        if expiry is None:
+            return False
+        stale_after = expiry + timedelta(seconds=settings.signal_settlement_window_seconds)
+        if now <= stale_after:
+            return False
+        signal.status = SignalStatus.EXPIRED
+        signal.status_reason = 'Stale current signal was cleared before a new scan.'
+        return True
+
     async def request_scan(self, user_id: int, countdown_seconds: int | None = None) -> UserSignalResult:
         if settings.signal_mode.upper() != 'LIVE':
             return UserSignalResult(None, False, 'Signals are in PAPER validation mode and are not actionable.')
 
-        # Read-only preflight. Do not hold a PostgreSQL row lock or transaction
-        # while waiting on DeTrade/Binance/Bybit network work.
         user = self.db.scalar(select(User).where(User.id == user_id))
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -63,11 +91,18 @@ class UserSignalService:
             self.db.rollback()
             return UserSignalResult(None, False, 'Signal service is refreshing. Please try again in a few seconds.')
 
-        if self._cooldown_active(user, datetime.now(timezone.utc)):
+        now = datetime.now(timezone.utc)
+        if self._cooldown_active(user, now):
             self.db.rollback()
             return UserSignalResult(None, False, 'Please wait briefly before scanning again.')
 
-        # Release the read transaction before any network await.
+        current = self._current_signal(user_id)
+        if current is not None:
+            expiry = self._aware(current.expiry_at)
+            if expiry is None or now <= expiry + timedelta(seconds=settings.signal_settlement_window_seconds):
+                self.db.rollback()
+                return UserSignalResult(None, False, 'Your current signal round is still in progress. Wait for the next fresh round.')
+
         self.db.rollback()
 
         timing_mode = settings.signal_timing_mode.upper()
@@ -113,8 +148,6 @@ class UserSignalService:
             if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
                 return UserSignalResult(None, False, 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.')
 
-        # Final atomic gate. Re-lock and re-check all mutable state, including the
-        # cooldown, so simultaneous taps cannot create duplicate directional scans.
         user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -133,6 +166,13 @@ class UserSignalService:
         if self._cooldown_active(user, now):
             self.db.rollback()
             return UserSignalResult(None, False, 'A scan was just completed for your account. Please wait briefly before scanning again.')
+
+        current = self._current_signal(user_id, lock=True)
+        if current is not None:
+            if not self._clear_stale_current_signal(current, now):
+                self.db.rollback()
+                return UserSignalResult(None, False, 'Your current signal round is still in progress. Wait for the next fresh round.')
+            self.db.flush()
 
         user.last_scan_requested_at = now
         signal = SignalRecordService(self.db).record_scan(
