@@ -120,6 +120,8 @@ services:
         value: "1000000"
       - key: MARKET_DATA_FUTURE_SKEW_SECONDS
         value: "2"
+      - key: MARKET_TRADE_BUFFER_SIZE
+        value: "50000"
       - key: CROSS_VENUE_ENABLED
         value: "true"
       - key: CROSS_VENUE_BINANCE_WS_URL
@@ -259,6 +261,8 @@ services:
         value: "1000000"
       - key: MARKET_DATA_FUTURE_SKEW_SECONDS
         value: "2"
+      - key: MARKET_TRADE_BUFFER_SIZE
+        value: "50000"
       - key: VERIFICATION_MAX_DEPOSIT_PROOFS
         value: "3"
       - key: VERIFICATION_MAX_PHOTO_BYTES
@@ -313,7 +317,7 @@ services:
 
 databases:
   - name: bcgame-trade-db
-    plan: free
+    plan: starter
     region: frankfurt
     postgresMajorVersion: "16"
     ipAllowList: []
