@@ -43,7 +43,6 @@ class VenueBookSnapshot:
         total = self.bid_qty + self.ask_qty
         if total <= 0:
             return self.midpoint
-        # More bid size shifts fair value toward the ask; more ask size shifts it toward the bid.
         return ((self.best_ask * self.bid_qty) + (self.best_bid * self.ask_qty)) / total
 
     @property
@@ -181,20 +180,26 @@ class CrossVenueMicrostructureService:
         )
 
     async def _run_binance(self) -> None:
-        url = settings.cross_venue_binance_ws_url
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                async with websockets.connect(url, ping_interval=20, ping_timeout=10, max_size=1_000_000) as ws:
+                async with websockets.connect(
+                    settings.cross_venue_binance_ws_url,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    max_size=1_000_000,
+                ) as ws:
                     self.last_error['BINANCE'] = None
                     backoff = 1.0
                     async for frame in ws:
                         if self._stop.is_set():
                             return
                         data = json.loads(frame)
-                        bids = data.get('b') or data.get('bids') or []
-                        asks = data.get('a') or data.get('asks') or []
-                        snap = self._build_snapshot('BINANCE', bids, asks)
+                        snap = self._build_snapshot(
+                            'BINANCE',
+                            data.get('b') or data.get('bids') or [],
+                            data.get('a') or data.get('asks') or [],
+                        )
                         if snap is not None:
                             self._books['BINANCE'] = snap
             except asyncio.CancelledError:
@@ -205,14 +210,18 @@ class CrossVenueMicrostructureService:
                 backoff = min(backoff * 1.7, 15.0)
 
     async def _run_bybit(self) -> None:
-        url = settings.cross_venue_bybit_ws_url
-        topic = f'orderbook.{settings.cross_venue_depth_levels}.BTCUSDT'
+        topic = f'orderbook.{settings.cross_venue_bybit_subscription_depth}.BTCUSDT'
         bids: dict[float, float] = {}
         asks: dict[float, float] = {}
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                async with websockets.connect(url, ping_interval=20, ping_timeout=10, max_size=1_000_000) as ws:
+                async with websockets.connect(
+                    settings.cross_venue_bybit_ws_url,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    max_size=1_000_000,
+                ) as ws:
                     await ws.send(json.dumps({'op': 'subscribe', 'args': [topic]}))
                     self.last_error['BYBIT'] = None
                     backoff = 1.0
@@ -223,8 +232,7 @@ class CrossVenueMicrostructureService:
                         if payload.get('topic') != topic:
                             continue
                         data = payload.get('data') or {}
-                        msg_type = payload.get('type')
-                        if msg_type == 'snapshot':
+                        if payload.get('type') == 'snapshot':
                             bids.clear(); asks.clear()
                         for raw_price, raw_qty, *_ in data.get('b', []):
                             price = float(raw_price); qty = float(raw_qty)
@@ -236,8 +244,8 @@ class CrossVenueMicrostructureService:
                             else: asks[price] = qty
                         snap = self._build_snapshot(
                             'BYBIT',
-                            sorted(bids.items(), reverse=True)[: settings.cross_venue_depth_levels],
-                            sorted(asks.items())[: settings.cross_venue_depth_levels],
+                            sorted(bids.items(), reverse=True)[: settings.cross_venue_bybit_subscription_depth],
+                            sorted(asks.items())[: settings.cross_venue_bybit_subscription_depth],
                         )
                         if snap is not None:
                             self._books['BYBIT'] = snap
