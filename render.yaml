@@ -122,6 +122,10 @@ services:
         value: "2"
       - key: CROSS_VENUE_ENABLED
         value: "true"
+      - key: CROSS_VENUE_BINANCE_WS_URL
+        value: wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms
+      - key: CROSS_VENUE_BYBIT_WS_URL
+        value: wss://stream.bybit.com/v5/public/spot
       - key: CROSS_VENUE_DEPTH_LEVELS
         value: "5"
       - key: CROSS_VENUE_BYBIT_SUBSCRIPTION_DEPTH
