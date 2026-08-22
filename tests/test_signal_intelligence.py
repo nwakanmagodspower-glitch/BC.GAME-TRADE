@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
-from dataclasses import replace
 
 from app.integrations.market_data.base import Candle, MarketTick
 from app.models.entities import SignalDirection
+from app.services.cross_venue_microstructure import CrossVenueSnapshot, VenueBookSnapshot
 from app.services.signal_intelligence import SignalIntelligenceService
 from app.signals.decision import decide
 from app.signals.features import build_features
@@ -37,6 +37,18 @@ def make_ticks(bullish: bool) -> list[MarketTick]:
     ) for i in range(20)]
 
 
+def empty_cross() -> CrossVenueSnapshot:
+    return CrossVenueSnapshot(binance=None, bybit=None)
+
+
+def bullish_cross() -> CrossVenueSnapshot:
+    now = datetime.now(timezone.utc)
+    return CrossVenueSnapshot(
+        binance=VenueBookSnapshot('BINANCE', 100.0, 100.1, 9.0, 1.0, 70.0, 30.0, now),
+        bybit=VenueBookSnapshot('BYBIT', 100.0, 100.1, 8.0, 2.0, 68.0, 32.0, now),
+    )
+
+
 def test_bullish_features_can_produce_strong_up_signal():
     features = build_features(make_candles(1), make_ticks(True))
     score = score_features(features)
@@ -55,18 +67,33 @@ def test_conflicting_scores_return_no_trade():
     assert result.direction == SignalDirection.NO_TRADE
 
 
-def test_far_start_rate_requires_stronger_persistence():
+def test_far_start_rate_requires_stronger_persistence_without_cross_confirmation():
     service = SignalIntelligenceService()
     features = build_features(make_candles(1), make_ticks(True))
     base = decide(ScoreResult(bull_score=9, bear_score=2, reasons=['strong but not long-horizon strong']), min_score=8, min_margin=4)
     gated = service._apply_horizon_gate(
         base,
         features,
+        empty_cross(),
         seconds_until_start=12.0,
         contract_duration_seconds=5.0,
     )
     assert gated.direction == SignalDirection.NO_TRADE
     assert 'Start Rate' in gated.reason
+
+
+def test_cross_confirmed_far_horizon_does_not_require_extreme_trade_flow():
+    service = SignalIntelligenceService()
+    features = build_features(make_candles(1), make_ticks(True))
+    base = decide(ScoreResult(bull_score=10, bear_score=2, reasons=['confirmed persistent setup']), min_score=8, min_margin=4)
+    gated = service._apply_horizon_gate(
+        base,
+        features,
+        bullish_cross(),
+        seconds_until_start=12.0,
+        contract_duration_seconds=5.0,
+    )
+    assert gated.direction == SignalDirection.UP
 
 
 def test_wrong_contract_duration_is_rejected():
@@ -76,6 +103,7 @@ def test_wrong_contract_duration_is_rejected():
     gated = service._apply_horizon_gate(
         base,
         features,
+        bullish_cross(),
         seconds_until_start=10.0,
         contract_duration_seconds=7.0,
     )
