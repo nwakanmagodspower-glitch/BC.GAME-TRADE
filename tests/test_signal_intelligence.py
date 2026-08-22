@@ -62,15 +62,24 @@ def test_old_six_three_threshold_no_longer_qualifies_by_default():
     assert result.direction == SignalDirection.NO_TRADE
 
 
+def test_cross_venue_confirmation_can_promote_near_threshold_setup():
+    service = SignalIntelligenceService()
+    base = ScoreResult(bull_score=7, bear_score=2, reasons=['persistent market setup'])
+    confirmed = service._apply_cross_venue_score_bonus(base, bullish_cross())
+    result = decide(confirmed, min_score=8, min_margin=4)
+    assert confirmed.bull_score == 9
+    assert result.direction == SignalDirection.UP
+
+
 def test_conflicting_scores_return_no_trade():
     result = decide(ScoreResult(bull_score=8, bear_score=5, reasons=['conflict']))
     assert result.direction == SignalDirection.NO_TRADE
 
 
-def test_far_start_rate_requires_stronger_persistence_without_cross_confirmation():
+def test_far_start_rate_stays_stricter_without_cross_confirmation():
     service = SignalIntelligenceService()
     features = build_features(make_candles(1), make_ticks(True))
-    base = decide(ScoreResult(bull_score=9, bear_score=2, reasons=['strong but not long-horizon strong']), min_score=8, min_margin=4)
+    base = decide(ScoreResult(bull_score=8, bear_score=2, reasons=['qualified base setup']), min_score=8, min_margin=4)
     gated = service._apply_horizon_gate(
         base,
         features,
@@ -82,10 +91,10 @@ def test_far_start_rate_requires_stronger_persistence_without_cross_confirmation
     assert 'Start Rate' in gated.reason
 
 
-def test_cross_confirmed_far_horizon_does_not_require_extreme_trade_flow():
+def test_cross_confirmed_far_horizon_uses_normal_eight_four_gate():
     service = SignalIntelligenceService()
     features = build_features(make_candles(1), make_ticks(True))
-    base = decide(ScoreResult(bull_score=10, bear_score=2, reasons=['confirmed persistent setup']), min_score=8, min_margin=4)
+    base = decide(ScoreResult(bull_score=8, bear_score=2, reasons=['confirmed persistent setup']), min_score=8, min_margin=4)
     gated = service._apply_horizon_gate(
         base,
         features,
