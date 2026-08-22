@@ -11,7 +11,7 @@ from app.services.cross_venue_microstructure import CrossVenueSnapshot, cross_ve
 from app.services.market_data import MarketSnapshot, market_data_service
 from app.signals.decision import SignalDecision, decide
 from app.signals.features import FeatureSnapshot, build_features
-from app.signals.scoring import score_features
+from app.signals.scoring import ScoreResult, score_features
 
 settings = get_settings()
 
@@ -75,9 +75,6 @@ class SignalIntelligenceService:
                 seconds_until_start=seconds_until_start,
                 contract_duration_seconds=contract_duration_seconds,
             )
-            # Cache every fresh computation for only the configured coalescing
-            # window. Synchronized users arriving together can safely share one
-            # analysis when their horizons are effectively the same.
             self._last_result = result
             self._last_result_at = time.monotonic()
             return result
@@ -94,8 +91,6 @@ class SignalIntelligenceService:
         if result is None or (now_mono - self._last_result_at) > max_cache_age:
             return False
 
-        # Manual and synchronized scans must not accidentally share results across
-        # materially different prediction horizons.
         if seconds_until_start is None:
             if result.seconds_until_start is not None:
                 return False
@@ -123,6 +118,25 @@ class SignalIntelligenceService:
         ) or (
             direction == SignalDirection.DOWN and cross.consensus == 'DOWN'
         )
+
+    @staticmethod
+    def _apply_cross_venue_score_bonus(score: ScoreResult, cross: CrossVenueSnapshot) -> ScoreResult:
+        """Treat genuine Binance+Bybit agreement as independent positive evidence.
+
+        Earlier V1.4 builds used cross-venue data mostly as a veto after the base
+        decision. That meant an otherwise useful 7-point setup could never become
+        qualified even when both spot order books independently confirmed it.
+        """
+        if not settings.cross_venue_enabled or not cross.fresh or not cross.healthy_spread:
+            return score
+        reasons = list(score.reasons)
+        if cross.consensus == 'UP':
+            reasons.append('Binance and Bybit spot order books confirm UP')
+            return ScoreResult(score.bull_score + 2, score.bear_score, reasons)
+        if cross.consensus == 'DOWN':
+            reasons.append('Binance and Bybit spot order books confirm DOWN')
+            return ScoreResult(score.bull_score, score.bear_score + 2, reasons)
+        return score
 
     def _apply_cross_venue_gate(
         self,
@@ -174,43 +188,39 @@ class SignalIntelligenceService:
         direction_up = decision.direction == SignalDirection.UP
         flow = features.trade_buy_ratio
         aligned_flow = (
-            flow is not None and flow >= 0.60
+            flow is not None and flow >= 0.56
             if direction_up
-            else flow is not None and flow <= 0.40
+            else flow is not None and flow <= 0.44
         )
+        # Persistence matters more than requiring every window to be positive by
+        # the exact same threshold. A tiny opposite 1s print is tolerated unless
+        # it reaches the explicit reversal veto already applied in scoring.
         aligned_momentum = (
-            features.tick_return_1s_pct >= 0
-            and features.tick_return_3s_pct >= 0.006
-            and features.tick_return_5s_pct >= 0.01
+            features.tick_return_1s_pct >= -0.0015
+            and features.tick_return_3s_pct >= 0.004
+            and features.tick_return_5s_pct >= 0.007
             if direction_up
-            else features.tick_return_1s_pct <= 0
-            and features.tick_return_3s_pct <= -0.006
-            and features.tick_return_5s_pct <= -0.01
-        )
-        aligned_context = (
-            features.ema_fast > features.ema_slow and features.structure != 'BEARISH'
-            if direction_up
-            else features.ema_fast < features.ema_slow and features.structure != 'BULLISH'
+            else features.tick_return_1s_pct <= 0.0015
+            and features.tick_return_3s_pct <= -0.004
+            and features.tick_return_5s_pct <= -0.007
         )
         cross_confirmed = cross.fresh and cross.healthy_spread and self._direction_matches_consensus(decision.direction, cross)
         directional_score = decision.bull_score if direction_up else decision.bear_score
 
+        # Long prediction horizons remain somewhat stricter, but cross-venue
+        # confirmation must not be counted twice. When both spot venues agree,
+        # the normal 8/4 decision plus persistent micro-momentum is sufficient.
         if seconds_until_start >= 10.0:
             if cross_confirmed:
-                if directional_score < 9 or decision.margin < 5 or not aligned_momentum or not aligned_context:
+                if directional_score < 8 or decision.margin < 4 or not aligned_momentum:
                     return replace(
                         decision,
                         direction=SignalDirection.NO_TRADE,
                         quality='NO_TRADE',
-                        reason='Cross-venue direction is aligned, but the setup is not persistent enough for the remaining time before BCGAME Start Rate.',
+                        reason='Cross-venue direction is aligned, but momentum is not persistent enough for the time remaining before BCGAME Start Rate.',
                     )
             else:
-                strong_flow = (
-                    flow is not None and flow >= 0.65
-                    if direction_up
-                    else flow is not None and flow <= 0.35
-                )
-                if directional_score < 10 or decision.margin < 6 or not strong_flow or not aligned_momentum or not aligned_context:
+                if directional_score < 9 or decision.margin < 5 or not aligned_flow or not aligned_momentum:
                     return replace(
                         decision,
                         direction=SignalDirection.NO_TRADE,
@@ -226,14 +236,13 @@ class SignalIntelligenceService:
                         quality='NO_TRADE',
                         reason='Cross-venue direction is aligned, but short-term momentum is not strong enough for this BCGAME horizon.',
                     )
-            else:
-                if directional_score < 9 or decision.margin < 5 or not aligned_flow or not aligned_momentum:
-                    return replace(
-                        decision,
-                        direction=SignalDirection.NO_TRADE,
-                        quality='NO_TRADE',
-                        reason='Setup is not strong enough for this BCGAME prediction horizon.',
-                    )
+            elif not aligned_flow or not aligned_momentum:
+                return replace(
+                    decision,
+                    direction=SignalDirection.NO_TRADE,
+                    quality='NO_TRADE',
+                    reason='Setup needs either cross-venue confirmation or aligned Binance flow for this BCGAME horizon.',
+                )
         else:
             if cross_confirmed:
                 if not aligned_momentum:
@@ -241,17 +250,17 @@ class SignalIntelligenceService:
                         decision,
                         direction=SignalDirection.NO_TRADE,
                         quality='NO_TRADE',
-                        reason='Cross-venue direction is aligned, but late-round momentum is not sufficiently aligned.',
+                        reason='Cross-venue direction is aligned, but late-round momentum is reversing.',
                     )
             elif not aligned_flow or not aligned_momentum:
                 return replace(
                     decision,
                     direction=SignalDirection.NO_TRADE,
                     quality='NO_TRADE',
-                    reason='Late-round momentum is not sufficiently aligned.',
+                    reason='Late-round momentum/flow is not sufficiently aligned.',
                 )
 
-        if cross_confirmed and decision.quality == 'VALID':
+        if cross_confirmed:
             return replace(decision, quality='STRONG')
         return decision
 
@@ -306,6 +315,7 @@ class SignalIntelligenceService:
             )
 
         score = score_features(features)
+        score = self._apply_cross_venue_score_bonus(score, cross)
         decision = decide(score, min_score=max(8, settings.signal_min_score), min_margin=max(4, settings.signal_min_margin))
         decision = self._apply_cross_venue_gate(decision, cross)
         decision = self._apply_horizon_gate(
