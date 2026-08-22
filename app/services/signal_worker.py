@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.entities import Signal, SignalStatus
 from app.services.signal_lifecycle import SignalLifecycleService
-from app.services.signal_notifications import SignalNotificationService
-
-settings = get_settings()
 
 
 class SignalLifecycleWorker:
-    """Database-backed worker for signal lifecycle and Telegram state notifications."""
+    """Database-backed internal signal lifecycle worker.
+
+    User-facing lifecycle/result notifications are intentionally disabled. This
+    worker now performs only internal state/reference bookkeeping so it cannot
+    clutter Telegram or accidentally reintroduce misleading result messages.
+    """
 
     def __init__(self, poll_seconds: float = 1.0):
         self.poll_seconds = poll_seconds
@@ -48,43 +49,12 @@ class SignalLifecycleWorker:
                 .order_by(Signal.id.asc())
             ).all()
             lifecycle = SignalLifecycleService(db)
-            notifications = SignalNotificationService(db)
 
             for signal in signals:
-                previous = signal.status
                 if signal.status == SignalStatus.WAITING_ENTRY:
                     await lifecycle.activate_if_due(signal, now=now)
-                if signal.status != previous and signal.status in {SignalStatus.ACTIVE, SignalStatus.CANCELLED}:
-                    await notifications.notify_status(signal)
-
-                previous = signal.status
                 if signal.status == SignalStatus.ACTIVE:
                     await lifecycle.settle_if_due(signal, now=now)
-                if signal.status != previous and signal.status in {
-                    SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
-                    SignalStatus.CANCELLED, SignalStatus.EXPIRED,
-                }:
-                    await notifications.notify_status(signal)
-
-            retry_cutoff = now - timedelta(days=settings.temporary_retention_days)
-            retryable = db.scalars(
-                select(Signal)
-                .where(
-                    Signal.created_at >= retry_cutoff,
-                    Signal.status.in_([
-                        SignalStatus.ACTIVE,
-                        SignalStatus.CANCELLED,
-                        SignalStatus.EXPIRED,
-                        SignalStatus.WIN,
-                        SignalStatus.LOSS,
-                        SignalStatus.TIE,
-                    ]),
-                )
-                .order_by(Signal.id.desc())
-                .limit(100)
-            ).all()
-            for signal in retryable:
-                await notifications.notify_status(signal)
 
     async def _run(self) -> None:
         while not self._stop.is_set():
