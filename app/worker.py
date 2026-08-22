@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from app.core.config import get_settings
 from app.core.startup import validate_settings
 from app.services.background_coordinator import background_job_coordinator
-from app.services.cross_venue_microstructure import cross_venue_microstructure_service
 from app.services.market_data import market_data_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.worker_heartbeat import worker_heartbeat_service
@@ -47,7 +46,6 @@ async def main() -> None:
             pass
 
     await market_data_service.start(settings.analysis_pair)
-    await cross_venue_microstructure_service.start()
     await background_job_coordinator.start()
     worker_heartbeat_service.health_provider = _critical_worker_health
     await worker_heartbeat_service.start()
@@ -56,7 +54,6 @@ async def main() -> None:
     finally:
         await worker_heartbeat_service.stop()
         await background_job_coordinator.stop()
-        await cross_venue_microstructure_service.stop()
         await market_data_service.stop()
 
 
