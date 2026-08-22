@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.models.entities import Signal, SignalDirection, SignalStatus
 from app.services import signal_notifications
 from app.services.signal_notifications import SignalNotificationService
@@ -38,19 +40,26 @@ def test_live_active_notification_is_simple_and_non_actionable(monkeypatch):
     service = SignalNotificationService(None)
     text = service._render(make_signal(SignalStatus.ACTIVE))
     assert 'ENTRY CLOSED' in text
-    assert 'Checking the 5s result' in text
+    assert 'signal remains locked' in text
     assert 'ENTER NOW' not in text
     assert 'UP' in text
     assert 'UTC' not in text
 
 
-def test_cancelled_notification_hides_internal_reason():
+@pytest.mark.asyncio
+async def test_cancelled_delivered_signal_is_never_notified(monkeypatch):
+    monkeypatch.setattr(signal_notifications.settings, 'telegram_bot_token', 'configured')
     service = SignalNotificationService(None)
-    text = service._render(make_signal(SignalStatus.CANCELLED))
-    assert 'SIGNAL CANCELLED' in text
-    assert 'Market conditions changed before entry' in text
-    assert 'direction inverted before start' not in text
-    assert 'Skip this round' in text
+    sent = await service.notify_status(make_signal(SignalStatus.CANCELLED))
+    assert sent is False
+
+
+def test_expired_notification_preserves_original_direction():
+    service = SignalNotificationService(None)
+    text = service._render(make_signal(SignalStatus.EXPIRED))
+    assert 'RESULT UNAVAILABLE' in text or 'PAPER RESULT UNRESOLVED' in text
+    assert 'original signal direction has not changed' in text
+    assert 'SIGNAL CANCELLED' not in text
 
 
 def test_win_notification_is_player_friendly_and_hides_reference_prices():
