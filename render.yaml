@@ -39,7 +39,7 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.3
+        value: BTC_UPDOWN_5S_V1.4
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
@@ -120,6 +120,20 @@ services:
         value: "1000000"
       - key: MARKET_DATA_FUTURE_SKEW_SECONDS
         value: "2"
+      - key: CROSS_VENUE_ENABLED
+        value: "true"
+      - key: CROSS_VENUE_DEPTH_LEVELS
+        value: "5"
+      - key: CROSS_VENUE_BYBIT_SUBSCRIPTION_DEPTH
+        value: "50"
+      - key: CROSS_VENUE_MAX_AGE_SECONDS
+        value: "2"
+      - key: CROSS_VENUE_IMBALANCE_THRESHOLD
+        value: "0.12"
+      - key: CROSS_VENUE_MICROPRICE_BIAS_BPS
+        value: "0.02"
+      - key: CROSS_VENUE_MAX_SPREAD_BPS
+        value: "2"
       - key: VERIFICATION_MAX_DEPOSIT_PROOFS
         value: "3"
       - key: VERIFICATION_MAX_PHOTO_BYTES
@@ -198,7 +212,7 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.3
+        value: BTC_UPDOWN_5S_V1.4
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
