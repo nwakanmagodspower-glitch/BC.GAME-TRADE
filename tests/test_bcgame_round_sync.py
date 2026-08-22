@@ -25,11 +25,16 @@ def observation(*, status=1001, remaining_ms=12_000, evaluation_ms=5_000):
     )
 
 
-def test_safe_verified_round_becomes_actionable(monkeypatch):
+def _prepare(monkeypatch):
     monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', True)
     monkeypatch.setattr(round_module.settings, 'detrade_ws_token', 'secret')
     monkeypatch.setattr(round_module.settings, 'detrade_latency_safety_margin_ms', 7000)
+    round_module.detrade_observer.latest = None
+
+
+def test_safe_verified_round_becomes_actionable(monkeypatch):
+    _prepare(monkeypatch)
 
     async def fake_probe(timeout_seconds=None):
         return observation(status=1001, remaining_ms=12_000)
@@ -45,10 +50,22 @@ def test_safe_verified_round_becomes_actionable(monkeypatch):
     assert decision.remaining_seconds is not None and decision.remaining_seconds > 11
 
 
+def test_five_second_round_allows_small_server_timestamp_variation(monkeypatch):
+    _prepare(monkeypatch)
+
+    for evaluation_ms in (4_999, 5_001, 4_500, 5_500):
+        async def fake_probe(timeout_seconds=None, duration=evaluation_ms):
+            return observation(status=1001, remaining_ms=12_000, evaluation_ms=duration)
+
+        monkeypatch.setattr(round_module.detrade_observer, 'probe', fake_probe)
+        round_module.detrade_observer.latest = None
+        decision = asyncio.run(BCGameRoundService().current_round_decision())
+        assert decision.synchronized is True
+        assert decision.actionable is True
+
+
 def test_known_closed_round_never_falls_through_as_actionable(monkeypatch):
-    monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
-    monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', True)
-    monkeypatch.setattr(round_module.settings, 'detrade_ws_token', 'secret')
+    _prepare(monkeypatch)
 
     async def fake_probe(timeout_seconds=None):
         return observation(status=1003, remaining_ms=0)
@@ -73,8 +90,7 @@ def test_unconfigured_feed_is_distinguishable_from_known_unsafe_round(monkeypatc
 
 
 def test_late_and_wrong_contract_rounds_fail_closed(monkeypatch):
-    monkeypatch.setattr(round_module.settings, 'bcgame_round_sync_enabled', True)
-    monkeypatch.setattr(round_module.settings, 'detrade_ws_enabled', True)
+    _prepare(monkeypatch)
     monkeypatch.setattr(round_module.settings, 'detrade_latency_safety_margin_ms', 10_000)
 
     service = BCGameRoundService()
@@ -86,6 +102,8 @@ def test_late_and_wrong_contract_rounds_fail_closed(monkeypatch):
     late = asyncio.run(service.current_round_decision())
     assert late.synchronized and not late.actionable
     assert 'too close' in late.reason
+
+    round_module.detrade_observer.latest = None
 
     async def wrong_contract_probe(timeout_seconds=None):
         return observation(remaining_ms=12_000, evaluation_ms=8_000)
