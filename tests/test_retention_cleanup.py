@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.models.entities import (
-    Broadcast, BroadcastDelivery, BroadcastStatus, Signal, SignalDirection,
+    BCGameRound, Broadcast, BroadcastDelivery, BroadcastStatus, Signal, SignalDirection,
     SignalNotification, SignalStatus, User, UserStatus,
 )
 from app.models.webhook import TelegramUpdateReceipt
@@ -28,8 +28,20 @@ def test_cleanup_deletes_technical_and_signal_records_older_than_10_days(monkeyp
         db.add(user)
         db.flush()
 
+        old_round = BCGameRound(
+            external_round_id='old-round', observed_at=old,
+            order_closes_at=old, start_rate_at=old, end_rate_at=old,
+        )
+        recent_round = BCGameRound(
+            external_round_id='recent-round', observed_at=recent,
+            order_closes_at=recent, start_rate_at=recent, end_rate_at=recent,
+        )
+        db.add_all([old_round, recent_round])
+        db.flush()
+
         old_signal = Signal(
             requested_by_user_id=user.id,
+            bcgame_round_id=old_round.id,
             market='BTC/USD',
             product='BC_UPDOWN_5S',
             direction=SignalDirection.UP,
@@ -66,6 +78,7 @@ def test_cleanup_deletes_technical_and_signal_records_older_than_10_days(monkeyp
     assert result.webhook_receipts == 1
     assert result.signal_notifications == 1
     assert result.signals == 1
+    assert result.bcgame_rounds == 1
     assert result.broadcast_deliveries == 1
 
     with Session() as db:
@@ -74,5 +87,7 @@ def test_cleanup_deletes_technical_and_signal_records_older_than_10_days(monkeyp
         signals = db.scalars(select(Signal).order_by(Signal.id)).all()
         assert len(signals) == 1
         assert signals[0].created_at.replace(tzinfo=timezone.utc) == recent
+        rounds = db.scalars(select(BCGameRound).order_by(BCGameRound.id)).all()
+        assert [row.external_round_id for row in rounds] == ['recent-round']
         assert db.scalar(select(Broadcast)) is not None
         assert db.scalar(select(User).where(User.telegram_user_id == 1001)) is not None

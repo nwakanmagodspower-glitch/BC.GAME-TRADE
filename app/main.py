@@ -13,6 +13,7 @@ from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
 from app.integrations.bcgame_rounds import bcgame_round_service
 from app.integrations.detrade_observer import detrade_observer
+from app.integrations.detrade_token_provider import usable_detrade_token
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
@@ -49,7 +50,14 @@ async def lifespan(app: FastAPI):
         await market_data_service.stop()
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+_production = settings.app_env.lower() == 'production'
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    docs_url=None if _production else '/docs',
+    redoc_url=None if _production else '/redoc',
+    openapi_url=None if _production else '/openapi.json',
+)
 
 
 def _worker_heartbeat_status() -> dict:
@@ -122,12 +130,8 @@ async def health():
             'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
-            'round_id': observed.round_id if observed else None,
-            'status': observed.status if observed else None,
-            'phase': observed.phase if observed else None,
-            'remaining_ms': observed.remaining_ms if observed else None,
-            'feed_age_ms': observed.data_age_ms if observed else None,
-            'authorization_configured': bool(settings.detrade_ws_token and settings.detrade_ws_token.strip().lower() != 'temporary'),
+            'authorization_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
+            'timer': observed.to_public_dict() if observed else None,
             'error_code': 'observer_error' if detrade_observer.last_error else None,
         },
         'market_data': {

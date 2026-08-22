@@ -80,9 +80,9 @@ Leaderboard/Copy Top Trade is excluded from V1 direction logic.
 
 ## Round Synchronization
 
-LIVE direction delivery requires either a valid fresh `MANUAL_SYNC` countdown confirmation (15/14/13/12) or, in the future, a trustworthy fresh `AUTO_SYNC` round snapshot. Never use minute boundaries or an unconfirmed local timer.
+LIVE direction delivery in `HYBRID_SYNC` prefers a fresh authenticated DeTrade round snapshot. The single Scan Now action falls back only when that source is unavailable; it never invents a round ID or claims a local timer is official. A synchronized closed, stale, late, unknown, or wrong-product round fails closed.
 
-A signal must leave enough order-window lead time for a human to receive the Telegram message, open/return to BC.GAME, set amount and press UP/DOWN before countdown reaches zero.
+A signal must leave enough order-window lead time for a human to receive the Telegram message, open/return to BCGAME, set amount and press UP/DOWN before countdown reaches zero. The production defaults require more than 10 seconds before analysis and more than 8 seconds after it.
 
 If the remaining window is too short, skip the round.
 

@@ -65,10 +65,10 @@ class SignalNotificationService:
             if mode == 'PAPER':
                 return (
                     '🧪 PAPER ROUND STARTED\n\n'
-                    'BTC/USD — BC.GAME 5s UP/DOWN\n'
+                    'BTC/USD — BCGAME 5s UP/DOWN\n'
                     f'Model direction: {signal.direction.value}\n'
                     f'5-second End Rate time: {end_time}\n\n'
-                    'BC.GAME order window is already closed. Validation only.'
+                    'BCGAME order window is already closed. Validation only.'
                 )
             return (
                 '🔒 ROUND LOCKED — 5s MEASUREMENT STARTED\n\n'
@@ -98,5 +98,5 @@ class SignalNotificationService:
             f'Direction: {signal.direction.value}\n'
             f'External start reference: {start}\n'
             f'External end reference: {end}\n\n'
-            'BC.GAME Start Rate / End Rate is the product truth. External-reference results remain diagnostic until BC.GAME round-result ingestion is verified.'
+            'BCGAME Start Rate / End Rate is the product truth. External-reference results remain diagnostic until BCGAME round-result ingestion is verified.'
         )

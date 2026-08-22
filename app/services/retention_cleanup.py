@@ -4,11 +4,18 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, select
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models.entities import Broadcast, BroadcastDelivery, BroadcastStatus, Signal, SignalNotification
+from app.models.entities import (
+    BCGameRound,
+    Broadcast,
+    BroadcastDelivery,
+    BroadcastStatus,
+    Signal,
+    SignalNotification,
+)
 from app.models.webhook import TelegramUpdateReceipt
 
 settings = get_settings()
@@ -19,11 +26,18 @@ class CleanupResult:
     webhook_receipts: int
     signal_notifications: int
     signals: int
+    bcgame_rounds: int
     broadcast_deliveries: int
 
     @property
     def total(self) -> int:
-        return self.webhook_receipts + self.signal_notifications + self.signals + self.broadcast_deliveries
+        return (
+            self.webhook_receipts
+            + self.signal_notifications
+            + self.signals
+            + self.bcgame_rounds
+            + self.broadcast_deliveries
+        )
 
 
 class RetentionCleanupService:
@@ -62,6 +76,14 @@ class RetentionCleanupService:
             signal_result = db.execute(
                 delete(Signal).where(Signal.created_at < cutoff)
             )
+            round_result = db.execute(
+                delete(BCGameRound).where(
+                    BCGameRound.observed_at < cutoff,
+                    ~exists(
+                        select(Signal.id).where(Signal.bcgame_round_id == BCGameRound.id)
+                    ),
+                )
+            )
 
             old_completed_broadcast_ids = select(Broadcast.id).where(
                 Broadcast.status == BroadcastStatus.COMPLETE,
@@ -79,6 +101,7 @@ class RetentionCleanupService:
                 webhook_receipts=int(webhook_result.rowcount or 0),
                 signal_notifications=int(notification_result.rowcount or 0),
                 signals=int(signal_result.rowcount or 0),
+                bcgame_rounds=int(round_result.rowcount or 0),
                 broadcast_deliveries=int(delivery_result.rowcount or 0),
             )
 

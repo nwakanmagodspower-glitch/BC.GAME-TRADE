@@ -45,7 +45,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     with SessionLocal() as db:
         enabled = AdminOpsService(db).get_bool(AdminOpsService.SIGNALS_ENABLED_KEY, settings.signals_enabled)
-    await update.effective_chat.send_message('🔐 BC.GAME TRADE — OWNER PANEL', reply_markup=_admin_menu(enabled))
+    await update.effective_chat.send_message('🔐 BCGAME TRADE — OWNER PANEL', reply_markup=_admin_menu(enabled))
 
 
 async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,7 +75,7 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f'Strategy: {settings.strategy_version}\n'
             f'Mode: {settings.signal_mode}\n'
             f'Timing: {settings.signal_timing_mode}\n'
-            f'Manual timer buttons: {", ".join(str(v) + "s" for v in settings.manual_countdowns())}\n'
+            'Timer buttons: removed — Scan Now uses synchronized timing when available\n'
             f'Signals: {"ON" if enabled else "OFF"}\n'
             f'External BTC feed: {"FRESH" if snap and snap.fresh else "NOT FRESH"}\n'
             f'Candle context: {"READY" if candles else "NOT READY"}\n'
@@ -101,7 +101,7 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f'Start delay avg/max: {entry_avg} / {entry_max}\nEnd-reference delay avg: {settle_avg}\n'
             f'Missing start/end refs: {report.missing_entry_prices}/{report.missing_expiry_prices}\n'
             f'Technical gate: {"PASSABLE" if report.passable else "BLOCKED"}\n\nBlockers:\n{blockers}\n\n'
-            'External-reference W/L is diagnostic until exact BC.GAME Start/End Rate ingestion is integrated.'
+            'External-reference W/L is diagnostic until exact BCGAME Start/End Rate ingestion is integrated.'
         )
         await query.message.reply_text(text); return
 
@@ -187,7 +187,7 @@ async def _change_user_status(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(str(exc)); return
     await update.message.reply_text(f'User {changed.telegram_user_id} is now {changed.status.value}.')
     try:
-        await context.bot.send_message(changed.telegram_user_id, 'Your BC.GAME TRADE access has been restored.' if restore else 'Your BC.GAME TRADE access has been suspended. Please contact support if needed.')
+        await context.bot.send_message(changed.telegram_user_id, 'Your BCGAME TRADE access has been restored.' if restore else 'Your BCGAME TRADE access has been suspended. Please contact support if needed.')
     except Exception:
         pass
 

@@ -40,7 +40,7 @@ class SignalLifecycleService:
             # delivered direction afterward; this lifecycle is diagnostic only.
             snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
             if snapshot is None or not snapshot.fresh:
-                return self._expire(signal, 'Manual-sync external Start Rate reference was unavailable; BC.GAME result must be checked separately.')
+                return self._expire(signal, 'Manual-sync external Start Rate reference was unavailable; BCGAME result must be checked separately.')
             revalidated_direction = None
             revalidated_quality = None
         else:
@@ -113,7 +113,7 @@ class SignalLifecycleService:
         })
         feature_data['_market'] = market_meta
         signal.features_snapshot = feature_data
-        signal.status_reason = f'External-reference {signal.direction.value}: start={entry:.8f}, end={expiry:.8f}. BC.GAME Start/End Rate remains product truth.'
+        signal.status_reason = f'External-reference {signal.direction.value}: start={entry:.8f}, end={expiry:.8f}. BCGAME Start/End Rate remains product truth.'
         self.db.commit(); self.db.refresh(signal)
         return signal
 

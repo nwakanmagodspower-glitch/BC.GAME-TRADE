@@ -1,88 +1,57 @@
-# BC.GAME TRADE
+# BCGAME TRADE
 
-Telegram signal platform specialized for **BC.GAME BTC/USD 5-second Up/Down rounds**.
+Telegram signal assistant for the BCGAME BTC/USD 5-second Up/Down product and the `$1–$50` stake band. It analyzes an external BTCUSDT market feed, but it never places trades and never represents Binance prices as BCGAME settlement truth.
 
-## V1 Scope
+## Current production design
 
-- Product: BC.GAME Up/Down
-- Game market: BTC/USD
-- External analysis feed: BTCUSDT initially
-- Duration: 5 seconds
-- Initial stake band: $1-50
-- Timing mode: `MANUAL_SYNC`
-- Supported countdown confirmations: `15,14,13,12`
-- Outputs: `UP`, `DOWN`, `NO_TRADE`, `UNAVAILABLE`
-- Manual user execution only
-- Manual affiliate verification before access
-- Render Web + Background Worker + PostgreSQL
+- FastAPI Telegram webhook service on Render
+- dedicated Render background worker
+- PostgreSQL with Alembic migrations
+- one shared Binance stream/cache per process
+- one shared read-only DeTrade observer per web process
+- `HYBRID_SYNC`: authoritative DeTrade timing when authorized, Scan Now fallback only when that source is unavailable
+- approved-user access, owner verification, broadcast controls, webhook backpressure, scan coalescing, and ten-day temporary-data cleanup
 
-## Real Round Contract
+The normal user action is the permanent `⚡ BTC 5s Signal` button. The old `15s/14s/13s/12s`, My Result, and Win/Loss calibration buttons are not part of the active UI.
 
-Users place UP/DOWN orders during BC.GAME's countdown. When the countdown ends BC.GAME records Start Rate at the first flag. Five seconds later it records End Rate at the second flag. End > Start means UP wins; otherwise DOWN wins according to the supplied How to Trade instructions.
+## Verified round timing
 
-The countdown is the **order window**, not the five-second measurement itself.
+The authenticated browser investigation confirmed:
 
-## Current Timing Contract
+- WebSocket: `wss://websocket.detrade.com/ws`
+- subscription: `/contest/BTC/USD/5/ticker/subscribe`
+- authoritative betting boundary: `priceStartTime`
+- countdown: `priceStartTime - (currentTime + local monotonic elapsed time)`
+- actionable status: `1001` only
+- evaluation window: `priceEndTime - priceStartTime ≈ 5000 ms`
+- application frames: zlib-wrapped JSON; the decoder also safely accepts plain JSON and raw DEFLATE
 
-V1 is deployable in `LIVE + MANUAL_SYNC` mode without pretending that automatic BC.GAME/DeTrade round synchronization already exists.
+Unknown, stale, late, non-`1001`, `1008`, and wrong-duration rounds fail closed. A successful authoritative response that says the round is unsafe is never bypassed by HYBRID fallback.
 
-The player prepares BC.GAME first, enters the desired stake, waits for a fresh round, then taps the Telegram button matching the visible BC.GAME countdown at **15, 14, 13, or 12 seconds**. The backend timestamps that confirmation, analyzes the already-running BTC market feed, and rejects the round if too little action time remains.
+See [DeTrade authorization and timer](docs/DETRADE_AUTH_TIMER.md) for the redacted protocol record and the exact remaining authorization limitation.
 
-Manual timestamps are estimates based on the player's countdown confirmation. They are not represented as official BC.GAME round IDs or official Start/End Rates.
+## Authorization boundary
 
-`AUTO_SYNC` remains a future upgrade boundary for a legitimate/reliable BC.GAME or DeTrade structured round source. It is not a blocker for the current manual-sync V1.
+The DeTrade token is an ephemeral secret created through the logged-in BCGAME browser flow. No verified unattended server-to-server BCGAME credential or refresh grant was found, so this repository deliberately does not guess one. The current safe provider accepts a real token only from `DETRADE_WS_TOKEN`, keeps it out of logs, health output, Telegram, source, and the database, and invalidates it after DeTrade auth failure. Rotation of that Render secret restarts the service.
 
-## Signal Philosophy
+`temporary`, `placeholder`, empty values, and related markers are never treated as authorization. In `HYBRID_SYNC`, missing or expired authorization leaves the bot operational in manual Scan Now fallback. `AUTO_SYNC` refuses to start without usable authorization.
 
-The engine focuses on immediate BTC microstructure: tick velocity, acceleration, aggressive buy/sell flow and micro-volatility, with slower candle indicators used only as context. It deliberately supports `NO_TRADE` and does not force a signal every round.
+## Local setup
 
-Binance BTCUSDT is an external analysis/reference feed. It must not be described as BC.GAME settlement truth.
+```bash
+python -m venv .venv
+.venv/Scripts/activate
+pip install -r requirements.txt -r requirements-dev.txt
+copy .env.example .env
+alembic upgrade head
+pytest -q
+uvicorn app.main:app --reload
+```
 
-LIVE actionable delivery supports the documented `MANUAL_SYNC` flow: an approved user must confirm the visible 15/14/13/12 countdown and the backend must retain enough post-scan action time. `AUTO_SYNC` remains unavailable until a verified structured BC.GAME/DeTrade source exists.
+Keep `.env` private. Safe defaults are PAPER mode, signals off, broadcasts off, and DeTrade disabled.
 
-## User Flow
+## Deployment
 
-1. `/start`
-2. Registration
-3. Deposit
-4. BC.GAME User ID
-5. Profile screenshot
-6. Deposit screenshot(s)
-7. Packet goes directly to bot owner's private chat
-8. Owner approves/rejects/resubmits after affiliate-dashboard check
-9. Approved menu opens
-10. User opens BC.GAME Up/Down and prepares BTC/USD, 5s and stake
-11. User selects `⚡ BTC 5s Signal`
-12. Bot explains the Start Rate → 5s → End Rate target
-13. User waits for a fresh BC.GAME countdown
-14. User taps the matching `15s`, `14s`, `13s`, or `12s` button
-15. Backend checks access, worker health, fresh market data, timing and strategy quality
-16. Returns `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`
-17. User manually taps the indicated direction on BC.GAME before countdown zero
-18. External-reference outcomes may be recorded for diagnostics; BC.GAME Start/End Rate remains the eventual product truth when reliable ingestion is integrated
+`render.yaml` preserves the existing `bcgame-trade-api`, `bcgame-trade-worker`, and `bcgame-trade-db` resources. Auto-deploy remains tied to `main`. Render values marked `sync: false` are private and user-supplied; a real `DETRADE_WS_TOKEN` is optional for HYBRID operation but required to activate synchronized timing.
 
-## Deployment State
-
-The checked-in Render Blueprint targets the **controlled beta** directly:
-
-- `SIGNAL_MODE=LIVE`
-- `SIGNALS_ENABLED=true`
-- `BROADCASTS_ENABLED=true`
-- `SIGNAL_TIMING_MODE=MANUAL_SYNC`
-- `BCGAME_ROUND_SYNC_ENABLED=false`
-
-LIVE does not mean fail-open. Signal delivery still fails closed when access, worker health, market freshness, sparse-data, timing, cooldown, strategy or other safety gates fail. PAPER remains available as an explicit diagnostic mode if needed.
-
-## Non-goals
-
-- no automated BC.GAME trade placement
-- no Martingale/recovery logic
-- no guaranteed-win claims
-- no automatic copying of leaderboard traders
-- no additional coins, durations or products without explicit approval
-
-## GitHub Actions
-
-GitHub Actions workflows are intentionally disabled at the owner's request while the monthly Actions allowance is unavailable. Repository review/editing may continue, but validation is performed through local/Render/runtime checks rather than Actions.
-
-See `AGENTS.md` and `docs/` for the permanent contract.
+Run the checks in [Render deployment checklist](docs/RENDER_DEPLOY_CHECKLIST.md) before enabling LIVE signals.

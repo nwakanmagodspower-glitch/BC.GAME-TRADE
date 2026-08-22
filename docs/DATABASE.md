@@ -27,7 +27,7 @@ Once the owner makes a final decision (approve, reject or resubmit), the BC.GAME
 
 ### `bcgame_rounds`
 
-Reserved for compact, trustworthy BC.GAME Up/Down round data when legitimate AUTO_SYNC ingestion exists:
+Compact, trustworthy BCGAME Up/Down round data from authenticated synchronized timing:
 
 - `external_round_id`
 - `game_market` (`BTC/USD`)
@@ -51,7 +51,7 @@ BC.GAME Start Rate and End Rate are product-truth fields and must never be fille
 
 ### `signals`
 
-Each generated scan/decision stores recent intelligence needed for My Results and strategy evaluation:
+Each generated scan/decision stores recent intelligence needed for strategy evaluation and operations:
 
 - requesting user;
 - game market/product;
@@ -64,8 +64,6 @@ Each generated scan/decision stores recent intelligence needed for My Results an
 - decision/cancellation reason.
 
 Signals/results are intentionally temporary intelligence records. In V1, every generated signal has a **10-day lifetime** and is deleted automatically after the retention cutoff.
-
-The Telegram UI may show only the latest 10 results even though all generated signals from the current 10-day intelligence window remain available to the strategy/research layer.
 
 External reference fields are diagnostic until BC.GAME settlement matching is verified.
 
@@ -113,7 +111,7 @@ The cleanup does not delete the user's approved/access state.
 
 For 0-250 users, persistent user rows are negligible. Because generated signal intelligence expires after 10 days and raw tick data is not stored, PostgreSQL growth is deliberately bounded.
 
-Future genuine BC.GAME AUTO_SYNC round data should receive its own explicit retention/archival policy before continuous ingestion is enabled.
+Directional synchronized scans reuse the unique external round row. NO TRADE scans retain only lightweight metadata and do not create round rows, preventing continuous round-row growth.
 
 ## Integrity Rules
 

@@ -9,6 +9,16 @@ settings = get_settings()
 PLACEHOLDER_TOKENS = {'temporary', 'placeholder', '<temporary>', '<temporary token>'}
 
 
+def usable_detrade_token(raw: str | None) -> str | None:
+    """Return a configured secret only when it is not empty or a known placeholder."""
+    if not raw:
+        return None
+    token = raw.strip()
+    if not token or token.lower() in PLACEHOLDER_TOKENS:
+        return None
+    return token
+
+
 @dataclass(frozen=True, repr=False)
 class DeTradeCredentials:
     token: str
@@ -36,23 +46,19 @@ class EnvironmentDeTradeTokenProvider:
 
     @staticmethod
     def _usable_token(raw: str | None) -> str | None:
-        if not raw:
-            return None
-        token = raw.strip()
-        if not token or token.lower() in PLACEHOLDER_TOKENS:
-            return None
-        return token
+        return usable_detrade_token(raw)
 
     async def get_credentials(self, *, force_refresh: bool = False) -> DeTradeCredentials | None:
         # Environment values cannot be refreshed in-process. force_refresh is kept
         # on the interface so an official provider can replace this implementation.
-        if self._invalidated and not force_refresh:
+        # An environment value cannot change inside a running Render process.
+        # Never revive the same token after the server has rejected it. Rotating
+        # the Render secret restarts the service and creates a new provider.
+        if self._invalidated:
             return None
         token = self._usable_token(settings.detrade_ws_token)
         if token is None:
             return None
-        if force_refresh:
-            self._invalidated = False
         return DeTradeCredentials(token=token, account_type=settings.detrade_client_type)
 
     async def invalidate(self) -> None:

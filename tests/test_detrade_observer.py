@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import json
 import time
+from urllib.parse import parse_qs, urlsplit
 import zlib
 
 import pytest
@@ -49,6 +51,32 @@ def test_verified_subscription_and_ping_are_zlib_wrapped(monkeypatch):
         assert zlib.decompress(encoded)
 
 
+def test_connection_query_and_subscription_match_verified_browser_shape():
+    observer = DeTradeObserver(FakeProvider())
+    credentials = DeTradeCredentials(token='secret-value', account_type=1)
+    query = parse_qs(urlsplit(observer._connection_url(credentials)).query)
+    assert query == {
+        'token': ['secret-value'],
+        'device': ['web-pc'],
+        'type': ['1'],
+        'cid': [observer._browser_cid()],
+    }
+    message = observer._authenticated_message(
+        credentials, '/contest/BTC/USD/5/ticker/subscribe'
+    )
+    assert set(message) == {'cmd', 'token', 'cid', 'reqId'}
+    assert message['cmd'] == '/contest/BTC/USD/5/ticker/subscribe'
+
+
+def test_frame_decoder_accepts_plain_json_and_raw_deflate():
+    payload = {'resp': round_payload()}
+    serialized = json.dumps(payload).encode()
+    compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    raw_deflate = compressor.compress(serialized) + compressor.flush()
+    assert DeTradeObserver._decode_frame(serialized) == payload
+    assert DeTradeObserver._decode_frame(raw_deflate) == payload
+
+
 def test_price_start_time_is_authoritative_countdown_boundary(monkeypatch):
     monkeypatch.setattr(detrade_module.settings, 'detrade_latency_safety_margin_ms', 1000)
     observation = DeTradeRoundObservation(
@@ -90,8 +118,11 @@ async def test_consume_verified_round_payload():
 async def test_auth_failure_invalidates_provider_without_leaking_secret():
     provider = FakeProvider()
     observer = DeTradeObserver(provider)
+    assert await observer._consume({'resp': round_payload()}) is True
     assert await observer._consume({'code': 3100, 'message': 'expired'}) is False
     assert provider.invalidated is True
+    assert observer.latest is None
+    assert observer._force_credential_refresh is True
     assert observer.last_error == 'DeTrade authorization expired or requires refresh.'
     assert 'secret' not in observer.last_error
 
@@ -103,3 +134,46 @@ def test_placeholder_credentials_are_never_created(monkeypatch):
     monkeypatch.setattr(provider_module.settings, 'detrade_ws_token', 'temporary')
     provider = EnvironmentDeTradeTokenProvider()
     assert provider._usable_token(provider_module.settings.detrade_ws_token) is None
+
+
+@pytest.mark.asyncio
+async def test_invalidated_environment_token_is_not_reused(monkeypatch):
+    from app.integrations.detrade_token_provider import EnvironmentDeTradeTokenProvider
+    import app.integrations.detrade_token_provider as provider_module
+
+    monkeypatch.setattr(provider_module.settings, 'detrade_ws_token', 'real-looking-secret')
+    provider = EnvironmentDeTradeTokenProvider()
+    assert await provider.get_credentials() is not None
+    await provider.invalidate()
+    assert await provider.get_credentials(force_refresh=True) is None
+
+
+def test_public_timer_state_contains_no_credentials(monkeypatch):
+    monkeypatch.setattr(detrade_module.settings, 'detrade_latency_safety_margin_ms', 0)
+    observation = DeTradeRoundObservation(
+        round_id='round-1', status=1001, current_time_ms=10_000,
+        trade_cutoff_time_ms=14_900, price_start_time_ms=15_000,
+        price_end_time_ms=20_000, start_price=None, end_price=None,
+        previous_round_result=None, received_monotonic=time.monotonic(),
+        received_at=datetime.now(timezone.utc),
+    )
+    public = observation.to_public_dict()
+    assert set(public) == {
+        'roundId', 'status', 'phase', 'remainingMilliseconds',
+        'dataAgeMilliseconds', 'canTrade', 'priceStartTime', 'priceEndTime',
+    }
+    assert not any('token' in key.lower() for key in public)
+
+
+def test_stale_observation_is_never_tradeable(monkeypatch):
+    monkeypatch.setattr(detrade_module.settings, 'detrade_stale_after_ms', 100)
+    monkeypatch.setattr(detrade_module.settings, 'detrade_latency_safety_margin_ms', 0)
+    observation = DeTradeRoundObservation(
+        round_id='round-1', status=1001, current_time_ms=10_000,
+        trade_cutoff_time_ms=19_900, price_start_time_ms=20_000,
+        price_end_time_ms=25_000, start_price=None, end_price=None,
+        previous_round_result=None, received_monotonic=time.monotonic() - 1,
+        received_at=datetime.now(timezone.utc),
+    )
+    assert observation.fresh is False
+    assert observation.can_trade is False

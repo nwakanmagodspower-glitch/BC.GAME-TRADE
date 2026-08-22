@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from app.core.config import Settings
+from app.integrations.detrade_token_provider import usable_detrade_token
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,9 @@ def validate_settings(settings: Settings) -> StartupCheck:
     if timing_mode in {'HYBRID_SYNC', 'AUTO_SYNC'} and not settings.bcgame_round_sync_enabled:
         errors.append(f'{timing_mode} requires BCGAME_ROUND_SYNC_ENABLED=true')
 
+    if timing_mode == 'AUTO_SYNC' and not settings.detrade_ws_enabled:
+        errors.append('AUTO_SYNC requires DETRADE_WS_ENABLED=true')
+
     if timing_mode == 'HYBRID_SYNC':
         warnings.append('HYBRID_SYNC prefers DeTrade timing and falls back to manual Scan Now only when the authoritative source is unavailable.')
 
@@ -137,11 +141,11 @@ def validate_settings(settings: Settings) -> StartupCheck:
             errors.append('DETRADE_WS_URL must target websocket.detrade.com')
         if settings.detrade_auth_mode.upper() != 'QUERY':
             warnings.append('Authenticated browser validation confirmed QUERY authentication for the DeTrade round feed.')
-        if not settings.detrade_ws_token:
+        if usable_detrade_token(settings.detrade_ws_token) is None:
             if timing_mode == 'AUTO_SYNC':
                 errors.append('AUTO_SYNC requires DETRADE_WS_TOKEN until an official ephemeral token provider is integrated')
             else:
-                warnings.append('DeTrade timing is enabled but no token is configured; HYBRID_SYNC will use manual Scan Now fallback until authorization is available.')
+                warnings.append('DeTrade timing is enabled but no usable token is configured; HYBRID_SYNC will use manual Scan Now fallback until authorization is available.')
         if settings.detrade_latency_safety_margin_ms < 0:
             errors.append('DETRADE_LATENCY_SAFETY_MARGIN_MS cannot be negative')
         if settings.detrade_dispatch_min_remaining_ms < 0:
@@ -152,6 +156,10 @@ def validate_settings(settings: Settings) -> StartupCheck:
             errors.append('DETRADE_STALE_AFTER_MS must be greater than zero')
         if settings.detrade_probe_timeout_seconds <= 0:
             errors.append('DETRADE_PROBE_TIMEOUT_SECONDS must be greater than zero')
+        if settings.detrade_probe_coalesce_ms < 0:
+            errors.append('DETRADE_PROBE_COALESCE_MS cannot be negative')
+        if settings.detrade_ping_interval_seconds <= 0 or settings.detrade_ping_timeout_seconds <= 0:
+            errors.append('DeTrade heartbeat settings must be greater than zero')
         if settings.detrade_reconnect_seconds <= 0 or settings.detrade_reconnect_max_seconds < settings.detrade_reconnect_seconds:
             errors.append('DeTrade reconnect settings are invalid')
         if settings.detrade_max_frame_bytes < 16_384:

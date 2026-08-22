@@ -1,4 +1,4 @@
-# BC.GAME Trading Reference
+# BCGAME Trading Reference
 
 This document separates facts observed from the live BC.GAME Up/Down product / supplied How to Trade text from assumptions. Future agents must not convert unknowns into hard-coded behavior.
 
@@ -85,18 +85,21 @@ The interface exposes trader `Winning/Order`, win rate, PnL and profit plus a Co
 
 Engineering rule: leaderboard/copy-trade data is **not V1 signal evidence**. Historical leaderboard percentages can be selection-biased and do not establish a repeatable predictive edge.
 
+## Verified Authenticated Timer Discovery
+
+The later browser/CDP investigation confirmed the DeTrade WebSocket route, authenticated subscription, round identifier, round status/timestamps, zlib encoding, and `priceStartTime` countdown boundary. See `DETRADE_AUTH_TIMER.md` for the redacted protocol record.
+
 ## Still Unconfirmed
 
 Must remain research/integration questions:
 
-- exact structured API/WebSocket used by the live Up/Down page for round state;
-- stable round identifier format;
 - exact Detrade/BC.GAME price source/index composition;
 - timestamp precision and network latency for Start Rate/End Rate;
 - tie/equality handling beyond the supplied wording that otherwise assigns DOWN;
 - whether stake bands differ only economically or also by pool/round behavior;
 - exact payout formula, fees/house allocation and pool mathematics;
-- whether any internal endpoint is public/stable/permitted for third-party integration;
+- documented stability/support guarantees for the observed internal protocol;
+- exact ephemeral token lifetime and an official unattended refresh grant;
 - regional/account differences.
 
 ## Engineering Consequences
@@ -104,8 +107,8 @@ Must remain research/integration questions:
 - Duration is locked to 5s for V1.
 - The old 300-second/minute-boundary architecture is retired.
 - `BCGameRoundService` owns round synchronization.
-- `MANUAL_SYNC` may estimate Start/End timestamps only after the user confirms 15/14/13/12; those estimates are never represented as BC.GAME-issued facts.
-- `AUTO_SYNC` requires verified real round timing and must never fall back to a local clock approximation.
+- `HYBRID_SYNC` uses verified DeTrade timing when authorized and the single Scan Now fallback only when that source is unavailable.
+- A known unsafe authoritative frame never falls through to manual timing.
 - Binance BTCUSDT is analysis/reference only.
 - External-reference outcomes remain PAPER diagnostics until BC.GAME Start/End Rate ingestion is integrated.
 - Unknown internal endpoints must not be relied on silently; use health checks and fail closed.

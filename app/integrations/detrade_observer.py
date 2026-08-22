@@ -53,12 +53,18 @@ class DeTradeRoundObservation:
         return self.current_time_ms + self.data_age_ms
 
     @property
-    def remaining_ms(self) -> int | None:
+    def authoritative_deadline_monotonic(self) -> float | None:
         cutoff = self.authoritative_cutoff_ms
-        server_now = self.estimated_server_time_ms
-        if cutoff is None or server_now is None:
+        if cutoff is None or self.current_time_ms is None:
             return None
-        return max(0, int(cutoff - server_now))
+        return self.received_monotonic + max(0, cutoff - self.current_time_ms) / 1000
+
+    @property
+    def remaining_ms(self) -> int | None:
+        deadline = self.authoritative_deadline_monotonic
+        if deadline is None:
+            return None
+        return max(0, int((deadline - time.monotonic()) * 1000))
 
     @property
     def fresh(self) -> bool:
@@ -88,6 +94,19 @@ class DeTradeRoundObservation:
             and remaining > settings.detrade_latency_safety_margin_ms
         )
 
+    def to_public_dict(self) -> dict[str, Any]:
+        """Normalized non-secret timer state suitable for health/admin output."""
+        return {
+            'roundId': self.round_id,
+            'status': self.status,
+            'phase': self.phase,
+            'remainingMilliseconds': self.remaining_ms,
+            'dataAgeMilliseconds': self.data_age_ms,
+            'canTrade': self.can_trade,
+            'priceStartTime': self.price_start_time_ms,
+            'priceEndTime': self.price_end_time_ms,
+        }
+
 
 class DeTradeObserver:
     """Read-only authoritative BCGAME/DeTrade BTC/USD 5s round clock."""
@@ -100,6 +119,7 @@ class DeTradeObserver:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._probe_lock = asyncio.Lock()
+        self._force_credential_refresh = False
 
     @staticmethod
     def _browser_cid() -> str:
@@ -229,6 +249,8 @@ class DeTradeObserver:
     async def _consume(self, decoded: Any) -> bool:
         if self._contains_auth_failure(decoded):
             await self.token_provider.invalidate()
+            self._force_credential_refresh = True
+            self.latest = None
             self.last_error = 'DeTrade authorization expired or requires refresh.'
             return False
         payload = self._find_round_payload(decoded)
@@ -272,7 +294,15 @@ class DeTradeObserver:
                 ))
                 heartbeat = asyncio.create_task(self._heartbeat(ws, credentials))
                 try:
-                    async for frame in ws:
+                    while not self._stop.is_set():
+                        try:
+                            frame = await asyncio.wait_for(
+                                ws.recv(),
+                                timeout=settings.detrade_ping_timeout_seconds,
+                            )
+                        except TimeoutError:
+                            self.last_error = 'DeTrade round feed timed out.'
+                            return None
                         try:
                             decoded = self._decode_frame(frame)
                         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
@@ -280,6 +310,8 @@ class DeTradeObserver:
                             continue
                         if self._contains_auth_failure(decoded):
                             await self.token_provider.invalidate()
+                            self._force_credential_refresh = True
+                            self.latest = None
                             self.last_error = 'DeTrade authorization expired or requires refresh.'
                             return None
                         if await self._consume(decoded) and first_frame_only:
@@ -305,10 +337,13 @@ class DeTradeObserver:
         if self.latest and self.latest.fresh:
             return self.latest
 
-        credentials = await self.token_provider.get_credentials()
+        credentials = await self.token_provider.get_credentials(
+            force_refresh=self._force_credential_refresh
+        )
         if credentials is None:
             self.last_error = 'DeTrade authorization is not available yet.'
             return None
+        self._force_credential_refresh = False
 
         timeout = timeout_seconds or settings.detrade_probe_timeout_seconds
         if self._task and not self._task.done():
@@ -333,12 +368,15 @@ class DeTradeObserver:
     async def _run(self) -> None:
         backoff = max(1.0, settings.detrade_reconnect_seconds)
         while not self._stop.is_set():
-            credentials = await self.token_provider.get_credentials(force_refresh=False)
+            credentials = await self.token_provider.get_credentials(
+                force_refresh=self._force_credential_refresh
+            )
             if credentials is None:
                 self.last_error = 'DeTrade authorization is not available yet.'
                 await asyncio.sleep(min(backoff, 5.0))
                 backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
                 continue
+            self._force_credential_refresh = False
             await self._session(credentials, first_frame_only=False)
             if self._stop.is_set():
                 return

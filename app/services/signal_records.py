@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -35,8 +36,21 @@ class SignalRecordService:
                 down_players=snapshot.down_players,
                 source=snapshot.source,
             )
-            self.db.add(row)
-            self.db.flush()
+            try:
+                # Different users can legitimately receive the same round. A
+                # savepoint lets a concurrent unique-key winner be reused without
+                # aborting the surrounding user/signal transaction.
+                with self.db.begin_nested():
+                    self.db.add(row)
+                    self.db.flush()
+            except IntegrityError:
+                row = self.db.scalar(
+                    select(BCGameRound).where(
+                        BCGameRound.external_round_id == snapshot.round_id
+                    )
+                )
+                if row is None:
+                    raise
         return row
 
     def record_scan(
@@ -90,10 +104,7 @@ class SignalRecordService:
             'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
         }
         if round_snapshot is not None:
-            remaining_seconds = max(
-                0.0,
-                (round_snapshot.order_closes_at - recorded_at).total_seconds(),
-            )
+            remaining_seconds = max(0.0, round_snapshot.seconds_until_order_close(recorded_at))
             feature_data['_bcgame_round'] = {
                 'round_id': round_snapshot.round_id,
                 'source': round_snapshot.source,

@@ -1,102 +1,48 @@
 # Render Deployment Checklist
 
-## Blueprint
+## Before merge/deploy
 
-The repository defines:
+- [ ] `pytest -q` passes locally.
+- [ ] Python compile/parse check passes.
+- [ ] `git diff --check` passes.
+- [ ] Alembic upgrade from empty SQLite succeeds.
+- [ ] Alembic downgrade/upgrade round trip succeeds.
+- [ ] `alembic check` reports no model drift.
+- [ ] `render.yaml` parses as YAML and retains exactly one web, worker, and database.
+- [ ] Secret scan finds no credential values or token-bearing WebSocket URLs.
 
-1. `bcgame-trade-api` — Starter web, Frankfurt.
-2. `bcgame-trade-worker` — Starter worker, Frankfurt.
-3. `bcgame-trade-db` — PostgreSQL 16, currently Free for initial deployment/testing.
+## Render configuration
 
-Render Free PostgreSQL expires after 30 days and has no backups. Upgrade before relying on it for valuable long-lived production history. Redis is not required for initial 10–250-user testing.
+- [ ] Existing services are `bcgame-trade-api` and `bcgame-trade-worker`.
+- [ ] Existing database is `bcgame-trade-db`.
+- [ ] Auto-deploy remains `main`/commit.
+- [ ] Telegram token, webhook secret, and owner ID are populated privately.
+- [ ] BCGAME registration, deposit, Up/Down, and support URLs are correct.
+- [ ] No literal `temporary` or real DeTrade token exists in the Blueprint.
+- [ ] If synchronized timing is desired now, put the current ephemeral token only in the private `DETRADE_WS_TOKEN` value.
 
-## Checked-in controlled-beta state
+## Post-deploy health
 
-```text
-SIGNAL_MODE=LIVE
-SIGNALS_ENABLED=true
-BROADCASTS_ENABLED=true
-SIGNAL_TIMING_MODE=MANUAL_SYNC
-MANUAL_SYNC_ALLOWED_COUNTDOWNS=15,14,13,12
-MANUAL_SYNC_MIN_REMAINING_AFTER_SCAN=7
-BCGAME_ROUND_SYNC_ENABLED=false
-```
+- [ ] `/ready` returns ready and the migration completed.
+- [ ] `/health` reports PostgreSQL/market/worker health without secrets or exception text.
+- [ ] owner sends `/round_status`; with a valid token it shows a real round ID, status, remaining time, approximately 5.000s evaluation window, and no credential.
+- [ ] with no token, HYBRID remains healthy and `/round_status` reports authorization unavailable.
+- [ ] known status `1008`, unknown status, stale frame, late round, and wrong-duration frame cannot produce a synchronized signal.
 
-Product identity:
+## Telegram journey
 
-```text
-GAME_MARKET=BTC/USD
-ANALYSIS_PAIR=BTCUSDT
-DEFAULT_PRODUCT=BC_UPDOWN_5S
-DEFAULT_EXPIRY_SECONDS=5
-DEFAULT_STAKE_BAND=1-50
-STRATEGY_VERSION=BTC_UPDOWN_5S_V1.1
-```
+- [ ] `/start` onboarding is gated until owner approval.
+- [ ] registration → deposit → BCGAME ID → profile screenshot → deposit screenshot → submit works.
+- [ ] owner receives one media packet and one approve/reject/resubmit review block.
+- [ ] decision purges BCGAME ID and Telegram file IDs while retaining approval state.
+- [ ] permanent menu contains `⚡ BTC 5s Signal`, How It Works, and Support.
+- [ ] there are no `15s/14s/13s/12s`, My Result, or Win/Loss calibration buttons.
+- [ ] synchronized signal is compact and shows round/timing context without authorization.
+- [ ] no automatic trade is placed.
 
-Required secret/link values:
+## Operations
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET` (at least 16 characters)
-- `OWNER_TELEGRAM_ID` (private verification inbox)
-- `BCGAME_REGISTRATION_URL`
-- `BCGAME_DEPOSIT_URL`
-- `BCGAME_UPDOWN_URL=https://bc.game/trading/up-down`
-- `SUPPORT_URL`
-
-There is no `ADMIN_CHAT_ID`. The owner must start the bot once before receiving verification packets.
-
-## First boot
-
-1. Render pre-deploy runs `alembic upgrade head` and reaches `0007_security_delivery_hardening`.
-2. Web and worker start.
-3. `/ready` returns 200.
-4. `/health` reports LIVE, signals/broadcasts enabled by default, correct product identity, fresh BTCUSDT reference data, fresh candle context and worker heartbeat.
-5. `/market/status` labels BTCUSDT external-reference-only.
-6. Unauthenticated, non-JSON and oversized webhook requests are rejected.
-7. Run `python scripts/render_smoke_test.py --base-url https://<service>.onrender.com` (LIVE is the default expectation).
-
-## Telegram onboarding
-
-- New users receive the guided funnel, not the main menu.
-- Evidence count/size/rate limits reject excess screenshots.
-- Submission creates a durable owner-delivery record.
-- The worker sends all evidence before owner decision buttons.
-- Approve unlocks the menu; reject and resubmit work; resubmission preserves the old packet.
-- Suspension/blocking is enforced on request and async delivery paths.
-
-## Controlled MANUAL_SYNC beta
-
-- User prepares BTC/USD, 5s and stake on BC.GAME before scanning.
-- Only 15s/14s/13s/12s countdown callbacks are accepted.
-- At least seven seconds must remain after analysis or the round is rejected.
-- Worker/tick/candle/sparse-data failures return UNAVAILABLE.
-- Ambiguous market evidence returns NO_TRADE.
-- Qualified UP/DOWN includes the correct BC.GAME Up/Down link and remains manual execution only.
-- Current-signal serialization and scan cooldown prevent duplicate per-user actionable scans.
-- MANUAL_SYNC estimates never create fake official BC.GAME round records.
-- External-reference outcomes stay explicitly labelled reference-only.
-
-Do not enable `AUTO_SYNC` until a legitimate structured BC.GAME/DeTrade round source is verified.
-
-## Emergency rollback / diagnostic mode
-
-If live signal delivery needs to be stopped, use the owner kill switch or explicitly set both services consistently to PAPER/off:
-
-```text
-SIGNAL_MODE=PAPER
-SIGNALS_ENABLED=false
-BROADCASTS_ENABLED=false
-```
-
-PAPER is diagnostic/non-actionable and is not the checked-in Blueprint default.
-
-## GitHub Actions
-
-Do not create, enable or depend on GitHub Actions while the owner's allowance is exhausted. Use local tests, Render pre-deploy migration, health/readiness and Telegram smoke tests.
-
-## Scale triggers
-
-- 10 users: current services are ample.
-- 100 users: supported; monitor synchronized signal bursts and Telegram latency.
-- 250 users: reasonable test target; watch PostgreSQL connections, webhook latency, worker lag and Telegram rate limits.
-- 1,000 users: not yet proven. Load-test first; likely add horizontal web capacity, shared cache/queueing and stronger delivery controls.
+- [ ] dedicated worker heartbeat is fresh before enabling LIVE signals.
+- [ ] ten-day cleanup job records successful runs.
+- [ ] owner kill switch can disable signals.
+- [ ] when DeTrade rejects authorization, replace the private token or accept HYBRID fallback; never reuse or log the rejected value.

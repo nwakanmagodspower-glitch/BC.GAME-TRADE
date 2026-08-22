@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -19,6 +20,7 @@ class BCGameRoundSnapshot:
     end_rate_at: datetime
     stake_band: str
     source: str = 'AUTO_SYNC'
+    deadline_monotonic: float | None = None
     up_payout_pct: float | None = None
     down_payout_pct: float | None = None
     up_pool_amount: float | None = None
@@ -27,6 +29,8 @@ class BCGameRoundSnapshot:
     down_players: int | None = None
 
     def seconds_until_order_close(self, now: datetime) -> float:
+        if self.deadline_monotonic is not None:
+            return self.deadline_monotonic - time.monotonic()
         return (self.order_closes_at - now).total_seconds()
 
 
@@ -95,10 +99,6 @@ class BCGameRoundService:
         if not settings.detrade_ws_enabled:
             self.last_error = 'DeTrade timing is not enabled.'
             return BCGameRoundDecision(False, False, None, self.last_error)
-        if not settings.detrade_ws_token:
-            self.last_error = 'DeTrade timing authorization is not configured.'
-            return BCGameRoundDecision(False, False, None, self.last_error)
-
         observation = await self._fresh_observation()
         if observation is None:
             self.last_error = detrade_observer.last_error or 'No authoritative DeTrade round frame was received.'
@@ -130,7 +130,7 @@ class BCGameRoundService:
 
         evaluation_window_ms = observation.price_end_time_ms - observation.price_start_time_ms
         expected_window_ms = settings.default_expiry_seconds * 1000
-        if abs(evaluation_window_ms - expected_window_ms) > 1000:
+        if evaluation_window_ms != expected_window_ms:
             self.last_error = 'The synchronized round does not match the configured 5-second contract.'
             return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
 
@@ -139,7 +139,7 @@ class BCGameRoundService:
             self.last_error = 'The synchronized round does not contain usable server time.'
             return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
 
-        observed_at = datetime.fromtimestamp(estimated_server_ms / 1000, tz=timezone.utc)
+        observed_at = observation.received_at
         start_at = datetime.fromtimestamp(observation.price_start_time_ms / 1000, tz=timezone.utc)
         end_at = datetime.fromtimestamp(observation.price_end_time_ms / 1000, tz=timezone.utc)
         snapshot = BCGameRoundSnapshot(
@@ -150,6 +150,7 @@ class BCGameRoundService:
             end_rate_at=end_at,
             stake_band=settings.default_stake_band,
             source='DETRADE_SYNC',
+            deadline_monotonic=observation.authoritative_deadline_monotonic,
         )
         self.last_snapshot = snapshot
         self.last_error = None

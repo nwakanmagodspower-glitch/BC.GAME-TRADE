@@ -45,7 +45,12 @@ def test_hybrid_and_auto_sync_require_round_sync_switch():
     assert not validate_settings(production(signal_timing_mode='HYBRID_SYNC', bcgame_round_sync_enabled=False)).ok
     assert validate_settings(production(signal_timing_mode='HYBRID_SYNC', bcgame_round_sync_enabled=True)).ok
     assert not validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=False)).ok
-    assert validate_settings(production(signal_timing_mode='AUTO_SYNC', bcgame_round_sync_enabled=True)).ok
+    assert validate_settings(production(
+        signal_timing_mode='AUTO_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token='ephemeral-secret',
+    )).ok
 
 
 def test_hybrid_allows_missing_detrade_token_but_auto_requires_it():
@@ -71,6 +76,25 @@ def test_hybrid_allows_missing_detrade_token_but_auto_requires_it():
         detrade_ws_enabled=True,
         detrade_ws_token='ephemeral-secret',
     )).ok
+
+
+def test_placeholder_token_is_missing_and_auto_sync_fails_closed():
+    hybrid = validate_settings(production(
+        signal_timing_mode='HYBRID_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token='temporary',
+    ))
+    assert hybrid.ok
+    assert any('no usable token' in warning for warning in hybrid.warnings)
+
+    automatic = validate_settings(production(
+        signal_timing_mode='AUTO_SYNC',
+        bcgame_round_sync_enabled=True,
+        detrade_ws_enabled=True,
+        detrade_ws_token='temporary',
+    ))
+    assert not automatic.ok
 
 
 def test_detrade_verified_route_and_safety_values_are_validated():

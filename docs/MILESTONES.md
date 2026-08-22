@@ -1,5 +1,7 @@
 # Milestones — Five-Second Product Rebaseline
 
+> Historical planning record. The active implementation now uses the verified DeTrade timer with `HYBRID_SYNC`. References below to `15s/14s/13s/12s`, My Results, or future timer discovery are superseded by `ARCHITECTURE.md`, `PRODUCT_SPEC.md`, and `DETRADE_AUTH_TIMER.md`; those buttons are not active.
+
 The live BC.GAME Up/Down interface and supplied How to Trade instructions changed the trading contract from the earlier assumed 300-second model to the actual target: **BTC/USD, 5-second Start Rate → End Rate rounds**.
 
 Infrastructure already built is retained. Old timing/backtest milestones are superseded where they conflict with this contract.

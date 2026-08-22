@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
-    app_name: str = 'BC.GAME TRADE'
+    app_name: str = 'BCGAME TRADE'
     app_env: str = 'development'
     database_url: str = 'sqlite:///./bcgame_trade.db'
     run_background_jobs: bool = False
@@ -55,8 +55,9 @@ class Settings(BaseSettings):
     detrade_client_type: int = 1
     detrade_subscription_cmd: str = '/contest/BTC/USD/5/ticker/subscribe'
     detrade_ticker_route: str = '/contest/BTC/USD/5/ticker'
-    detrade_latency_safety_margin_ms: int = 7000
-    detrade_dispatch_min_remaining_ms: int = 4500
+    # Human-entry guardrails: the user still has to return to BCGAME and tap.
+    detrade_latency_safety_margin_ms: int = 10_000
+    detrade_dispatch_min_remaining_ms: int = 8_000
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
     detrade_probe_coalesce_ms: int = 300
