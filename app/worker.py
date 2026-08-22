@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.core.config import get_settings
 from app.core.startup import validate_settings
 from app.services.background_coordinator import background_job_coordinator
+from app.services.cross_venue_microstructure import cross_venue_microstructure_service
 from app.services.market_data import market_data_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.worker_heartbeat import worker_heartbeat_service
@@ -24,16 +25,19 @@ def _critical_worker_health() -> dict[str, bool]:
         signal_cycle_fresh = (
             datetime.now(timezone.utc) - success.astimezone(timezone.utc)
         ).total_seconds() <= settings.worker_heartbeat_max_age_seconds
+    cross = cross_venue_microstructure_service.snapshot()
     return {
         'coordinator_leader': background_job_coordinator.is_leader,
         'coordinator_ok': background_job_coordinator.last_error is None,
         'signal_lifecycle_ok': signal_lifecycle_worker.last_error is None and signal_cycle_fresh,
         'market_stream_ok': market_data_service.connected and market_data_service.last_error is None,
+        # Cross-venue confirmation is additive: report health for diagnostics but
+        # do not make a temporary public-feed outage kill the base signal service.
+        'cross_venue_fresh': (not settings.cross_venue_enabled) or cross.fresh,
     }
 
 
 async def main() -> None:
-    """Run dedicated background responsibilities and fail closed on bad config."""
     check = validate_settings(settings)
     if not check.ok:
         raise RuntimeError('Invalid worker configuration: ' + '; '.join(check.errors))
@@ -47,6 +51,7 @@ async def main() -> None:
             pass
 
     await market_data_service.start(settings.analysis_pair)
+    await cross_venue_microstructure_service.start()
     await background_job_coordinator.start()
     worker_heartbeat_service.health_provider = _critical_worker_health
     await worker_heartbeat_service.start()
@@ -55,6 +60,7 @@ async def main() -> None:
     finally:
         await worker_heartbeat_service.stop()
         await background_job_coordinator.stop()
+        await cross_venue_microstructure_service.stop()
         await market_data_service.stop()
 
 
