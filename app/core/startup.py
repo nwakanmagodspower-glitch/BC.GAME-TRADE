@@ -80,6 +80,32 @@ def validate_settings(settings: Settings) -> StartupCheck:
     if settings.market_data_rest_max_response_bytes < 16_384:
         errors.append('MARKET_DATA_REST_MAX_RESPONSE_BYTES is too small')
 
+    if settings.cross_venue_enabled:
+        if not _valid_provider_url(settings.cross_venue_binance_ws_url, {'wss'}):
+            errors.append('CROSS_VENUE_BINANCE_WS_URL must be WSS without embedded credentials')
+        elif urlparse(settings.cross_venue_binance_ws_url).hostname != 'stream.binance.com':
+            errors.append('Cross-venue Binance feed must use stream.binance.com')
+        if not _valid_provider_url(settings.cross_venue_bybit_ws_url, {'wss'}):
+            errors.append('CROSS_VENUE_BYBIT_WS_URL must be WSS without embedded credentials')
+        else:
+            bybit = urlparse(settings.cross_venue_bybit_ws_url)
+            if bybit.hostname != 'stream.bybit.com':
+                errors.append('Cross-venue Bybit feed must use stream.bybit.com')
+            if '/v5/public/spot' not in bybit.path:
+                errors.append('Cross-venue Bybit confirmation must use the spot feed, not linear/perpetual futures')
+        if not 1 <= settings.cross_venue_depth_levels <= 20:
+            errors.append('CROSS_VENUE_DEPTH_LEVELS must be between 1 and 20')
+        if settings.cross_venue_bybit_subscription_depth < settings.cross_venue_depth_levels:
+            errors.append('CROSS_VENUE_BYBIT_SUBSCRIPTION_DEPTH must cover the configured comparison depth')
+        if settings.cross_venue_max_age_seconds <= 0:
+            errors.append('CROSS_VENUE_MAX_AGE_SECONDS must be greater than zero')
+        if not 0 < settings.cross_venue_imbalance_threshold < 1:
+            errors.append('CROSS_VENUE_IMBALANCE_THRESHOLD must be between 0 and 1')
+        if settings.cross_venue_microprice_bias_bps < 0:
+            errors.append('CROSS_VENUE_MICROPRICE_BIAS_BPS cannot be negative')
+        if settings.cross_venue_max_spread_bps <= 0:
+            errors.append('CROSS_VENUE_MAX_SPREAD_BPS must be greater than zero')
+
     if settings.signal_min_recent_trades < 2:
         errors.append('SIGNAL_MIN_RECENT_TRADES must be at least 2')
     if settings.signal_min_tick_span_seconds <= 0:
