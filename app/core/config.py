@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
-    strategy_version: str = 'BTC_UPDOWN_5S_V1.3'
+    strategy_version: str = 'BTC_UPDOWN_5S_V1.4'
 
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
@@ -64,8 +64,6 @@ class Settings(BaseSettings):
     detrade_reconnect_max_seconds: float = 30.0
     detrade_max_frame_bytes: int = 1_000_000
 
-    # Precision-first V1.3 defaults. The engine also applies a stronger
-    # horizon-aware gate when BCGAME Start Rate is still far away.
     signal_min_score: int = 8
     signal_min_margin: int = 4
     signal_trade_flow_lookback_seconds: int = 15
@@ -86,6 +84,17 @@ class Settings(BaseSettings):
     market_candle_refresh_seconds: int = 15
     market_candle_max_age_seconds: int = 60
     market_data_future_skew_seconds: float = 2.0
+
+    # V1.4 public cross-venue order-book confirmation. This runs as one shared
+    # worker service and never opens a connection per Telegram user.
+    cross_venue_enabled: bool = True
+    cross_venue_binance_ws_url: str = 'wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms'
+    cross_venue_bybit_ws_url: str = 'wss://stream.bybit.com/v5/public/spot'
+    cross_venue_depth_levels: int = 5
+    cross_venue_max_age_seconds: float = 2.0
+    cross_venue_imbalance_threshold: float = 0.12
+    cross_venue_microprice_bias_bps: float = 0.02
+    cross_venue_max_spread_bps: float = 2.0
 
     verification_max_deposit_proofs: int = 3
     verification_max_photo_bytes: int = 10_000_000
