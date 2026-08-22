@@ -37,9 +37,6 @@ class SignalRecordService:
                 source=snapshot.source,
             )
             try:
-                # Different users can legitimately receive the same round. A
-                # savepoint lets a concurrent unique-key winner be reused without
-                # aborting the surrounding user/signal transaction.
                 with self.db.begin_nested():
                     self.db.add(row)
                     self.db.flush()
@@ -66,10 +63,6 @@ class SignalRecordService:
             raise ValueError('Unsupported V1 analysis market cannot be persisted.')
 
         is_trade = result.direction in {SignalDirection.UP, SignalDirection.DOWN}
-
-        # Round rows are useful for actual directional signals. NO_TRADE scans keep
-        # their lightweight round metadata in the signal feature JSON only, which
-        # avoids creating thousands of unnecessary BCGameRound rows.
         round_row = None
         if is_trade and round_snapshot is not None and round_snapshot.source != 'MANUAL_SYNC':
             round_row = self._persist_round(round_snapshot)
@@ -88,6 +81,14 @@ class SignalRecordService:
                 'quality': result.quality,
                 'bull_score': result.decision.bull_score,
                 'bear_score': result.decision.bear_score,
+                'margin': result.decision.margin,
+                'seconds_until_start': result.seconds_until_start,
+                'contract_duration_seconds': result.contract_duration_seconds,
+                'prediction_horizon_seconds': (
+                    result.seconds_until_start + result.contract_duration_seconds
+                    if result.seconds_until_start is not None and result.contract_duration_seconds is not None
+                    else None
+                ),
             }
         feature_data['_market'] = {
             'game_market': settings.game_market,
@@ -102,6 +103,8 @@ class SignalRecordService:
             'received_at': recorded_at.isoformat(),
             'countdown_confirmed_seconds': None,
             'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
+            'seconds_until_start': result.seconds_until_start,
+            'contract_duration_seconds': result.contract_duration_seconds,
         }
         if round_snapshot is not None:
             remaining_seconds = max(0.0, round_snapshot.seconds_until_order_close(recorded_at))
@@ -113,6 +116,7 @@ class SignalRecordService:
                 'order_closes_at': round_snapshot.order_closes_at.isoformat(),
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
+                'contract_duration_seconds': result.contract_duration_seconds,
                 'stake_band': round_snapshot.stake_band,
                 'up_payout_pct': round_snapshot.up_payout_pct,
                 'down_payout_pct': round_snapshot.down_payout_pct,
