@@ -49,30 +49,67 @@ class SignalIntelligenceService:
         if market != settings.analysis_pair.upper():
             return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, f'Unsupported V1 market: {market}.', False, seconds_until_start, contract_duration_seconds)
 
-        allow_cache = seconds_until_start is None and contract_duration_seconds is None
         max_cache_age = max(0.0, settings.signal_scan_coalesce_ms / 1000.0)
         now_mono = time.monotonic()
-        if allow_cache and self._cached_result_is_usable(now_mono, max_cache_age):
+        if self._cached_result_is_usable(
+            now_mono,
+            max_cache_age,
+            seconds_until_start=seconds_until_start,
+            contract_duration_seconds=contract_duration_seconds,
+        ):
+            assert self._last_result is not None
             return self._last_result
 
         async with self._scan_lock:
             now_mono = time.monotonic()
-            if allow_cache and self._cached_result_is_usable(now_mono, max_cache_age):
+            if self._cached_result_is_usable(
+                now_mono,
+                max_cache_age,
+                seconds_until_start=seconds_until_start,
+                contract_duration_seconds=contract_duration_seconds,
+            ):
+                assert self._last_result is not None
                 return self._last_result
             result = await self._compute(
                 market,
                 seconds_until_start=seconds_until_start,
                 contract_duration_seconds=contract_duration_seconds,
             )
-            if allow_cache:
-                self._last_result = result
-                self._last_result_at = time.monotonic()
+            # Cache every fresh computation for only the configured coalescing
+            # window. Synchronized users arriving together can safely share one
+            # analysis when their horizons are effectively the same.
+            self._last_result = result
+            self._last_result_at = time.monotonic()
             return result
 
-    def _cached_result_is_usable(self, now_mono: float, max_cache_age: float) -> bool:
+    def _cached_result_is_usable(
+        self,
+        now_mono: float,
+        max_cache_age: float,
+        *,
+        seconds_until_start: float | None,
+        contract_duration_seconds: float | None,
+    ) -> bool:
         result = self._last_result
         if result is None or (now_mono - self._last_result_at) > max_cache_age:
             return False
+
+        # Manual and synchronized scans must not accidentally share results across
+        # materially different prediction horizons.
+        if seconds_until_start is None:
+            if result.seconds_until_start is not None:
+                return False
+        else:
+            if result.seconds_until_start is None or abs(result.seconds_until_start - seconds_until_start) > 0.5:
+                return False
+
+        if contract_duration_seconds is None:
+            if result.contract_duration_seconds is not None:
+                return False
+        else:
+            if result.contract_duration_seconds is None or abs(result.contract_duration_seconds - contract_duration_seconds) > 0.1:
+                return False
+
         snapshot = result.market_snapshot
         if snapshot is None:
             return True
@@ -158,11 +195,6 @@ class SignalIntelligenceService:
         cross_confirmed = cross.fresh and cross.healthy_spread and self._direction_matches_consensus(decision.direction, cross)
         directional_score = decision.bull_score if direction_up else decision.bear_score
 
-        # Balanced V1.4 policy:
-        # - If Binance and Bybit independently confirm the same direction, do not
-        #   demand another extreme Binance trade-flow threshold on top of that.
-        # - If cross-venue confirmation is absent, keep the stricter V1.3-style
-        #   persistence requirements.
         if seconds_until_start >= 10.0:
             if cross_confirmed:
                 if directional_score < 9 or decision.margin < 5 or not aligned_momentum or not aligned_context:
@@ -234,28 +266,42 @@ class SignalIntelligenceService:
         cross = cross_venue_microstructure_service.snapshot()
         cross_data = cross.to_dict() if settings.cross_venue_enabled else None
         if snapshot is None:
-            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, 'Live market data is temporarily unavailable.', False, seconds_until_start, contract_duration_seconds, cross_data)
+            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None, 'Live BTC price stream has not warmed up yet.', False, seconds_until_start, contract_duration_seconds, cross_data)
         if not snapshot.fresh:
-            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, 'Market data is stale. Try again shortly.', False, seconds_until_start, contract_duration_seconds, cross_data)
+            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, 'Live BTC price stream is stale.', False, seconds_until_start, contract_duration_seconds, cross_data)
+
+        candles = await market_data_service.get_cached_candles(market)
+        if not candles:
+            return IntelligenceResult(
+                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
+                'BTC candle context is refreshing.', False,
+                seconds_until_start, contract_duration_seconds, cross_data,
+            )
+
+        ticks = await market_data_service.cache.get_recent_ticks(
+            market,
+            lookback_seconds=settings.signal_trade_flow_lookback_seconds,
+        )
+        if len(ticks) < settings.signal_min_recent_trades:
+            return IntelligenceResult(
+                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
+                'BTC trade stream is warming up.', False,
+                seconds_until_start, contract_duration_seconds, cross_data,
+            )
+        tick_span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
+        if tick_span < settings.signal_min_tick_span_seconds:
+            return IntelligenceResult(
+                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
+                'BTC trade-history window is rebuilding.', False,
+                seconds_until_start, contract_duration_seconds, cross_data,
+            )
 
         try:
-            candles = await market_data_service.get_cached_candles(market)
-            if not candles:
-                raise RuntimeError('candle context cache is not ready')
-            ticks = await market_data_service.cache.get_recent_ticks(
-                market,
-                lookback_seconds=settings.signal_trade_flow_lookback_seconds,
-            )
-            if len(ticks) < settings.signal_min_recent_trades:
-                raise RuntimeError('insufficient recent trade data')
-            tick_span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
-            if tick_span < settings.signal_min_tick_span_seconds:
-                raise RuntimeError('recent trade window is too short')
             features = build_features(candles, ticks)
         except Exception as exc:
             return IntelligenceResult(
                 market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
-                f'Market analysis is temporarily unavailable ({type(exc).__name__}).', False,
+                f'BTC feature preparation failed ({type(exc).__name__}).', False,
                 seconds_until_start, contract_duration_seconds, cross_data,
             )
 
