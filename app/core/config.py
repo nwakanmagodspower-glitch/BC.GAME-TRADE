@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     default_product: str = 'BC_UPDOWN_5S'
     default_expiry_seconds: int = 5
     default_stake_band: str = '1-50'
-    strategy_version: str = 'BTC_UPDOWN_5S_V1.2'
+    strategy_version: str = 'BTC_UPDOWN_5S_V1.3'
 
     signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
@@ -50,12 +50,9 @@ class Settings(BaseSettings):
     detrade_origin: str = 'https://bc.game'
     detrade_user_agent: str = 'Mozilla/5.0'
     detrade_device: str = 'web-pc'
-    # This value represents the matching DeTrade accountType returned with the token.
-    # It remains named CLIENT_TYPE for backward compatibility with the deployed env.
     detrade_client_type: int = 1
     detrade_subscription_cmd: str = '/contest/BTC/USD/5/ticker/subscribe'
     detrade_ticker_route: str = '/contest/BTC/USD/5/ticker'
-    # Human-entry guardrails: the user still has to return to BCGAME and tap.
     detrade_latency_safety_margin_ms: int = 10_000
     detrade_dispatch_min_remaining_ms: int = 8_000
     detrade_stale_after_ms: int = 1500
@@ -67,8 +64,8 @@ class Settings(BaseSettings):
     detrade_reconnect_max_seconds: float = 30.0
     detrade_max_frame_bytes: int = 1_000_000
 
-    # Precision-first V1.2 defaults. Production may override these only when a
-    # verified BCGAME-labelled calibration set justifies doing so.
+    # Precision-first V1.3 defaults. The engine also applies a stronger
+    # horizon-aware gate when BCGAME Start Rate is still far away.
     signal_min_score: int = 8
     signal_min_margin: int = 4
     signal_trade_flow_lookback_seconds: int = 15
