@@ -92,42 +92,116 @@ async def health():
         settings.analysis_pair,
         settings.market_data_max_age_seconds,
     )
+    candles = await market_data_service.get_cached_candles(settings.analysis_pair)
+    cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
+    observed = detrade_observer.latest
     cross = cross_venue_microstructure_service.snapshot()
+
     return {
         'status': 'ok',
+        'app': settings.app_name,
+        'env': settings.app_env,
+        'topology': 'combined' if settings.run_background_jobs else 'web-plus-dedicated-worker',
+        'product': {
+            'game_market': settings.game_market,
+            'analysis_pair': settings.analysis_pair,
+            'product': settings.default_product,
+            'duration_seconds': settings.default_expiry_seconds,
+            'stake_band': settings.default_stake_band,
+            'strategy_version': settings.strategy_version,
+        },
+        'signal_mode': settings.signal_mode,
+        'signal_timing_mode': settings.signal_timing_mode,
+        'manual_trigger': settings.signal_timing_mode.upper() == 'MANUAL_SYNC',
+        'signals_enabled_default': settings.signals_enabled,
+        'broadcasts_enabled_default': settings.broadcasts_enabled,
+        'telegram_configured': bool(settings.telegram_bot_token),
+        'startup_ok': startup_check.ok,
+        'startup_warnings': startup_check.warnings,
+        'round_sync': {
+            'enabled': round_status.enabled,
+            'seen': round_status.seen,
+            'fresh': round_status.fresh,
+            'age_seconds': round(round_status.age_seconds, 3) if round_status.age_seconds is not None else None,
+            'round_id': round_status.round_id,
+            'mode': 'manual_scan_now' if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else 'automatic',
+            'error_code': 'round_sync_unavailable' if round_status.last_error and settings.signal_timing_mode.upper() != 'MANUAL_SYNC' else None,
+        },
+        'detrade_observer': {
+            'enabled': settings.detrade_ws_enabled,
+            'observation_only': True,
+            'connected': detrade_observer.connected,
+            'has_observation': observed is not None,
+            'fresh': bool(observed and observed.fresh),
+            'authorization_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
+            'timer': observed.to_public_dict() if observed else None,
+            'error_code': 'observer_error' if detrade_observer.last_error else None,
+        },
         'market_data': {
+            'provider': market_data_service.provider.name,
             'connected': market_data_service.connected,
             'fresh': bool(snapshot and snapshot.fresh),
-            'last_error': market_data_service.last_error,
+            'age_seconds': round(snapshot.age_seconds, 3) if snapshot else None,
+            'error_code': 'market_feed_unavailable' if market_data_service.last_error else None,
+            'candle_cache_ready': bool(candles),
+            'candle_cache_age_seconds': await market_data_service.cache.get_candle_age_seconds(settings.analysis_pair),
+            'candle_cache_error_code': 'candle_cache_unavailable' if market_data_service.candle_last_error else None,
+            'external_reference_only': True,
         },
         'cross_venue': {
             'enabled': settings.cross_venue_enabled,
             'fresh': cross.fresh,
             'consensus': cross.consensus,
             'healthy_spread': cross.healthy_spread,
+            'binance_error_code': cross_venue_microstructure_service.last_error.get('BINANCE'),
+            'bybit_error_code': cross_venue_microstructure_service.last_error.get('BYBIT'),
         },
-        'bcgame_round_sync': {
-            'enabled': round_status.enabled,
-            'seen': round_status.seen,
-            'fresh': round_status.fresh,
-            'age_seconds': round_status.age_seconds,
-            'round_id': round_status.round_id,
-            'last_error': round_status.last_error,
+        'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
+        'background_jobs': {
+            'local_to_web': settings.run_background_jobs,
+            'leader': background_job_coordinator.is_leader if settings.run_background_jobs else False,
+            'coordinator_error_code': 'coordinator_error' if (settings.run_background_jobs and background_job_coordinator.last_error) else None,
+            'signal_worker_error_code': 'signal_worker_error' if (settings.run_background_jobs and signal_lifecycle_worker.last_error) else None,
+            'broadcast_worker_error_code': 'broadcast_worker_error' if (settings.run_background_jobs and broadcast_worker.last_error) else None,
+            'verification_worker_error_code': 'verification_worker_error' if (settings.run_background_jobs and verification_delivery_worker.last_error) else None,
+            'cleanup_error_code': 'cleanup_error' if (settings.run_background_jobs and retention_cleanup_service.last_error) else None,
+            'cleanup_last_run_at': retention_cleanup_service.last_run_at if settings.run_background_jobs else None,
+            'cleanup_last_deleted': cleanup_result.total if (settings.run_background_jobs and cleanup_result) else None,
         },
-        'detrade': {
-            'enabled': settings.detrade_ws_enabled,
-            'token_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
-            'connected': detrade_observer.connected,
-            'last_error': detrade_observer.last_error,
-        },
-        'worker': _worker_heartbeat_status(),
     }
 
 
-@app.get('/')
-async def root():
-    return {'service': settings.app_name, 'status': 'ok'}
+@app.get('/ready')
+def ready():
+    if not startup_check.ok:
+        raise HTTPException(status_code=503, detail={'errors': startup_check.errors})
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('SELECT 1'))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail='database_unavailable') from exc
+    return {'status': 'ready'}
+
+
+@app.get('/market/status')
+async def market_status():
+    snapshot = await market_data_service.cache.get_snapshot(
+        settings.analysis_pair,
+        settings.market_data_max_age_seconds,
+    )
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail='market_data_unavailable')
+    return {
+        'game_market': settings.game_market,
+        'analysis_symbol': snapshot.symbol,
+        'price': snapshot.price,
+        'event_time': snapshot.event_time,
+        'provider': snapshot.provider,
+        'age_seconds': round(snapshot.age_seconds, 3),
+        'fresh': snapshot.fresh,
+        'external_reference_only': True,
+    }
 
 
 @app.post('/telegram/webhook')
@@ -136,47 +210,76 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
     if telegram_app is None:
-        raise HTTPException(status_code=503, detail='Telegram bot is not configured.')
-    if settings.telegram_webhook_secret and not hmac.compare_digest(
-        x_telegram_bot_api_secret_token or '', settings.telegram_webhook_secret
+        raise HTTPException(status_code=503, detail='telegram_not_configured')
+    if not settings.telegram_webhook_secret:
+        raise HTTPException(status_code=503, detail='telegram_webhook_secret_not_configured')
+    if (
+        not x_telegram_bot_api_secret_token
+        or not hmac.compare_digest(
+            x_telegram_bot_api_secret_token,
+            settings.telegram_webhook_secret,
+        )
     ):
-        raise HTTPException(status_code=403, detail='Invalid webhook secret.')
+        raise HTTPException(status_code=403, detail='invalid_webhook_secret')
+
+    content_type = request.headers.get('content-type', '').split(';', 1)[0].strip().lower()
+    if content_type != 'application/json':
+        raise HTTPException(status_code=415, detail='application_json_required')
+
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > settings.telegram_webhook_max_body_bytes:
+                raise HTTPException(status_code=413, detail='webhook_body_too_large')
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail='invalid_content_length') from exc
 
     body = await request.body()
     if len(body) > settings.telegram_webhook_max_body_bytes:
-        raise HTTPException(status_code=413, detail='Webhook body too large.')
+        raise HTTPException(status_code=413, detail='webhook_body_too_large')
+
     try:
         payload = json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail='Invalid JSON.') from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail='invalid_json') from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='invalid_update')
+
+    update_id = payload.get('update_id')
+    if not isinstance(update_id, int):
+        raise HTTPException(status_code=400, detail='invalid_update_id')
 
     user_id = telegram_update_user_id(payload)
-    permit = await webhook_backpressure.acquire(user_id)
-    if permit is None:
-        raise HTTPException(status_code=429, detail='Too many requests.')
+    if not await webhook_backpressure.allow_user(user_id):
+        raise HTTPException(status_code=429, detail='user_update_rate_limited')
+    if not await webhook_backpressure.acquire():
+        raise HTTPException(status_code=429, detail='webhook_capacity_busy')
+
     try:
-        update_id = payload.get('update_id')
-        if isinstance(update_id, int):
+        with SessionLocal() as db:
+            claim = WebhookReceiptService(db).claim(update_id)
+            if claim.duplicate:
+                return {'ok': True, 'duplicate': True}
+            if not claim.claimed:
+                raise HTTPException(status_code=503, detail='update_already_processing')
+
+        try:
+            update = Update.de_json(payload, telegram_app.bot)
+            await asyncio.wait_for(
+                telegram_app.process_update(update),
+                timeout=settings.telegram_update_processing_timeout_seconds,
+            )
+        except TimeoutError as exc:
             with SessionLocal() as db:
-                receipt = WebhookReceiptService(db)
-                if not receipt.claim(update_id):
-                    return {'ok': True, 'duplicate': True}
-        update = Update.de_json(payload, telegram_app.bot)
-        await asyncio.wait_for(
-            telegram_app.process_update(update),
-            timeout=settings.telegram_update_processing_timeout_seconds,
-        )
+                WebhookReceiptService(db).fail(update_id, 'TimeoutError')
+            raise HTTPException(status_code=503, detail='update_processing_timeout') from exc
+        except Exception as exc:
+            with SessionLocal() as db:
+                WebhookReceiptService(db).fail(update_id, type(exc).__name__)
+            raise HTTPException(status_code=503, detail='update_processing_failed') from exc
+
+        with SessionLocal() as db:
+            WebhookReceiptService(db).succeed(update_id)
         return {'ok': True}
-    except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail='Update processing timed out.') from exc
     finally:
-        webhook_backpressure.release(permit)
-
-
-@app.get('/internal/db-check')
-async def db_check():
-    if _production:
-        raise HTTPException(status_code=404, detail='Not found.')
-    with engine.connect() as connection:
-        value = connection.execute(text('SELECT 1')).scalar()
-    return {'ok': value == 1}
+        webhook_backpressure.release()
