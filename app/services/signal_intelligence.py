@@ -59,7 +59,7 @@ class SignalIntelligenceService:
         snapshot = result.market_snapshot
         if snapshot is None:
             return True
-        age = (time.time() - snapshot.event_time.timestamp())
+        age = time.time() - snapshot.event_time.timestamp()
         return -settings.market_data_future_skew_seconds <= age <= settings.market_data_max_age_seconds
 
     async def _compute(self, market: str) -> IntelligenceResult:
@@ -70,12 +70,13 @@ class SignalIntelligenceService:
             return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, 'Market data is stale. Try again shortly.', False)
 
         try:
-            # Slow 1m context is refreshed in the background. The time-sensitive
-            # scan path performs no REST candle download.
             candles = await market_data_service.get_cached_candles(market)
             if not candles:
                 raise RuntimeError('candle context cache is not ready')
-            ticks = await market_data_service.cache.get_recent_ticks(market, lookback_seconds=settings.signal_trade_flow_lookback_seconds)
+            ticks = await market_data_service.cache.get_recent_ticks(
+                market,
+                lookback_seconds=settings.signal_trade_flow_lookback_seconds,
+            )
             if len(ticks) < settings.signal_min_recent_trades:
                 raise RuntimeError('insufficient recent trade data')
             tick_span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
@@ -83,10 +84,26 @@ class SignalIntelligenceService:
                 raise RuntimeError('recent trade window is too short')
             features = build_features(candles, ticks)
         except Exception as exc:
-            return IntelligenceResult(market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None, f'Market analysis is temporarily unavailable ({type(exc).__name__}).', False)
+            return IntelligenceResult(
+                market,
+                SignalDirection.NO_TRADE,
+                'UNAVAILABLE',
+                snapshot.price,
+                snapshot,
+                None,
+                None,
+                f'Market analysis is temporarily unavailable ({type(exc).__name__}).',
+                False,
+            )
 
         score = score_features(features)
-        decision = decide(score, min_score=settings.signal_min_score, min_margin=settings.signal_min_margin)
+
+        # Precision-first production floor. Render values may be tuned higher,
+        # but cannot lower the V1.2 safety threshold below 8/4.
+        min_score = max(8, settings.signal_min_score)
+        min_margin = max(4, settings.signal_min_margin)
+        decision = decide(score, min_score=min_score, min_margin=min_margin)
+
         return IntelligenceResult(
             market=market,
             direction=decision.direction,
