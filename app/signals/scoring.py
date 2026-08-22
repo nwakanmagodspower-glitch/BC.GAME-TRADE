@@ -15,8 +15,9 @@ class ScoreResult:
 def score_features(features: FeatureSnapshot) -> ScoreResult:
     """Score immediate BTC direction for a five-second target.
 
-    Tick velocity/trade flow are primary. Slower candle indicators are context
-    only and cannot create a directional signal by themselves.
+    The engine is precision-first: fast momentum and aggressor flow must agree.
+    Slow candle indicators can confirm a setup, but cannot rescue contradictory
+    or noisy five-second microstructure.
     """
     bull = 0
     bear = 0
@@ -43,11 +44,13 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
     elif features.tick_acceleration_pct <= -0.002:
         bear += 1; reasons.append('downward micro acceleration')
 
-    # Aggressor flow.
-    if features.trade_buy_ratio is not None and features.trade_count_recent >= 12:
-        if features.trade_buy_ratio >= 0.60:
+    # Aggressor flow. For a five-second contract this is required confirmation,
+    # not merely a bonus.
+    ratio = features.trade_buy_ratio
+    if ratio is not None and features.trade_count_recent >= 12:
+        if ratio >= 0.60:
             bull += 3; reasons.append('aggressive trade flow favors buyers')
-        elif features.trade_buy_ratio <= 0.40:
+        elif ratio <= 0.40:
             bear += 3; reasons.append('aggressive trade flow favors sellers')
 
     # Slow context; intentionally small weight.
@@ -61,16 +64,62 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
     elif features.structure == 'BEARISH':
         bear += 1; reasons.append('market structure context bearish')
 
-    # Penalize thin/noisy microstructure. Thresholds are research defaults and
-    # require forward calibration against actual BC.GAME round labels.
-    if features.trade_count_recent < 8:
-        bull = max(0, bull - 2); bear = max(0, bear - 2)
+    # Precision gates. A score is not enough: the setup must be coherent across
+    # the 3s/5s horizons and supported by real aggressor flow.
+    flow_bull = ratio is not None and ratio >= 0.55
+    flow_bear = ratio is not None and ratio <= 0.45
+    bull_aligned = (
+        features.tick_return_3s_pct >= 0.006
+        and features.tick_return_5s_pct >= 0.01
+        and features.tick_return_1s_pct >= 0.0
+        and flow_bull
+    )
+    bear_aligned = (
+        features.tick_return_3s_pct <= -0.006
+        and features.tick_return_5s_pct <= -0.01
+        and features.tick_return_1s_pct <= 0.0
+        and flow_bear
+    )
+
+    if not bull_aligned:
+        bull = min(bull, 5)
+        reasons.append('bull setup failed multi-horizon/flow confirmation')
+    if not bear_aligned:
+        bear = min(bear, 5)
+        reasons.append('bear setup failed multi-horizon/flow confirmation')
+
+    # A sharp one-second reversal against the 3s direction is a common late-entry
+    # failure mode. Suppress that side entirely rather than chasing the move.
+    if features.tick_return_1s_pct <= -0.002 and features.tick_return_3s_pct >= 0.006:
+        bull = min(bull, 5)
+        reasons.append('latest 1s move reversed against bullish setup')
+    if features.tick_return_1s_pct >= 0.002 and features.tick_return_3s_pct <= -0.006:
+        bear = min(bear, 5)
+        reasons.append('latest 1s move reversed against bearish setup')
+
+    # Reject unusually noisy microstructure. Five-second direction becomes much
+    # less stable when tick-to-tick volatility dominates the directional move.
+    if features.tick_volatility_5s_pct > 0.020:
+        bull = min(bull, 5)
+        bear = min(bear, 5)
+        reasons.append('micro volatility too high for precision entry')
+
+    # Do not take a five-second trade directly against both slow-context checks.
+    if features.ema_fast < features.ema_slow and features.structure == 'BEARISH':
+        bull = min(bull, 5)
+        reasons.append('bull setup conflicts with trend and structure')
+    if features.ema_fast > features.ema_slow and features.structure == 'BULLISH':
+        bear = min(bear, 5)
+        reasons.append('bear setup conflicts with trend and structure')
+
+    if features.trade_count_recent < 12:
+        bull = min(bull, 5)
+        bear = min(bear, 5)
         reasons.append('insufficient recent trades')
-    if features.tick_volatility_5s_pct > 0.025:
-        bull = max(0, bull - 2); bear = max(0, bear - 2)
-        reasons.append('micro volatility too high')
-    if abs(features.tick_return_3s_pct) < 0.002 and abs(features.tick_return_5s_pct) < 0.004:
-        bull = max(0, bull - 2); bear = max(0, bear - 2)
+
+    if abs(features.tick_return_3s_pct) < 0.004 or abs(features.tick_return_5s_pct) < 0.007:
+        bull = min(bull, 5)
+        bear = min(bear, 5)
         reasons.append('micro direction too weak')
 
     return ScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
