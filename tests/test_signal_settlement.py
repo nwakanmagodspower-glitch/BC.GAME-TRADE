@@ -16,7 +16,7 @@ class DummyDB:
 
 
 @pytest.mark.asyncio
-async def test_up_signal_wins_when_expiry_is_higher(monkeypatch):
+async def test_external_price_move_does_not_declare_up_win(monkeypatch):
     now = datetime.now(timezone.utc)
     signal = Signal(
         direction=SignalDirection.UP,
@@ -33,14 +33,14 @@ async def test_up_signal_wins_when_expiry_is_higher(monkeypatch):
 
     monkeypatch.setattr(market_data_service.cache, 'get_snapshot', snapshot)
     result = await SignalLifecycleService(DummyDB()).settle_if_due(signal, now=now)
-    assert result.status == SignalStatus.WIN
+    assert result.status == SignalStatus.EXPIRED
     assert result.reference_expiry_price == 101.0
     assert result.decision_reason == 'Original strategy rationale'
-    assert 'External-reference UP' in result.status_reason
+    assert 'no WIN or LOSS was guessed' in result.status_reason
 
 
 @pytest.mark.asyncio
-async def test_down_signal_loses_when_expiry_is_higher(monkeypatch):
+async def test_external_price_move_does_not_declare_down_loss(monkeypatch):
     now = datetime.now(timezone.utc)
     signal = Signal(
         direction=SignalDirection.DOWN,
@@ -56,11 +56,11 @@ async def test_down_signal_loses_when_expiry_is_higher(monkeypatch):
 
     monkeypatch.setattr(market_data_service.cache, 'get_snapshot', snapshot)
     result = await SignalLifecycleService(DummyDB()).settle_if_due(signal, now=now)
-    assert result.status == SignalStatus.LOSS
+    assert result.status == SignalStatus.EXPIRED
 
 
 @pytest.mark.asyncio
-async def test_equal_price_follows_down_wins_rule(monkeypatch):
+async def test_equal_external_price_does_not_guess_bcgame_result(monkeypatch):
     now = datetime.now(timezone.utc)
 
     async def snapshot(*args, **kwargs):
@@ -87,5 +87,5 @@ async def test_equal_price_follows_down_wins_rule(monkeypatch):
 
     up_result = await SignalLifecycleService(DummyDB()).settle_if_due(up_signal, now=now)
     down_result = await SignalLifecycleService(DummyDB()).settle_if_due(down_signal, now=now)
-    assert up_result.status == SignalStatus.LOSS
-    assert down_result.status == SignalStatus.WIN
+    assert up_result.status == SignalStatus.EXPIRED
+    assert down_result.status == SignalStatus.EXPIRED
