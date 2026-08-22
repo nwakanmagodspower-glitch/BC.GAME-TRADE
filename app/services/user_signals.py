@@ -12,7 +12,6 @@ from app.models.entities import Signal, SignalStatus, User, UserStatus
 from app.services.admin_ops import AdminOpsService
 from app.services.signal_intelligence import signal_intelligence_service
 from app.services.signal_records import SignalRecordService
-from app.services.worker_status import get_worker_status
 
 settings = get_settings()
 
@@ -36,12 +35,6 @@ class UserSignalService:
         if previous.tzinfo is None:
             previous = previous.replace(tzinfo=timezone.utc)
         return (now - previous).total_seconds() < settings.signal_user_cooldown_seconds
-
-    def _worker_ready(self) -> bool:
-        if settings.app_env.lower() != 'production' or settings.run_background_jobs:
-            return True
-        worker = get_worker_status(self.db)
-        return bool(worker.fresh and worker.healthy)
 
     @staticmethod
     def _aware(value: datetime | None) -> datetime | None:
@@ -77,6 +70,10 @@ class UserSignalService:
         if settings.signal_mode.upper() != 'LIVE':
             return UserSignalResult(None, False, 'Signals are in PAPER validation mode and are not actionable.')
 
+        # The web process owns every dependency required to generate a signal:
+        # DeTrade timing, Binance market data and Binance/Bybit book confirmation.
+        # Background-worker health is monitored separately and must not turn a
+        # healthy live signal path into an artificial outage.
         user = self.db.scalar(select(User).where(User.id == user_id))
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -86,10 +83,6 @@ class UserSignalService:
         if not enabled:
             self.db.rollback()
             return UserSignalResult(None, False, 'Signals are currently disabled.')
-
-        if not self._worker_ready():
-            self.db.rollback()
-            return UserSignalResult(None, False, 'Signal service is refreshing. Please try again in a few seconds.')
 
         now = datetime.now(timezone.utc)
         if self._cooldown_active(user, now):
@@ -148,6 +141,8 @@ class UserSignalService:
             if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
                 return UserSignalResult(None, False, 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.')
 
+        # Final atomic persistence gate. This is the only place a row lock is held,
+        # and there are no network awaits after it is acquired.
         user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -157,10 +152,6 @@ class UserSignalService:
         if not enabled or settings.signal_mode.upper() != 'LIVE':
             self.db.rollback()
             return UserSignalResult(None, False, 'Signals are currently disabled.')
-
-        if not self._worker_ready():
-            self.db.rollback()
-            return UserSignalResult(None, False, 'Signal service is refreshing. Please try again in a few seconds.')
 
         now = datetime.now(timezone.utc)
         if self._cooldown_active(user, now):
