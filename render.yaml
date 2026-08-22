@@ -39,7 +39,7 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.1
+        value: BTC_UPDOWN_5S_V1.2
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
@@ -83,9 +83,9 @@ services:
       - key: DETRADE_MAX_FRAME_BYTES
         value: "1000000"
       - key: SIGNAL_MIN_SCORE
-        value: "6"
+        value: "8"
       - key: SIGNAL_MIN_MARGIN
-        value: "3"
+        value: "4"
       - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
@@ -198,15 +198,15 @@ services:
       - key: DEFAULT_STAKE_BAND
         value: "1-50"
       - key: STRATEGY_VERSION
-        value: BTC_UPDOWN_5S_V1.1
+        value: BTC_UPDOWN_5S_V1.2
       - key: BCGAME_ROUND_SYNC_ENABLED
         value: "true"
       - key: BCGAME_ROUND_SYNC_MAX_AGE_SECONDS
         value: "2"
       - key: SIGNAL_MIN_SCORE
-        value: "6"
+        value: "8"
       - key: SIGNAL_MIN_MARGIN
-        value: "3"
+        value: "4"
       - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
