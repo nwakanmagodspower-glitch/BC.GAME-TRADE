@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     market_candle_refresh_seconds: int = 15
     market_candle_max_age_seconds: int = 60
     market_data_future_skew_seconds: float = 2.0
+    # BTC can exceed 5k public trades inside a few seconds. Keep enough history
+    # for the 1s/3s/5s feature windows instead of losing time coverage in bursts.
+    market_trade_buffer_size: int = 50_000
 
     # V1.4.1 public cross-venue order-book confirmation. This runs as one shared
     # web-process service and never opens a connection per Telegram user.
