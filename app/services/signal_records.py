@@ -81,6 +81,8 @@ class SignalRecordService:
                 'bear_score': result.decision.bear_score,
                 'margin': result.decision.margin,
             }
+        if result.engine_details is not None:
+            feature_data['_engine'] = result.engine_details
         feature_data['_market'] = {
             'game_market': settings.game_market,
             'analysis_pair': result.market,
@@ -125,6 +127,12 @@ class SignalRecordService:
                 'down_players': round_snapshot.down_players,
             }
 
+        engine_edge = None
+        if result.engine_details is not None:
+            raw_edge = result.engine_details.get('edge')
+            if isinstance(raw_edge, (int, float)):
+                engine_edge = min(0.99, abs(float(raw_edge)) / 1.5)
+
         signal = Signal(
             requested_by_user_id=requested_by_user_id,
             bcgame_round_id=round_row.id if round_row else None,
@@ -133,7 +141,7 @@ class SignalRecordService:
             direction=result.direction,
             status=status,
             strategy_version=settings.strategy_version,
-            confidence=None,
+            confidence=engine_edge,
             created_at=recorded_at,
             entry_at=round_snapshot.start_rate_at if round_snapshot else None,
             entry_window_start=None,
