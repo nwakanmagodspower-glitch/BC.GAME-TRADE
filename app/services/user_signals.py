@@ -65,31 +65,37 @@ class UserSignalService:
                 round_snapshot = timing.snapshot
                 trigger_mode = 'DETRADE_SYNC'
             elif timing.synchronized:
-                # A valid authoritative round was seen and it is unsafe/closed.
-                # Never bypass that information with a manual fallback.
                 return UserSignalResult(None, False, timing.reason)
             elif timing_mode == 'AUTO_SYNC':
                 return UserSignalResult(None, False, 'Live BCGAME round timing is temporarily unavailable. No signal was generated.')
             else:
-                # HYBRID_SYNC preserves the working manual product only when the
-                # authoritative source itself is unavailable/unconfigured.
                 trigger_mode = 'MANUAL_FALLBACK'
         else:
             return UserSignalResult(None, False, 'Signal timing mode is unavailable.')
 
-        intelligence = await signal_intelligence_service.scan(settings.analysis_pair)
+        seconds_until_start = None
+        contract_duration_seconds = None
+        if round_snapshot is not None:
+            measurement_time = datetime.now(timezone.utc)
+            seconds_until_start = max(0.0, round_snapshot.seconds_until_order_close(measurement_time))
+            contract_duration_seconds = max(
+                0.0,
+                (round_snapshot.end_rate_at - round_snapshot.start_rate_at).total_seconds(),
+            )
+
+        intelligence = await signal_intelligence_service.scan(
+            settings.analysis_pair,
+            seconds_until_start=seconds_until_start,
+            contract_duration_seconds=contract_duration_seconds,
+        )
         if not intelligence.service_available:
             return UserSignalResult(None, False, 'Market analysis is temporarily unavailable. Please try the next fresh round.')
 
-        # If authoritative timing was used, make sure the scan did not consume so
-        # much of the betting window that delivery would be impractical.
         if round_snapshot is not None:
             remaining_after_scan = round_snapshot.seconds_until_order_close(datetime.now(timezone.utc))
             if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
                 return UserSignalResult(None, False, 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.')
 
-        # Recheck authorization and service state after analysis so a user cannot
-        # retain a signal if access changes while the scan is being computed.
         user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
@@ -104,7 +110,6 @@ class UserSignalService:
                 self.db.rollback()
                 return UserSignalResult(None, False, 'Signal service is temporarily unavailable. Please try again shortly.')
 
-        # Consume cooldown only after a valid, deliverable market analysis exists.
         user.last_scan_requested_at = datetime.now(timezone.utc)
         signal = SignalRecordService(self.db).record_scan(
             intelligence,
