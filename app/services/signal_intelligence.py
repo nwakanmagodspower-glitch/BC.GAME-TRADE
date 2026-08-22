@@ -95,9 +95,6 @@ class SignalIntelligenceService:
         if decision.direction == SignalDirection.NO_TRADE or not settings.cross_venue_enabled:
             return decision
         if not cross.fresh:
-            # Cross-venue confirmation is additive. A temporary public-feed outage
-            # falls back to the already conservative V1.3 gates rather than taking
-            # the entire signal service offline.
             return decision
         if not cross.healthy_spread:
             return replace(
@@ -159,40 +156,62 @@ class SignalIntelligenceService:
             else features.ema_fast < features.ema_slow and features.structure != 'BULLISH'
         )
         cross_confirmed = cross.fresh and cross.healthy_spread and self._direction_matches_consensus(decision.direction, cross)
-
         directional_score = decision.bull_score if direction_up else decision.bear_score
 
-        # V1.4 uses independent Binance+Bybit book confirmation to avoid simply
-        # loosening V1.3. Strong cross-venue agreement earns a modest reduction in
-        # the far-horizon threshold; disagreement never earns a signal.
+        # Balanced V1.4 policy:
+        # - If Binance and Bybit independently confirm the same direction, do not
+        #   demand another extreme Binance trade-flow threshold on top of that.
+        # - If cross-venue confirmation is absent, keep the stricter V1.3-style
+        #   persistence requirements.
         if seconds_until_start >= 10.0:
-            required_score = 9 if cross_confirmed else 10
-            required_margin = 5 if cross_confirmed else 6
-            strong_flow_limit = 0.62 if cross_confirmed else 0.65
-            strong_flow = (
-                flow is not None and flow >= strong_flow_limit
-                if direction_up
-                else flow is not None and flow <= (1.0 - strong_flow_limit)
-            )
-            if directional_score < required_score or decision.margin < required_margin or not strong_flow or not aligned_momentum or not aligned_context:
-                return replace(
-                    decision,
-                    direction=SignalDirection.NO_TRADE,
-                    quality='NO_TRADE',
-                    reason='Setup is not persistent enough for the remaining time before BCGAME Start Rate.',
+            if cross_confirmed:
+                if directional_score < 9 or decision.margin < 5 or not aligned_momentum or not aligned_context:
+                    return replace(
+                        decision,
+                        direction=SignalDirection.NO_TRADE,
+                        quality='NO_TRADE',
+                        reason='Cross-venue direction is aligned, but the setup is not persistent enough for the remaining time before BCGAME Start Rate.',
+                    )
+            else:
+                strong_flow = (
+                    flow is not None and flow >= 0.65
+                    if direction_up
+                    else flow is not None and flow <= 0.35
                 )
+                if directional_score < 10 or decision.margin < 6 or not strong_flow or not aligned_momentum or not aligned_context:
+                    return replace(
+                        decision,
+                        direction=SignalDirection.NO_TRADE,
+                        quality='NO_TRADE',
+                        reason='Setup is not persistent enough for the remaining time before BCGAME Start Rate.',
+                    )
         elif seconds_until_start >= 7.0:
-            required_score = 8 if cross_confirmed else 9
-            required_margin = 4 if cross_confirmed else 5
-            if directional_score < required_score or decision.margin < required_margin or not aligned_flow or not aligned_momentum:
-                return replace(
-                    decision,
-                    direction=SignalDirection.NO_TRADE,
-                    quality='NO_TRADE',
-                    reason='Setup is not strong enough for this BCGAME prediction horizon.',
-                )
+            if cross_confirmed:
+                if directional_score < 8 or decision.margin < 4 or not aligned_momentum:
+                    return replace(
+                        decision,
+                        direction=SignalDirection.NO_TRADE,
+                        quality='NO_TRADE',
+                        reason='Cross-venue direction is aligned, but short-term momentum is not strong enough for this BCGAME horizon.',
+                    )
+            else:
+                if directional_score < 9 or decision.margin < 5 or not aligned_flow or not aligned_momentum:
+                    return replace(
+                        decision,
+                        direction=SignalDirection.NO_TRADE,
+                        quality='NO_TRADE',
+                        reason='Setup is not strong enough for this BCGAME prediction horizon.',
+                    )
         else:
-            if not aligned_flow or not aligned_momentum:
+            if cross_confirmed:
+                if not aligned_momentum:
+                    return replace(
+                        decision,
+                        direction=SignalDirection.NO_TRADE,
+                        quality='NO_TRADE',
+                        reason='Cross-venue direction is aligned, but late-round momentum is not sufficiently aligned.',
+                    )
+            elif not aligned_flow or not aligned_momentum:
                 return replace(
                     decision,
                     direction=SignalDirection.NO_TRADE,
