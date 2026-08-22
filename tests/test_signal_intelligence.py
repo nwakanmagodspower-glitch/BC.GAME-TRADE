@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 
 from app.integrations.market_data.base import Candle, MarketTick
 from app.models.entities import SignalDirection
+from app.services.signal_intelligence import SignalIntelligenceService
 from app.signals.decision import decide
 from app.signals.features import build_features
 from app.signals.scoring import ScoreResult, score_features
@@ -51,3 +53,31 @@ def test_old_six_three_threshold_no_longer_qualifies_by_default():
 def test_conflicting_scores_return_no_trade():
     result = decide(ScoreResult(bull_score=8, bear_score=5, reasons=['conflict']))
     assert result.direction == SignalDirection.NO_TRADE
+
+
+def test_far_start_rate_requires_stronger_persistence():
+    service = SignalIntelligenceService()
+    features = build_features(make_candles(1), make_ticks(True))
+    base = decide(ScoreResult(bull_score=9, bear_score=2, reasons=['strong but not long-horizon strong']), min_score=8, min_margin=4)
+    gated = service._apply_horizon_gate(
+        base,
+        features,
+        seconds_until_start=12.0,
+        contract_duration_seconds=5.0,
+    )
+    assert gated.direction == SignalDirection.NO_TRADE
+    assert 'Start Rate' in gated.reason
+
+
+def test_wrong_contract_duration_is_rejected():
+    service = SignalIntelligenceService()
+    features = build_features(make_candles(1), make_ticks(True))
+    base = decide(ScoreResult(bull_score=12, bear_score=1, reasons=['very strong']), min_score=8, min_margin=4)
+    gated = service._apply_horizon_gate(
+        base,
+        features,
+        seconds_until_start=10.0,
+        contract_duration_seconds=7.0,
+    )
+    assert gated.direction == SignalDirection.NO_TRADE
+    assert 'contract duration' in gated.reason
