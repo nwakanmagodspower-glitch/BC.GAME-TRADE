@@ -93,6 +93,10 @@ async def health():
         settings.market_data_max_age_seconds,
     )
     candles = await market_data_service.get_cached_candles(settings.analysis_pair)
+    recent_trade_count, recent_trade_span = await market_data_service.cache.get_trade_window_metrics(
+        settings.analysis_pair,
+        settings.signal_trade_flow_lookback_seconds,
+    )
     cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
     observed = detrade_observer.latest
@@ -126,7 +130,7 @@ async def health():
             'age_seconds': round(round_status.age_seconds, 3) if round_status.age_seconds is not None else None,
             'round_id': round_status.round_id,
             'mode': 'manual_scan_now' if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else 'automatic',
-            'error_code': 'round_sync_unavailable' if round_status.last_error and settings.signal_timing_mode.upper() != 'MANUAL_SYNC' else None,
+            'error_code': 'round_sync_unavailable' if (not round_status.fresh and settings.signal_timing_mode.upper() != 'MANUAL_SYNC') else None,
         },
         'detrade_observer': {
             'enabled': settings.detrade_ws_enabled,
@@ -136,7 +140,7 @@ async def health():
             'fresh': bool(observed and observed.fresh),
             'authorization_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
             'timer': observed.to_public_dict() if observed else None,
-            'error_code': 'observer_error' if detrade_observer.last_error else None,
+            'error_code': 'observer_error' if detrade_observer.last_error and not (observed and observed.fresh) else None,
         },
         'market_data': {
             'provider': market_data_service.provider.name,
@@ -147,6 +151,14 @@ async def health():
             'candle_cache_ready': bool(candles),
             'candle_cache_age_seconds': await market_data_service.cache.get_candle_age_seconds(settings.analysis_pair),
             'candle_cache_error_code': 'candle_cache_unavailable' if market_data_service.candle_last_error else None,
+            'recent_trade_count': recent_trade_count,
+            'recent_trade_span_seconds': round(recent_trade_span, 3),
+            'required_recent_trades': settings.signal_min_recent_trades,
+            'required_trade_span_seconds': settings.signal_min_tick_span_seconds,
+            'trade_window_ready': (
+                recent_trade_count >= settings.signal_min_recent_trades
+                and recent_trade_span >= settings.signal_min_tick_span_seconds
+            ),
             'external_reference_only': True,
         },
         'cross_venue': {
