@@ -70,6 +70,21 @@ class BCGameRoundService:
             return BCGameRoundStatus(True, True, True, 0.0, 'MANUAL_TRIGGER', 'Manual Scan Now timing is active.')
         if not settings.bcgame_round_sync_enabled:
             return BCGameRoundStatus(False, False, False, None, None, 'Automatic BCGAME round synchronization is disabled.')
+
+        # Health should describe the live DeTrade feed, not only the last round
+        # that happened to pass the actionable-entry gate. PAY_OUT/PREPARING frames
+        # are still fresh and healthy even though they are not tradable.
+        observation = detrade_observer.latest
+        if observation is not None:
+            return BCGameRoundStatus(
+                True,
+                True,
+                bool(observation.fresh),
+                max(0.0, observation.data_age_ms / 1000.0),
+                observation.round_id,
+                self.last_error,
+            )
+
         snapshot = self.last_snapshot
         if snapshot is None:
             return BCGameRoundStatus(True, False, False, None, None, self.last_error or 'No synchronized BCGAME round has been observed yet.')
@@ -84,8 +99,6 @@ class BCGameRoundService:
         if latest is not None and latest.data_age_ms <= settings.detrade_probe_coalesce_ms:
             return latest
 
-        # Single-flight concurrent scan bursts so hundreds of users do not open
-        # hundreds of identical DeTrade websocket probes for the same round.
         async with self._probe_lock:
             latest = detrade_observer.latest
             if latest is not None and latest.data_age_ms <= settings.detrade_probe_coalesce_ms:
@@ -113,8 +126,6 @@ class BCGameRoundService:
             'feed_age_ms': observation.data_age_ms,
         }
 
-        # Once a valid authoritative frame is received, never silently fall back
-        # around a known late/closed/stale round. That would defeat the timer gate.
         if not observation.round_id or observation.price_start_time_ms is None or observation.price_end_time_ms is None:
             self.last_error = 'The synchronized round frame is incomplete.'
             return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
@@ -129,8 +140,9 @@ class BCGameRoundService:
             return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
 
         evaluation_window_ms = observation.price_end_time_ms - observation.price_start_time_ms
-        expected_window_ms = settings.default_expiry_seconds * 1000
-        if evaluation_window_ms != expected_window_ms:
+        # Treat the verified product as a five-second contract with modest server
+        # timestamp tolerance rather than requiring an impossible exact 5000 ms.
+        if not 4_500 <= evaluation_window_ms <= 5_500:
             self.last_error = 'The synchronized round does not match the configured 5-second contract.'
             return BCGameRoundDecision(True, False, None, self.last_error, **decision_base)
 
