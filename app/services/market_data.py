@@ -26,9 +26,10 @@ class MarketSnapshot:
 
 
 class MarketDataCache:
-    def __init__(self, trade_buffer_size: int = 5000, max_future_skew_seconds: float | None = None):
+    def __init__(self, trade_buffer_size: int | None = None, max_future_skew_seconds: float | None = None):
+        buffer_size = trade_buffer_size or settings.market_trade_buffer_size
         self._latest: dict[str, MarketTick] = {}
-        self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_buffer_size))
+        self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=buffer_size))
         self._candles: dict[str, list[Candle]] = {}
         self._candles_provider_time: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
@@ -60,8 +61,6 @@ class MarketDataCache:
                 raise ValueError('candle timestamps must be timezone-aware')
             if candle.open_time > now + timedelta(seconds=self.max_future_skew_seconds):
                 raise ValueError('candle open_time is too far in the future')
-            # The provider open timestamp is the safest freshness anchor for an
-            # in-progress kline; close_time can legitimately be in the future.
             provider_times.append(candle.open_time.astimezone(timezone.utc))
         provider_time = max(provider_times)
         async with self._lock:
@@ -107,6 +106,13 @@ class MarketDataCache:
         async with self._lock:
             ticks = list(self._trades.get(symbol.upper(), ()))
         return [tick for tick in ticks if tick.event_time >= cutoff]
+
+    async def get_trade_window_metrics(self, symbol: str, lookback_seconds: int) -> tuple[int, float]:
+        ticks = await self.get_recent_ticks(symbol, lookback_seconds)
+        if len(ticks) < 2:
+            return len(ticks), 0.0
+        span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
+        return len(ticks), max(0.0, span)
 
 
 class MarketDataService:
@@ -199,7 +205,7 @@ def build_market_data_service() -> MarketDataService:
         ws_base_url=settings.market_data_ws_base_url,
         max_response_bytes=settings.market_data_rest_max_response_bytes,
     )
-    return MarketDataService(provider=provider, cache=MarketDataCache())
+    return MarketDataService(provider=provider, cache=MarketDataCache(settings.market_trade_buffer_size))
 
 
 market_data_service = build_market_data_service()
