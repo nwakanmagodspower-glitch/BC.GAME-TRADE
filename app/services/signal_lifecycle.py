@@ -36,11 +36,9 @@ class SignalLifecycleService:
                 'External Start Rate reference window was missed; the delivered signal direction remains unchanged.',
             )
 
-        # IMPORTANT: once a directional signal has been delivered to Telegram, the
-        # direction is immutable. A user may already have acted on it in BCGAME.
-        # Never run a second strategy decision here and never cancel the delivered
-        # signal because market conditions changed after dispatch. Lifecycle work
-        # from this point onward is reference/result bookkeeping only.
+        # Once a directional signal has been delivered to Telegram, its direction
+        # is immutable. A user may already have acted on it in BCGAME. Lifecycle
+        # work after dispatch is reference/result bookkeeping only.
         snapshot = await market_data_service.cache.get_snapshot(
             settings.analysis_pair,
             settings.market_data_max_age_seconds,
@@ -81,38 +79,40 @@ class SignalLifecycleService:
             return signal
 
         deadline = signal.expiry_at + timedelta(seconds=settings.signal_settlement_window_seconds)
-        snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, max_age_seconds=settings.market_data_max_age_seconds)
+        snapshot = await market_data_service.cache.get_snapshot(
+            settings.analysis_pair,
+            max_age_seconds=settings.market_data_max_age_seconds,
+        )
         if snapshot is None or not snapshot.fresh or snapshot.event_time < signal.expiry_at:
             if current <= deadline:
                 return signal
-            return self._expire(signal, 'External reference at estimated End Rate time was unavailable.')
+            return self._expire(signal, 'BCGAME result could not be confirmed from an authoritative product result.')
         if snapshot.event_time > deadline:
-            return self._expire(signal, 'External End Rate reference arrived too late.')
+            return self._expire(signal, 'BCGAME result could not be confirmed from an authoritative product result.')
 
+        # Keep the external market sample for diagnostics/intelligence, but NEVER
+        # use Binance (or any other external reference market) to declare a BCGAME
+        # WIN/LOSS. BCGAME's own Start Rate / End Rate is the product truth and can
+        # differ around a 5-second boundary. Until a matching authoritative BCGAME
+        # / DeTrade result is available for this exact round, fail closed as
+        # unresolved instead of publishing a false result.
         signal.reference_expiry_price = snapshot.price
-        entry = signal.reference_entry_price
-        expiry = signal.reference_expiry_price
-
-        # BCGAME's supplied rule is binary: UP wins only when End > Start;
-        # otherwise DOWN wins. Equality therefore belongs to DOWN, not TIE.
-        if signal.direction == SignalDirection.UP:
-            signal.status = SignalStatus.WIN if expiry > entry else SignalStatus.LOSS
-        else:
-            signal.status = SignalStatus.WIN if expiry <= entry else SignalStatus.LOSS
-
         feature_data = dict(signal.features_snapshot or {})
         market_meta = dict(feature_data.get('_market') or {})
         market_meta.update({
-            'settled_at': current.isoformat(),
+            'external_expiry_sampled_at': current.isoformat(),
             'external_expiry_event_time': snapshot.event_time.isoformat(),
             'external_expiry_provider': snapshot.provider,
             'reference_only': True,
+            'authoritative_result_required': True,
         })
         feature_data['_market'] = market_meta
         signal.features_snapshot = feature_data
-        signal.status_reason = f'External-reference {signal.direction.value}: start={entry:.8f}, end={expiry:.8f}. BCGAME Start/End Rate remains product truth.'
         self.db.commit(); self.db.refresh(signal)
-        return signal
+        return self._expire(
+            signal,
+            'BCGAME Start Rate/End Rate was not authoritatively confirmed for this exact round; no WIN or LOSS was guessed.',
+        )
 
     def _cancel(self, signal: Signal, reason: str) -> Signal:
         # Kept for compatibility with older records/callers. New delivered signals
