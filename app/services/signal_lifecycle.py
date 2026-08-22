@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.entities import Signal, SignalDirection, SignalStatus
 from app.services.market_data import market_data_service
-from app.services.signal_intelligence import signal_intelligence_service
 
 settings = get_settings()
 
@@ -23,37 +22,34 @@ class SignalLifecycleService:
         if signal.status != SignalStatus.WAITING_ENTRY or signal.direction not in {SignalDirection.UP, SignalDirection.DOWN}:
             return signal
         if not signal.entry_at:
-            return self._cancel(signal, 'Signal timing is incomplete.')
+            return self._expire(signal, 'Delivered signal has incomplete timing metadata; direction remains unchanged.')
 
         current = now or datetime.now(timezone.utc)
         if current < signal.entry_at:
             return signal
+
         source = self._timing_source(signal)
         activation_deadline = signal.entry_at + timedelta(seconds=settings.signal_settlement_window_seconds)
         if current > activation_deadline:
-            if source == 'MANUAL_SYNC':
-                return self._expire(signal, 'Manual-sync external Start Rate reference window was missed; the delivered signal itself is unchanged.')
-            return self._cancel(signal, 'Start Rate reference window was missed.')
+            return self._expire(
+                signal,
+                'External Start Rate reference window was missed; the delivered signal direction remains unchanged.',
+            )
 
-        if source == 'MANUAL_SYNC':
-            # A user may already have placed the order. Never change/cancel the
-            # delivered direction afterward; this lifecycle is diagnostic only.
-            snapshot = await market_data_service.cache.get_snapshot(settings.analysis_pair, settings.market_data_max_age_seconds)
-            if snapshot is None or not snapshot.fresh:
-                return self._expire(signal, 'Manual-sync external Start Rate reference was unavailable; BCGAME result must be checked separately.')
-            revalidated_direction = None
-            revalidated_quality = None
-        else:
-            revalidated = await signal_intelligence_service.scan(settings.analysis_pair)
-            if not revalidated.service_available:
-                return self._cancel(signal, f'Start-rate revalidation unavailable: {revalidated.reason}')
-            if revalidated.direction not in {SignalDirection.UP, SignalDirection.DOWN} or revalidated.direction != signal.direction:
-                return self._cancel(signal, 'Direction was invalidated before Start Rate.')
-            snapshot = revalidated.market_snapshot
-            if snapshot is None or not snapshot.fresh:
-                return self._cancel(signal, 'Fresh external reference data was unavailable at Start Rate time.')
-            revalidated_direction = revalidated.direction.value
-            revalidated_quality = revalidated.quality
+        # IMPORTANT: once a directional signal has been delivered to Telegram, the
+        # direction is immutable. A user may already have acted on it in BCGAME.
+        # Never run a second strategy decision here and never cancel the delivered
+        # signal because market conditions changed after dispatch. Lifecycle work
+        # from this point onward is reference/result bookkeeping only.
+        snapshot = await market_data_service.cache.get_snapshot(
+            settings.analysis_pair,
+            settings.market_data_max_age_seconds,
+        )
+        if snapshot is None or not snapshot.fresh:
+            return self._expire(
+                signal,
+                'External Start Rate reference was unavailable; the delivered signal direction remains unchanged.',
+            )
 
         signal.reference_entry_price = snapshot.price
         signal.status = SignalStatus.ACTIVE
@@ -63,8 +59,9 @@ class SignalLifecycleService:
             'activated_at': current.isoformat(),
             'external_entry_event_time': snapshot.event_time.isoformat(),
             'external_entry_provider': snapshot.provider,
-            'revalidated_direction': revalidated_direction,
-            'revalidated_quality': revalidated_quality,
+            'revalidated_direction': None,
+            'revalidated_quality': None,
+            'direction_immutable_after_delivery': True,
             'reference_only': True,
             'timing_source': source,
         })
@@ -96,7 +93,7 @@ class SignalLifecycleService:
         entry = signal.reference_entry_price
         expiry = signal.reference_expiry_price
 
-        # BC.GAME's supplied rule is binary: UP wins only when End > Start;
+        # BCGAME's supplied rule is binary: UP wins only when End > Start;
         # otherwise DOWN wins. Equality therefore belongs to DOWN, not TIE.
         if signal.direction == SignalDirection.UP:
             signal.status = SignalStatus.WIN if expiry > entry else SignalStatus.LOSS
@@ -118,6 +115,8 @@ class SignalLifecycleService:
         return signal
 
     def _cancel(self, signal: Signal, reason: str) -> Signal:
+        # Kept for compatibility with older records/callers. New delivered signals
+        # should never reach this path after Telegram dispatch.
         signal.status = SignalStatus.CANCELLED
         signal.status_reason = reason
         data = dict(signal.features_snapshot or {}); data['_cancelled_at'] = datetime.now(timezone.utc).isoformat(); signal.features_snapshot = data
