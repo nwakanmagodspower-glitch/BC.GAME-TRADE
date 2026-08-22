@@ -20,8 +20,16 @@ class SignalNotificationService:
     async def notify_status(self, signal: Signal) -> bool:
         if not settings.telegram_bot_token or signal.requested_by_user_id is None:
             return False
+
+        # A directional signal is delivered before lifecycle bookkeeping begins.
+        # Never send CANCELLED afterward: the user may already have entered the
+        # BCGAME round. Later failures are diagnostic/unresolved, not a reversal
+        # of the original signal direction.
+        if signal.status == SignalStatus.CANCELLED:
+            return False
+
         if signal.status not in {
-            SignalStatus.ACTIVE, SignalStatus.CANCELLED, SignalStatus.EXPIRED,
+            SignalStatus.ACTIVE, SignalStatus.EXPIRED,
             SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE,
         }:
             return False
@@ -66,23 +74,16 @@ class SignalNotificationService:
             icon = '🟢' if signal.direction.value == 'UP' else '🔴'
             return (
                 '🔒 ENTRY CLOSED\n\n'
-                f'{icon} {signal.direction.value} signal locked in.\n'
-                '⏳ Checking the 5s result...'
-            )
-
-        if signal.status == SignalStatus.CANCELLED:
-            prefix = '🧪 PAPER SIGNAL CANCELLED' if mode == 'PAPER' else '⚠️ SIGNAL CANCELLED'
-            return (
-                f'{prefix}\n\n'
-                'Market conditions changed before entry.\n\n'
-                'Skip this round and wait for the next signal.'
+                f'{icon} {signal.direction.value} signal remains locked.\n'
+                '⏳ Checking the 5s reference result...'
             )
 
         if signal.status == SignalStatus.EXPIRED:
             prefix = '🧪 PAPER RESULT UNRESOLVED' if mode == 'PAPER' else '⚠️ RESULT UNAVAILABLE'
             return (
                 f'{prefix}\n\n'
-                'The result could not be confirmed safely. No WIN or LOSS was guessed.\n\n'
+                'The internal reference result could not be confirmed safely. '
+                'The original signal direction has not changed.\n\n'
                 '🔄 Continue with the next round.'
             )
 
