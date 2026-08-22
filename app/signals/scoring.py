@@ -13,11 +13,12 @@ class ScoreResult:
 
 
 def score_features(features: FeatureSnapshot) -> ScoreResult:
-    """Score immediate BTC direction for a five-second target.
+    """Score immediate BTC direction for the five-second target.
 
-    Precision-first rules: fast momentum and aggressor flow must agree. Slow
-    candle context may confirm a setup, but cannot rescue contradictory/noisy
-    microstructure.
+    V1.4.2 keeps fast momentum as the primary evidence, but does not hard-fail a
+    setup merely because Binance aggressor flow is neutral. Flow remains useful
+    evidence and the cross-venue layer later supplies an independent confirmation.
+    Hard caps are reserved for genuinely contradictory/reversing/noisy structure.
     """
     bull = 0
     bear = 0
@@ -49,6 +50,10 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
             bull += 3; reasons.append('aggressive trade flow favors buyers')
         elif ratio <= 0.40:
             bear += 3; reasons.append('aggressive trade flow favors sellers')
+        elif ratio >= 0.54:
+            bull += 1; reasons.append('trade flow modestly favors buyers')
+        elif ratio <= 0.46:
+            bear += 1; reasons.append('trade flow modestly favors sellers')
 
     if features.ema_fast > features.ema_slow:
         bull += 1; reasons.append('short trend context bullish')
@@ -60,31 +65,25 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
     elif features.structure == 'BEARISH':
         bear += 1; reasons.append('market structure context bearish')
 
-    # Hard confirmation: all fast horizons must point the same way and actual
-    # taker flow must be decisively one-sided. Neutral 55/45 flow is no longer
-    # enough to qualify a five-second signal.
-    flow_bull = ratio is not None and ratio >= 0.60
-    flow_bear = ratio is not None and ratio <= 0.40
-    bull_aligned = (
-        features.tick_return_1s_pct >= 0.001
-        and features.tick_return_3s_pct >= 0.006
-        and features.tick_return_5s_pct >= 0.01
-        and flow_bull
+    # The 3s and 5s windows define persistence. Neutral Binance flow no longer
+    # destroys the score here; independent Binance/Bybit confirmation is applied
+    # later. This fixes the old double-gating that could make signals impossible.
+    bull_persistent = (
+        features.tick_return_3s_pct >= 0.004
+        and features.tick_return_5s_pct >= 0.007
     )
-    bear_aligned = (
-        features.tick_return_1s_pct <= -0.001
-        and features.tick_return_3s_pct <= -0.006
-        and features.tick_return_5s_pct <= -0.01
-        and flow_bear
+    bear_persistent = (
+        features.tick_return_3s_pct <= -0.004
+        and features.tick_return_5s_pct <= -0.007
     )
+    if not bull_persistent:
+        bull = min(bull, 6)
+        reasons.append('bull setup lacks 3s/5s persistence')
+    if not bear_persistent:
+        bear = min(bear, 6)
+        reasons.append('bear setup lacks 3s/5s persistence')
 
-    if not bull_aligned:
-        bull = min(bull, 5)
-        reasons.append('bull setup failed multi-horizon/flow confirmation')
-    if not bear_aligned:
-        bear = min(bear, 5)
-        reasons.append('bear setup failed multi-horizon/flow confirmation')
-
+    # A clear newest-second reversal is still a genuine veto for that direction.
     if features.tick_return_1s_pct <= -0.002 and features.tick_return_3s_pct >= 0.006:
         bull = min(bull, 5)
         reasons.append('latest 1s move reversed against bullish setup')
@@ -97,19 +96,23 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
         bear = min(bear, 5)
         reasons.append('micro volatility too high for precision entry')
 
+    # Strong disagreement between slow context and the proposed direction is a
+    # warning, not a universal blocker. It trims the score rather than erasing it.
     if features.ema_fast < features.ema_slow and features.structure == 'BEARISH':
-        bull = min(bull, 5)
-        reasons.append('bull setup conflicts with trend and structure')
+        bull = max(0, bull - 2)
+        reasons.append('bull setup conflicts with bearish trend context')
     if features.ema_fast > features.ema_slow and features.structure == 'BULLISH':
-        bear = min(bear, 5)
-        reasons.append('bear setup conflicts with trend and structure')
+        bear = max(0, bear - 2)
+        reasons.append('bear setup conflicts with bullish trend context')
 
     if features.trade_count_recent < 12:
         bull = min(bull, 5)
         bear = min(bear, 5)
         reasons.append('insufficient recent trades')
 
-    if abs(features.tick_return_3s_pct) < 0.004 or abs(features.tick_return_5s_pct) < 0.007:
+    # Only suppress both sides when BOTH persistence windows are weak. The old
+    # OR condition rejected a setup whenever either one window was quiet.
+    if abs(features.tick_return_3s_pct) < 0.004 and abs(features.tick_return_5s_pct) < 0.007:
         bull = min(bull, 5)
         bear = min(bear, 5)
         reasons.append('micro direction too weak')
