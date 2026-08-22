@@ -21,6 +21,10 @@ def intelligence(direction):
         reference_price=70_000.0,
         market_snapshot=None,
         reason='test',
+        seconds_until_start=12.0,
+        contract_duration_seconds=5.0,
+        cross_venue=None,
+        engine_details={'engine': 'BTC_5S_UNIFIED_V2', 'edge': 0.5},
     )
 
 
@@ -44,9 +48,11 @@ def test_directional_signals_reuse_one_synchronized_round_row():
     with Session() as db:
         service = SignalRecordService(db)
         snapshot = synchronized_round()
-        service.record_scan(intelligence(SignalDirection.UP), round_snapshot=snapshot)
-        service.record_scan(intelligence(SignalDirection.DOWN), round_snapshot=snapshot)
+        first = service.record_scan(intelligence(SignalDirection.UP), round_snapshot=snapshot)
+        second = service.record_scan(intelligence(SignalDirection.DOWN), round_snapshot=snapshot)
         assert db.scalar(select(func.count(BCGameRound.id))) == 1
+        assert first.strategy_version.endswith('-UNIFIED_V2')
+        assert second.strategy_version.endswith('-UNIFIED_V2')
 
 
 def test_no_trade_scan_does_not_create_round_row():
@@ -54,8 +60,9 @@ def test_no_trade_scan_does_not_create_round_row():
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     with Session() as db:
-        SignalRecordService(db).record_scan(
+        signal = SignalRecordService(db).record_scan(
             intelligence(SignalDirection.NO_TRADE),
             round_snapshot=synchronized_round(),
         )
         assert db.scalar(select(func.count(BCGameRound.id))) == 0
+        assert signal.strategy_version.endswith('-UNIFIED_V2')
