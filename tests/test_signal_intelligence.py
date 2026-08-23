@@ -2,6 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 from app.integrations.market_data.base import Candle, MarketTick
 from app.models.entities import SignalDirection
+from app.services.signal_intelligence import (
+    ENGINE_NAME,
+    IntelligenceResult,
+    SignalIntelligenceService,
+)
 from app.signals.decision import decide
 from app.signals.features import build_features
 from app.signals.scoring import score_features
@@ -61,3 +66,38 @@ def test_neutral_context_and_balanced_flow_return_no_trade():
 def test_original_policy_keeps_valid_and_strong_quality_levels():
     strong = decide(score_features(build_features(make_candles(1), make_ticks(True))), 6, 3)
     assert strong.quality in {'VALID', 'STRONG'}
+
+
+def test_timer_metadata_cannot_change_prediction_direction_or_score():
+    decision = decide(score_features(build_features(make_candles(1), make_ticks(True))), 6, 3)
+    base = IntelligenceResult(
+        market='BTCUSDT',
+        direction=decision.direction,
+        quality=decision.quality,
+        reference_price=61000.0,
+        market_snapshot=None,
+        features=None,
+        decision=decision,
+        reason=decision.reason,
+        engine_details={
+            'engine': ENGINE_NAME,
+            'bull_score': decision.bull_score,
+            'bear_score': decision.bear_score,
+            'margin': decision.margin,
+        },
+    )
+
+    early = SignalIntelligenceService._with_timer(base, 12.0, 5.0)
+    late = SignalIntelligenceService._with_timer(base, 3.0, 5.0)
+    wrong_duration = SignalIntelligenceService._with_timer(base, 12.0, 7.0)
+
+    for timed in (early, late, wrong_duration):
+        assert timed.direction == base.direction
+        assert timed.decision == base.decision
+        assert timed.engine_details['bull_score'] == decision.bull_score
+        assert timed.engine_details['bear_score'] == decision.bear_score
+        assert timed.engine_details['margin'] == decision.margin
+
+    assert early.engine_details['timer_validated'] is True
+    assert late.engine_details['timer_validated'] is True
+    assert wrong_duration.engine_details['timer_validated'] is False
