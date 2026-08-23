@@ -1,18 +1,19 @@
 # Architecture
 
-## Runtime topology
+## Runtime Topology
 
 ```text
 Telegram
   -> Render web: secret-validated FastAPI webhook
        -> access/onboarding/admin handlers
        -> UserSignalService
-       -> shared DeTradeObserver (read-only round timing)
-       -> shared Binance market cache + SignalIntelligenceService
+       -> BCGameRoundService / DeTradeObserver (timing only)
+       -> Binance BTCUSDT market cache
+       -> SignalIntelligenceService (direction only)
        -> PostgreSQL
 
 Render worker
-  -> shared Binance market cache
+  -> Binance market cache
   -> advisory-lock background coordinator
        -> signal lifecycle
        -> broadcast delivery
@@ -21,38 +22,85 @@ Render worker
        -> PostgreSQL
 ```
 
-The observer is process-wide, not user-scoped. Concurrent requests share its latest frame; cold probes are single-flight. Signal computation is also locked/coalesced briefly. Per-user cooldown, webhook concurrency limits, update idempotency, PostgreSQL row locking, and the unique current-signal index provide additional load and race protection.
+## Two Independent Decisions
 
-## Timer decision path
+The system deliberately separates prediction and timing.
 
-1. The observer obtains ephemeral credentials from the configured provider.
-2. It connects to the verified DeTrade WebSocket with token, `device`, account `type`, and browser-derived `cid` query parameters.
-3. It sends the verified zlib-compressed subscription and five-second application heartbeat.
-4. A frame is accepted only if it contains the complete round identity/status/time shape.
-5. `priceStartTime` becomes a local monotonic deadline derived from `currentTime` at receipt.
-6. The round service requires a fresh frame, status `1001`, a known round ID, at least the initial safety margin, and a five-second `priceStartTime → priceEndTime` window.
-7. After the existing signal engine finishes, the monotonic deadline is checked again against the dispatch margin.
-8. Only then may a signal record and Telegram response be created.
+### 1. Prediction
 
-Known closed, late, stale, unknown, transition, or wrong-product frames are synchronized-but-not-actionable and cannot fall through to manual behavior. HYBRID fallback applies only when no authoritative frame can be obtained.
+`SignalIntelligenceService` answers only:
 
-## Data ownership
+- UP
+- DOWN
+- NO_TRADE
+- UNAVAILABLE when required market/candle data cannot be prepared
 
-- DeTrade owns BCGAME round identity and order-window timing.
-- BCGAME Start/End Rate remains product outcome truth.
-- Binance provides analysis and diagnostic reference data only.
-- PostgreSQL owns users, approvals, operational state, compact signals, genuine synchronized round records for directional signals, broadcasts, and audit records.
-- Raw market streams and DeTrade tokens are not persisted.
+The active prediction engine is `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1` and uses the restored pre-timer feature set: EMA trend, five-minute momentum, short-term structure, volume/taker behavior, optional recent aggressive trade flow, RSI, and ATR.
 
-NO TRADE scans do not create BCGAME round rows. Verification account IDs and Telegram evidence file IDs are purged immediately after the owner decision. Temporary signal, webhook, notification, and broadcast-delivery records are cleaned after ten days.
+The qualification policy is fixed at score 6 / margin 3.
 
-## Failure behavior
+### 2. Timing
 
-- HYBRID + no/expired token: manual Scan Now fallback, no crash.
-- AUTO + no token/observer: startup failure or no signal.
-- Valid frame says unsafe: no fallback and no directional signal.
-- Market/worker/access/kill-switch failure: no signal.
-- Auth failure codes `603` or `3100`: clear the last observation, invalidate the provider, reconnect only after new credentials are supplied.
-- Unknown DeTrade status, including cautious handling of `1008`: non-tradeable.
+`BCGameRoundService` and `DeTradeObserver` answer only whether the current BC.GAME order window is safe to use.
+
+Timing metadata is attached to an already-computed intelligence result. It cannot change direction, scores, margin, feature weights, or qualification thresholds.
+
+## Timer Decision Path
+
+1. The observer uses a configured ephemeral DeTrade token when available.
+2. It connects to `wss://websocket.detrade.com/ws`.
+3. It subscribes to `/contest/BTC/USD/5/ticker/subscribe`.
+4. A synchronized round is actionable only when the frame is fresh, complete, status is `1001`, and the Start→End interval is approximately 5000 ms.
+5. `priceStartTime` is the authoritative order-close / Start Rate boundary.
+6. The initial safety margin must be satisfied before analysis.
+7. The restored prediction engine runs independently of the countdown value.
+8. Remaining time is checked again after analysis against the dispatch margin.
+9. If too little time remains, delivery is rejected without rewriting the prediction.
+
+Known closed, late, stale, unknown, transition, cancelled, payout, or wrong-duration frames are synchronized-but-not-actionable and cannot fall through to manual behavior. In HYBRID mode, fallback occurs only when the authoritative timing source itself is unavailable.
+
+## Safe Defaults vs Production
+
+Local/default configuration:
+
+- PAPER
+- signals disabled
+- broadcasts disabled
+- `MANUAL_SYNC`
+- DeTrade disabled
+
+Render production explicitly overrides timing to `HYBRID_SYNC`, enables synchronized round support, and enables the DeTrade observer. A usable DeTrade token is optional for HYBRID operation; without it the web scan uses manual fallback.
+
+## Market Data Ownership
+
+- Binance Spot BTCUSDT provides external prediction/reference data.
+- BC.GAME Start Rate / End Rate remains product outcome truth.
+- DeTrade provides round identity and timing only.
+- PostgreSQL owns users, approvals, operational state, compact signal records, synchronized round records, broadcasts, and audit state.
+- Raw exchange streams and DeTrade authorization secrets are not persisted.
+
+Recent trade-flow samples are optional prediction evidence. Their count/span is visible diagnostically but is not a hard signal-readiness gate.
+
+## Concurrency and Load
+
+- market streams are process-wide, not per Telegram user;
+- DeTrade observation is process-wide;
+- scan computation is briefly locked/coalesced;
+- per-user cooldown prevents scan spam;
+- webhook concurrency/backpressure limits incoming work;
+- webhook update IDs are idempotently claimed;
+- final signal persistence uses row locking to prevent overlapping current user signals.
+
+## Failure Behavior
+
+- stale/missing Binance snapshot → UNAVAILABLE;
+- insufficient closed candle history → UNAVAILABLE;
+- weak/conflicting original intelligence → NO_TRADE;
+- synchronized BC.GAME frame says unsafe → no actionable delivery;
+- HYBRID + unavailable/expired DeTrade authorization → manual Scan Now fallback;
+- AUTO + unavailable authorization → fail closed;
+- blocked/unapproved user or disabled signal switch → no signal.
+
+Background-worker health is monitored for background operations, but it is not an artificial gate on a healthy web-process prediction path.
 
 There is no automatic order placement, BCGAME password handling, Martingale, loss chasing, or money movement.
