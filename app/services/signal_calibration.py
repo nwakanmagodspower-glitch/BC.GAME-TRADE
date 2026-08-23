@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, literal, select
 from sqlalchemy.orm import Session
 
 from app.models.entities import AuditLog, Signal, SignalDirection
@@ -32,17 +32,15 @@ class SignalCalibrationService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _label_rows(self):
-        return select(AuditLog).where(AuditLog.action == CALIBRATION_ACTION)
-
     def latest_unlabeled(self) -> Signal | None:
         labeled_targets = select(AuditLog.target).where(AuditLog.action == CALIBRATION_ACTION)
+        target_expr = literal('signal:') + cast(Signal.id, String)
         return self.db.scalar(
             select(Signal)
             .where(
                 Signal.direction.in_([SignalDirection.UP, SignalDirection.DOWN]),
                 Signal.strategy_version == 'BTC_5S_UNIFIED_V2',
-                func.concat('signal:', Signal.id).not_in(labeled_targets),
+                target_expr.not_in(labeled_targets),
             )
             .order_by(Signal.id.desc())
         )
