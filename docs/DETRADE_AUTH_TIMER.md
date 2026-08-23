@@ -12,7 +12,23 @@ This is the redacted implementation record from the authenticated BCGAME browser
 
 For the observed normal web path, the BCGAME session cookie is used only with BCGAME to obtain the temporary `accessCode`; it is not forwarded to the DeTrade WebSocket. The WebSocket carries no token-specific custom header: its token is in the query string and application payload, while ordinary `Origin` and `User-Agent` headers identify the web client. No persistent DeTrade user token was found in normal-web local/session storage. A separate native bridge contains storage/event hooks, but that was not the active browser path and is not used here.
 
-The exact token lifetime was not exposed by the observed client and remains unverified. Auth failure codes `603` and `3100` are treated as expiry/re-authorization conditions. The official replacement behavior is to repeat the BCGAME `tradingLogin` step and DeTrade `login/verify` exchange; reusing the rejected token is unsafe.
+The JWT observed on 2026-08-23 had an `iat` to `exp` lifetime of exactly 86,400 seconds (24 hours). That is evidence for this token class, not a promise that DeTrade will never change its lifetime. The token also carried `isTemporary=false`; this does not make it permanent, because its signed `exp` still ends the session after 24 hours. Auth failure codes `603` and `3100` are treated as expiry/re-authorization conditions. The official replacement behavior is to repeat the BCGAME `tradingLogin` step and DeTrade `login/verify` exchange; reusing the rejected token is unsafe.
+
+## REST endpoint relevance
+
+The logged-in frontend also calls several authenticated REST endpoints. They are useful to the website UI but are not required by the timer-only observer:
+
+| Endpoint purpose | Frontend role | Needed for timer bot? |
+|---|---|:---:|
+| `/api/transaction/updown/order/statistics` | aggregate Up/Down activity/winnings statistics shown on the page | no |
+| `/api/message/event-notification/broadcast` | event/announcement notification content | no |
+| `/api/transaction/updown/order/rankings?timeType=DAY&sort=PNL` | daily leaderboard rows | no |
+| BCGAME `/api/account/get/` | BCGAME account/session and wallet context | not after a DeTrade token exists; browser bootstrap only |
+| `/api/competition/contest/mode/list?...tradeType=UPDOWN` | ongoing/upcoming Up/Down competition banner and mode metadata | no |
+
+Read-only unauthenticated checks returned HTTP `200` for all five endpoints, but the JSON body returned application authorization failures: DeTrade code `603` and BCGAME code `4001`. Code must therefore validate the JSON application code/data and never treat HTTP `200` alone as proof of authorization.
+
+None of these endpoints supplies the authoritative BTC/USD five-second round countdown, and none adds evidence about the next BTC price direction. The minimal timer integration remains the authenticated WebSocket plus the ticker subscription below. Automatic token replacement, if it is ever implemented, needs the verified BCGAME `tradingLogin` → DeTrade `login/verify` flow, not these statistics, notification, ranking, account-display, or competition-list calls.
 
 ## Verified WebSocket protocol
 

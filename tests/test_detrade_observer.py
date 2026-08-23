@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from datetime import datetime, timezone
 import json
 import time
@@ -9,7 +10,11 @@ import pytest
 
 import app.integrations.detrade_observer as detrade_module
 from app.integrations.detrade_observer import DeTradeObserver, DeTradeRoundObservation
-from app.integrations.detrade_token_provider import DeTradeCredentials
+from app.integrations.detrade_token_provider import (
+    DeTradeCredentials,
+    detrade_token_is_expired,
+    usable_detrade_token,
+)
 
 
 class FakeProvider:
@@ -135,6 +140,21 @@ def test_placeholder_credentials_are_never_created(monkeypatch):
     monkeypatch.setattr(provider_module.settings, 'detrade_ws_token', 'temporary')
     provider = EnvironmentDeTradeTokenProvider()
     assert provider._usable_token(provider_module.settings.detrade_ws_token) is None
+
+
+def _unsigned_test_jwt(exp: int) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({'exp': exp}).encode()).decode().rstrip('=')
+    return f'header.{payload}.signature'
+
+
+def test_expired_jwt_is_rejected_without_logging_or_signature_dependency():
+    expired = _unsigned_test_jwt(1_000)
+    future = _unsigned_test_jwt(3_000)
+
+    assert detrade_token_is_expired(expired, now_seconds=2_000) is True
+    assert detrade_token_is_expired(future, now_seconds=2_000) is False
+    assert usable_detrade_token(expired) is None
+    assert usable_detrade_token('opaque-non-placeholder-token') == 'opaque-non-placeholder-token'
 
 
 @pytest.mark.asyncio

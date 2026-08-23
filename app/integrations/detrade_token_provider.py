@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import json
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -9,12 +12,38 @@ settings = get_settings()
 PLACEHOLDER_TOKENS = {'temporary', 'placeholder', '<temporary>', '<temporary token>'}
 
 
+def detrade_token_is_expired(raw: str | None, *, now_seconds: float | None = None) -> bool:
+    """Fail closed on a JWT whose signed expiry claim has elapsed.
+
+    This does not authenticate the JWT or trust it for permissions. DeTrade still
+    performs that verification. It only prevents a known-expired environment
+    secret from being retried and reported as configured.
+    """
+    if not raw:
+        return False
+    parts = raw.strip().split('.')
+    if len(parts) != 3:
+        return False
+    try:
+        padded = parts[1] + ('=' * (-len(parts[1]) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode('utf-8'))
+        expires_at = float(payload['exp'])
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    current = time.time() if now_seconds is None else now_seconds
+    return expires_at <= current
+
+
 def usable_detrade_token(raw: str | None) -> str | None:
     """Return a configured secret only when it is not empty or a known placeholder."""
     if not raw:
         return None
     token = raw.strip()
-    if not token or token.lower() in PLACEHOLDER_TOKENS:
+    if (
+        not token
+        or token.lower() in PLACEHOLDER_TOKENS
+        or detrade_token_is_expired(token)
+    ):
         return None
     return token
 
