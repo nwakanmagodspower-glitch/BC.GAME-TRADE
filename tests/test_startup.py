@@ -31,10 +31,20 @@ def test_safe_defaults_are_valid():
     assert settings.default_product == 'BC_UPDOWN_5S'
     assert settings.default_expiry_seconds == 5
     assert settings.default_stake_band == '1-50'
+    assert settings.strategy_version == 'BTC_ORIGINAL_INTELLIGENCE_TIMER_V1'
+    assert settings.signal_min_score == 6
+    assert settings.signal_min_margin == 3
 
 
 def test_safe_production_configuration_passes():
     assert validate_settings(production()).ok
+
+
+def test_original_strategy_identity_and_thresholds_are_locked():
+    assert not validate_settings(production(strategy_version='BTC_UPDOWN_5S_V1.4.2')).ok
+    assert not validate_settings(production(signal_min_score=8)).ok
+    assert not validate_settings(production(signal_min_margin=4)).ok
+    assert validate_settings(production(signal_min_score=6, signal_min_margin=3)).ok
 
 
 def test_live_manual_sync_is_allowed():
