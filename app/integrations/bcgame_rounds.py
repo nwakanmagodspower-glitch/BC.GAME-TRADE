@@ -131,7 +131,7 @@ class BCGameRoundService:
             if latest is not None and latest.data_age_ms <= settings.detrade_probe_coalesce_ms:
                 return latest
             return await detrade_observer.probe(
-                timeout_seconds=settings.detrade_probe_timeout_seconds
+                timeout_seconds=settings.detrade_scan_probe_timeout_seconds
             )
 
     async def current_round_decision(self) -> BCGameRoundDecision:

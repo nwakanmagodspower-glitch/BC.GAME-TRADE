@@ -47,6 +47,26 @@ class SignalIntelligenceService:
         self._scan_lock = asyncio.Lock()
         self._last_result: IntelligenceResult | None = None
         self._last_result_at: float = 0.0
+        self._last_compute_duration_ms: int | None = None
+        self._compute_count = 0
+        self._cache_hit_count = 0
+
+    def operational_status(self) -> dict[str, Any]:
+        """Return non-secret engine readiness and latency diagnostics."""
+        age_ms = None
+        if self._last_result is not None:
+            age_ms = max(0, int((time.monotonic() - self._last_result_at) * 1000))
+        return {
+            'engine': ENGINE_NAME,
+            'has_completed_scan': self._last_result is not None,
+            'last_scan_available': (
+                self._last_result.service_available if self._last_result is not None else None
+            ),
+            'last_compute_duration_ms': self._last_compute_duration_ms,
+            'last_result_age_ms': age_ms,
+            'compute_count': self._compute_count,
+            'coalesced_cache_hits': self._cache_hit_count,
+        }
 
     async def scan(
         self,
@@ -75,15 +95,22 @@ class SignalIntelligenceService:
         now_mono = time.monotonic()
         if self._cached_result_is_usable(now_mono, max_cache_age):
             assert self._last_result is not None
+            self._cache_hit_count += 1
             return self._with_timer(self._last_result, seconds_until_start, contract_duration_seconds)
 
         async with self._scan_lock:
             now_mono = time.monotonic()
             if self._cached_result_is_usable(now_mono, max_cache_age):
                 assert self._last_result is not None
+                self._cache_hit_count += 1
                 return self._with_timer(self._last_result, seconds_until_start, contract_duration_seconds)
 
+            compute_started = time.monotonic()
             result = await self._compute(market)
+            self._last_compute_duration_ms = max(
+                0, int((time.monotonic() - compute_started) * 1000)
+            )
+            self._compute_count += 1
             self._last_result = result
             self._last_result_at = time.monotonic()
             return self._with_timer(result, seconds_until_start, contract_duration_seconds)

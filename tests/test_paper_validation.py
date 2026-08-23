@@ -14,7 +14,7 @@ class DummyDB:
     def scalars(self, statement): return ScalarResult(self.signals)
 
 
-def signal(status, *, version='BTC_UPDOWN_5S_V1.1', entry_delay=0.5, settled=True):
+def signal(status, *, version='BTC_ORIGINAL_INTELLIGENCE_TIMER_V1', entry_delay=0.5, settled=True):
     now = datetime.now(timezone.utc)
     entry = now - timedelta(seconds=10)
     expiry = entry + timedelta(seconds=5)

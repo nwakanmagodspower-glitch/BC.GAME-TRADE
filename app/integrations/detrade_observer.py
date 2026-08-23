@@ -119,6 +119,7 @@ class DeTradeObserver:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._probe_lock = asyncio.Lock()
+        self._observation_event = asyncio.Event()
         self._force_credential_refresh = False
 
     @staticmethod
@@ -252,6 +253,7 @@ class DeTradeObserver:
             self._force_credential_refresh = True
             self.latest = None
             self.last_error = 'DeTrade authorization expired or requires refresh.'
+            self._observation_event.set()
             return False
         payload = self._find_round_payload(decoded)
         if payload is None:
@@ -270,6 +272,7 @@ class DeTradeObserver:
             received_at=datetime.now(timezone.utc),
         )
         self.last_error = None
+        self._observation_event.set()
         return True
 
     async def _heartbeat(self, ws: Any, credentials: DeTradeCredentials) -> None:
@@ -313,6 +316,7 @@ class DeTradeObserver:
                             self._force_credential_refresh = True
                             self.latest = None
                             self.last_error = 'DeTrade authorization expired or requires refresh.'
+                            self._observation_event.set()
                             return None
                         if await self._consume(decoded) and first_frame_only:
                             return self.latest
@@ -347,13 +351,17 @@ class DeTradeObserver:
 
         timeout = timeout_seconds or settings.detrade_probe_timeout_seconds
         if self._task and not self._task.done():
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                if self.latest and self.latest.fresh:
-                    return self.latest
-                if self.last_error and 'authorization' in self.last_error.lower():
-                    return None
-                await asyncio.sleep(0.05)
+            self._observation_event.clear()
+            if self.latest and self.latest.fresh:
+                return self.latest
+            try:
+                await asyncio.wait_for(self._observation_event.wait(), timeout=timeout)
+            except TimeoutError:
+                pass
+            if self.latest and self.latest.fresh:
+                return self.latest
+            if self.last_error and 'authorization' in self.last_error.lower():
+                return None
             self.last_error = 'DeTrade timer probe timed out.'
             return None
 
@@ -377,13 +385,16 @@ class DeTradeObserver:
                 backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
                 continue
             self._force_credential_refresh = False
-            await self._session(credentials, first_frame_only=False)
+            observation = await self._session(credentials, first_frame_only=False)
             if self._stop.is_set():
                 return
+            # A session that delivered a valid frame was healthy. Reset before
+            # sleeping; after the sleep the 1.5s freshness window has naturally
+            # elapsed and can no longer tell us whether that session succeeded.
+            if observation is not None:
+                backoff = max(1.0, settings.detrade_reconnect_seconds)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 1.7, settings.detrade_reconnect_max_seconds)
-            if self.latest and self.latest.fresh:
-                backoff = max(1.0, settings.detrade_reconnect_seconds)
 
 
 detrade_observer = DeTradeObserver()

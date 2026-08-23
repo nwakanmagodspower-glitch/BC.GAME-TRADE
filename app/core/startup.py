@@ -156,6 +156,10 @@ def validate_settings(settings: Settings) -> StartupCheck:
             errors.append('DETRADE_STALE_AFTER_MS must be greater than zero')
         if settings.detrade_probe_timeout_seconds <= 0:
             errors.append('DETRADE_PROBE_TIMEOUT_SECONDS must be greater than zero')
+        if settings.detrade_scan_probe_timeout_seconds <= 0:
+            errors.append('DETRADE_SCAN_PROBE_TIMEOUT_SECONDS must be greater than zero')
+        if settings.detrade_scan_probe_timeout_seconds > settings.detrade_probe_timeout_seconds:
+            warnings.append('The user-scan DeTrade probe timeout should not exceed the owner diagnostic timeout.')
         if settings.detrade_probe_coalesce_ms < 0:
             errors.append('DETRADE_PROBE_COALESCE_MS cannot be negative')
         if settings.detrade_ping_interval_seconds <= 0 or settings.detrade_ping_timeout_seconds <= 0:

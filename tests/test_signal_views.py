@@ -12,7 +12,7 @@ def button_texts(markup):
 def test_scan_prompt_uses_single_scan_now_action(monkeypatch):
     monkeypatch.setattr(signal_views, 'bcgame_adapter', SimpleNamespace(updown_url='https://bc.game/trading/up-down'))
     texts = button_texts(signal_views.build_scan_prompt_keyboard())
-    assert texts == ['🚀 Open BCGAME Up/Down', '⚡ Scan Now']
+    assert texts == ['🚀 Open BCGAME Up/Down', '⚡ Scan Market']
     assert not any(text in texts for text in ('15s', '14s', '13s', '12s'))
 
 
@@ -59,7 +59,7 @@ def test_synchronized_signal_hides_round_id_and_keeps_simple_entry_window(monkey
     )
     text = signal_views.format_signal(signal)
     assert '🟢 UP' in text
-    assert 'Signal Strength: STRONG' in text
+    assert '🔥 Strength: STRONG' in text
     assert 'Entry window: ~12.4s' in text
     assert '1352602872069133' not in text
     assert 'Timing: synchronized' not in text
@@ -76,7 +76,7 @@ def test_no_trade_message_is_simple():
     )
     text = signal_views.format_signal(signal)
     assert '⚪ NO TRADE' in text
-    assert 'not strong enough' in text
+    assert 'No qualified setup right now' in text
     assert 'Timing:' not in text
     assert 'Round:' not in text
 

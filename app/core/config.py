@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     detrade_dispatch_min_remaining_ms: int = 8_000
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
+    # User scans should not spend most of a short entry window waiting for a
+    # background observer that is already expected to be connected. The longer
+    # probe remains available to owner diagnostics.
+    detrade_scan_probe_timeout_seconds: float = 1.0
     detrade_probe_coalesce_ms: int = 300
     detrade_ping_interval_seconds: float = 5.0
     detrade_ping_timeout_seconds: float = 10.0

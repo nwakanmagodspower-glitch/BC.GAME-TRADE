@@ -77,3 +77,5 @@ Local defaults are PAPER mode, signals off, broadcasts off, `MANUAL_SYNC`, and D
 `render.yaml` preserves the existing `bcgame-trade-api`, `bcgame-trade-worker`, and `bcgame-trade-db` resources. Auto-deploy remains tied to `main`. Values marked `sync: false` are private and user-supplied.
 
 Before enabling or trusting LIVE behavior, verify Render build, migration, `/ready`, `/health`, Telegram webhook delivery, Binance freshness, and the current DeTrade timing state.
+
+In the owner private chat, run `/preflight` immediately before recording or demonstrating the bot. It performs a read-only check of the signal switch, LIVE mode, Binance tick/candle freshness, recent trade evidence, and the authoritative BCGAME timer. `READY TO SCAN` confirms the technical path only; it does not force a direction or guarantee a win, and a healthy scan may correctly return `NO TRADE`.

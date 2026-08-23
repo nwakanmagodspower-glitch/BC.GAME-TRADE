@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.models.entities import Signal, SignalDirection, SignalStatus
-from app.services import signal_notifications
 from app.services.signal_notifications import SignalNotificationService
 
 
@@ -26,48 +25,18 @@ def make_signal(status: SignalStatus) -> Signal:
     )
 
 
-def test_paper_active_notification_is_non_actionable(monkeypatch):
-    monkeypatch.setattr(signal_notifications.settings, 'signal_mode', 'PAPER')
-    service = SignalNotificationService(None)
-    text = service._render(make_signal(SignalStatus.ACTIVE))
-    assert 'PAPER ROUND STARTED' in text
-    assert 'entry window is closed' in text
-    assert 'ENTER NOW' not in text
-
-
-def test_live_active_notification_is_simple_and_non_actionable(monkeypatch):
-    monkeypatch.setattr(signal_notifications.settings, 'signal_mode', 'LIVE')
-    service = SignalNotificationService(None)
-    text = service._render(make_signal(SignalStatus.ACTIVE))
-    assert 'ENTRY CLOSED' in text
-    assert 'signal remains locked' in text
-    assert 'ENTER NOW' not in text
-    assert 'UP' in text
-    assert 'UTC' not in text
-
-
 @pytest.mark.asyncio
-async def test_cancelled_delivered_signal_is_never_notified(monkeypatch):
-    monkeypatch.setattr(signal_notifications.settings, 'telegram_bot_token', 'configured')
+@pytest.mark.parametrize(
+    'status',
+    [
+        SignalStatus.ACTIVE,
+        SignalStatus.CANCELLED,
+        SignalStatus.EXPIRED,
+        SignalStatus.WIN,
+        SignalStatus.LOSS,
+        SignalStatus.TIE,
+    ],
+)
+async def test_lifecycle_notifications_remain_disabled(status):
     service = SignalNotificationService(None)
-    sent = await service.notify_status(make_signal(SignalStatus.CANCELLED))
-    assert sent is False
-
-
-def test_expired_notification_preserves_original_direction():
-    service = SignalNotificationService(None)
-    text = service._render(make_signal(SignalStatus.EXPIRED))
-    assert 'RESULT UNAVAILABLE' in text or 'PAPER RESULT UNRESOLVED' in text
-    assert 'original signal direction has not changed' in text
-    assert 'SIGNAL CANCELLED' not in text
-
-
-def test_win_notification_is_player_friendly_and_hides_reference_prices():
-    service = SignalNotificationService(None)
-    text = service._render(make_signal(SignalStatus.WIN))
-    assert '✅ WIN' in text
-    assert 'UP' in text
-    assert 'BTC/USD • 5s' in text
-    assert '60,000' not in text
-    assert '60,100' not in text
-    assert 'External' not in text
+    assert await service.notify_status(make_signal(status)) is False

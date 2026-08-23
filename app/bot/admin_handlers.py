@@ -83,6 +83,7 @@ async def admin_ops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f'Timing layer: {"READY" if timing.fresh else "NOT READY"}\n'
             f'Approved users: {approved}\nWaiting signals: {waiting}\nActive signals: {active}\n'
             f'Latest broadcast: {bcast}'
+            '\n\nBefore recording a live demonstration, run /preflight.'
         )
         await query.message.reply_text(text); return
 

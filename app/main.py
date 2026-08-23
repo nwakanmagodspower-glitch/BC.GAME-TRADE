@@ -17,7 +17,7 @@ from app.integrations.detrade_token_provider import usable_detrade_token
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
-from app.services.signal_intelligence import ENGINE_NAME
+from app.services.signal_intelligence import ENGINE_NAME, signal_intelligence_service
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
 from app.services.verification_delivery_worker import verification_delivery_worker
@@ -98,6 +98,9 @@ async def health():
     cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
     observed = detrade_observer.latest
+    candle_refresh_age = await market_data_service.cache.get_candle_refresh_age_seconds(
+        settings.analysis_pair
+    )
 
     return {
         'status': 'ok',
@@ -147,12 +150,16 @@ async def health():
             'error_code': 'market_feed_unavailable' if market_data_service.last_error else None,
             'candle_cache_ready': bool(candles),
             'candle_cache_age_seconds': await market_data_service.cache.get_candle_age_seconds(settings.analysis_pair),
+            'candle_refresh_age_seconds': (
+                round(candle_refresh_age, 3) if candle_refresh_age is not None else None
+            ),
             'candle_cache_error_code': 'candle_cache_unavailable' if market_data_service.candle_last_error else None,
             'recent_trade_count': recent_trade_count,
             'recent_trade_span_seconds': round(recent_trade_span, 3),
             'trade_flow_role': 'optional scoring evidence; not a hard readiness gate',
             'external_reference_only': True,
         },
+        'prediction_engine': signal_intelligence_service.operational_status(),
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
         'background_jobs': {
             'local_to_web': settings.run_background_jobs,

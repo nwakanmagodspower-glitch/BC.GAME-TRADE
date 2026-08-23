@@ -118,6 +118,11 @@ def test_detrade_verified_route_and_safety_values_are_validated():
         detrade_ws_token='secret',
         detrade_probe_timeout_seconds=0,
     )).ok
+    assert not validate_settings(production(
+        detrade_ws_enabled=True,
+        detrade_ws_token='secret',
+        detrade_scan_probe_timeout_seconds=0,
+    )).ok
 
 
 def test_production_rejects_sqlite():

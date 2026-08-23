@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 import json
 import time
@@ -177,3 +178,29 @@ def test_stale_observation_is_never_tradeable(monkeypatch):
     )
     assert observation.fresh is False
     assert observation.can_trade is False
+
+
+@pytest.mark.asyncio
+async def test_background_probe_wakes_immediately_on_new_observation(monkeypatch):
+    monkeypatch.setattr(detrade_module.settings, 'detrade_ws_enabled', True)
+    observer = DeTradeObserver(FakeProvider())
+
+    async def running_forever():
+        await asyncio.Event().wait()
+
+    observer._task = asyncio.create_task(running_forever())
+
+    async def publish():
+        await asyncio.sleep(0.01)
+        await observer._consume({'resp': round_payload()})
+
+    publisher = asyncio.create_task(publish())
+    try:
+        result = await observer.probe(timeout_seconds=0.5)
+        assert result is not None
+        assert result.round_id == '1352602872069133'
+    finally:
+        await publisher
+        observer._task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await observer._task

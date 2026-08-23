@@ -35,6 +35,7 @@
 - [ ] `/health` shows Binance market freshness and labels recent trade flow as optional evidence, not a hard readiness gate.
 - [ ] `/health` exposes no DeTrade credential.
 - [ ] owner `/round_status` with a valid token shows a real round ID, status, remaining time, and approximately 5-second evaluation window.
+- [ ] owner `/preflight` reports `READY TO SCAN` before any live recording; if it says `WAIT`, do not demonstrate an entry in that round.
 - [ ] with no token, HYBRID remains operational through manual Scan Now fallback.
 - [ ] status `1008`, unknown status, stale frame, late round, and wrong-duration frame cannot become a synchronized actionable round.
 

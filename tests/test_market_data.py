@@ -111,3 +111,21 @@ def test_market_data_cache_rejects_future_ticks_and_uses_provider_candle_time():
         assert await cache.get_candles('BTCUSDT', max_age_seconds=60) is not None
 
     asyncio.run(run())
+
+
+def test_candle_refresh_age_tracks_successful_cache_receipt():
+    async def run():
+        cache = MarketDataCache()
+        now = datetime.now(timezone.utc)
+        candle = Candle(
+            symbol='BTCUSDT', interval='1m', open_time=now - timedelta(minutes=1),
+            close_time=now, open=1, high=2, low=1, close=2,
+            volume=1, quote_volume=1, trade_count=1, taker_buy_base_volume=1,
+            taker_buy_quote_volume=1, closed=True, provider='TEST',
+        )
+        assert await cache.get_candle_refresh_age_seconds('BTCUSDT') is None
+        await cache.set_candles('BTCUSDT', [candle])
+        age = await cache.get_candle_refresh_age_seconds('BTCUSDT')
+        assert age is not None and 0 <= age < 1
+
+    asyncio.run(run())

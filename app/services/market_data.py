@@ -32,6 +32,7 @@ class MarketDataCache:
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=buffer_size))
         self._candles: dict[str, list[Candle]] = {}
         self._candles_provider_time: dict[str, datetime] = {}
+        self._candles_received_monotonic: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self.max_future_skew_seconds = settings.market_data_future_skew_seconds if max_future_skew_seconds is None else max_future_skew_seconds
 
@@ -66,6 +67,7 @@ class MarketDataCache:
         async with self._lock:
             self._candles[symbol.upper()] = list(candles)
             self._candles_provider_time[symbol.upper()] = provider_time
+            self._candles_received_monotonic[symbol.upper()] = asyncio.get_running_loop().time()
 
     async def get_candles(self, symbol: str, max_age_seconds: int | None = None) -> list[Candle] | None:
         async with self._lock:
@@ -82,6 +84,14 @@ class MarketDataCache:
         if provider_time is None:
             return None
         return max(0.0, (datetime.now(timezone.utc) - provider_time).total_seconds())
+
+    async def get_candle_refresh_age_seconds(self, symbol: str) -> float | None:
+        """Age of the last successful cache refresh, independent of candle boundaries."""
+        async with self._lock:
+            received = self._candles_received_monotonic.get(symbol.upper())
+        if received is None:
+            return None
+        return max(0.0, asyncio.get_running_loop().time() - received)
 
     async def get_snapshot(self, symbol: str, max_age_seconds: int) -> MarketSnapshot | None:
         async with self._lock:

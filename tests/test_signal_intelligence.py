@@ -101,3 +101,12 @@ def test_timer_metadata_cannot_change_prediction_direction_or_score():
     assert early.engine_details['timer_validated'] is True
     assert late.engine_details['timer_validated'] is True
     assert wrong_duration.engine_details['timer_validated'] is False
+
+
+def test_operational_status_contains_only_engine_health_not_prediction():
+    status = SignalIntelligenceService().operational_status()
+    assert status['engine'] == ENGINE_NAME
+    assert status['has_completed_scan'] is False
+    assert 'direction' not in status
+    assert 'bull_score' not in status
+    assert 'bear_score' not in status
