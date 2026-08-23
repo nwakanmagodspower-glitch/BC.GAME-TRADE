@@ -24,7 +24,6 @@ def intelligence(direction):
         reason='test',
         seconds_until_start=12.0,
         contract_duration_seconds=5.0,
-        cross_venue=None,
         engine_details={'engine': ENGINE_NAME, 'timer_validated': True},
     )
 
