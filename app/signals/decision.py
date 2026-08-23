@@ -16,15 +16,16 @@ class SignalDecision:
     reason: str
 
 
-def decide(score: ScoreResult, min_score: int = 8, min_margin: int = 4) -> SignalDecision:
+def decide(score: ScoreResult, min_score: int = 6, min_margin: int = 3) -> SignalDecision:
     bull = score.bull_score
     bear = score.bear_score
     margin = abs(bull - bear)
 
     if bull >= min_score and bull - bear >= min_margin:
+        quality = 'STRONG' if bull >= 8 and margin >= 4 else 'VALID'
         return SignalDecision(
             direction=SignalDirection.UP,
-            quality='STRONG',
+            quality=quality,
             bull_score=bull,
             bear_score=bear,
             margin=margin,
@@ -32,9 +33,10 @@ def decide(score: ScoreResult, min_score: int = 8, min_margin: int = 4) -> Signa
         )
 
     if bear >= min_score and bear - bull >= min_margin:
+        quality = 'STRONG' if bear >= 8 and margin >= 4 else 'VALID'
         return SignalDecision(
             direction=SignalDirection.DOWN,
-            quality='STRONG',
+            quality=quality,
             bull_score=bull,
             bear_score=bear,
             margin=margin,
