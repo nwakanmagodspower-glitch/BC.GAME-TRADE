@@ -15,9 +15,9 @@ from app.integrations.bcgame_rounds import bcgame_round_service
 from app.integrations.detrade_observer import detrade_observer
 from app.integrations.detrade_token_provider import usable_detrade_token
 from app.services.background_coordinator import background_job_coordinator
-from app.services.cross_venue_microstructure import cross_venue_microstructure_service
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
+from app.services.signal_intelligence import ENGINE_NAME
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
 from app.services.verification_delivery_worker import verification_delivery_worker
@@ -35,7 +35,6 @@ async def lifespan(app: FastAPI):
     if not startup_check.ok:
         raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
     await market_data_service.start(settings.analysis_pair)
-    await cross_venue_microstructure_service.start()
     await detrade_observer.start()
     if settings.run_background_jobs:
         await background_job_coordinator.start()
@@ -49,7 +48,6 @@ async def lifespan(app: FastAPI):
         if settings.run_background_jobs:
             await background_job_coordinator.stop()
         await detrade_observer.stop()
-        await cross_venue_microstructure_service.stop()
         await market_data_service.stop()
 
 
@@ -100,7 +98,6 @@ async def health():
     cleanup_result = retention_cleanup_service.last_result
     round_status = bcgame_round_service.status()
     observed = detrade_observer.latest
-    cross = cross_venue_microstructure_service.snapshot()
 
     return {
         'status': 'ok',
@@ -113,7 +110,7 @@ async def health():
             'product': settings.default_product,
             'duration_seconds': settings.default_expiry_seconds,
             'stake_band': settings.default_stake_band,
-            'strategy_version': settings.strategy_version,
+            'strategy_version': ENGINE_NAME,
         },
         'signal_mode': settings.signal_mode,
         'signal_timing_mode': settings.signal_timing_mode,
@@ -160,14 +157,6 @@ async def health():
                 and recent_trade_span >= settings.signal_min_tick_span_seconds
             ),
             'external_reference_only': True,
-        },
-        'cross_venue': {
-            'enabled': settings.cross_venue_enabled,
-            'fresh': cross.fresh,
-            'consensus': cross.consensus,
-            'healthy_spread': cross.healthy_spread,
-            'binance_error_code': cross_venue_microstructure_service.last_error.get('BINANCE'),
-            'bybit_error_code': cross_venue_microstructure_service.last_error.get('BYBIT'),
         },
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
         'background_jobs': {
@@ -227,10 +216,7 @@ async def telegram_webhook(
         raise HTTPException(status_code=503, detail='telegram_webhook_secret_not_configured')
     if (
         not x_telegram_bot_api_secret_token
-        or not hmac.compare_digest(
-            x_telegram_bot_api_secret_token,
-            settings.telegram_webhook_secret,
-        )
+        or not hmac.compare_digest(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret)
     ):
         raise HTTPException(status_code=403, detail='invalid_webhook_secret')
 
