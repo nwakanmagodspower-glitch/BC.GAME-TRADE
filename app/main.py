@@ -129,9 +129,9 @@ async def health():
             'mode': 'manual_scan_now' if settings.signal_timing_mode.upper() == 'MANUAL_SYNC' else 'automatic',
             'error_code': 'round_sync_unavailable' if (not round_status.fresh and settings.signal_timing_mode.upper() != 'MANUAL_SYNC') else None,
         },
-        'detrade_observer': {
+        'detrade_timer': {
             'enabled': settings.detrade_ws_enabled,
-            'observation_only': True,
+            'timing_only': True,
             'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
@@ -150,12 +150,7 @@ async def health():
             'candle_cache_error_code': 'candle_cache_unavailable' if market_data_service.candle_last_error else None,
             'recent_trade_count': recent_trade_count,
             'recent_trade_span_seconds': round(recent_trade_span, 3),
-            'required_recent_trades': settings.signal_min_recent_trades,
-            'required_trade_span_seconds': settings.signal_min_tick_span_seconds,
-            'trade_window_ready': (
-                recent_trade_count >= settings.signal_min_recent_trades
-                and recent_trade_span >= settings.signal_min_tick_span_seconds
-            ),
+            'trade_flow_role': 'optional scoring evidence; not a hard readiness gate',
             'external_reference_only': True,
         },
         'dedicated_worker': _worker_heartbeat_status() if not settings.run_background_jobs else None,
