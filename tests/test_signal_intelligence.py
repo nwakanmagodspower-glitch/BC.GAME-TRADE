@@ -2,9 +2,9 @@ from datetime import datetime, timedelta, timezone
 
 from app.integrations.market_data.base import Candle, MarketTick
 from app.models.entities import SignalDirection
-from app.services.cross_venue_microstructure import CrossVenueSnapshot, VenueBookSnapshot
-from app.signals.engine_v2 import BTCFiveSecondEngine
+from app.signals.decision import decide
 from app.signals.features import build_features
+from app.signals.scoring import score_features
 
 
 def make_candles(direction: int = 1) -> list[Candle]:
@@ -44,73 +44,24 @@ def make_ticks(bullish: bool, *, flat: bool = False) -> list[MarketTick]:
     return ticks
 
 
-def cross(direction: str) -> CrossVenueSnapshot:
-    now = datetime.now(timezone.utc)
-    if direction == 'UP':
-        return CrossVenueSnapshot(
-            binance=VenueBookSnapshot('BINANCE', 100.0, 100.1, 9.0, 1.0, 70.0, 30.0, now),
-            bybit=VenueBookSnapshot('BYBIT', 100.0, 100.1, 8.0, 2.0, 68.0, 32.0, now),
-        )
-    if direction == 'DOWN':
-        return CrossVenueSnapshot(
-            binance=VenueBookSnapshot('BINANCE', 100.0, 100.1, 1.0, 9.0, 30.0, 70.0, now),
-            bybit=VenueBookSnapshot('BYBIT', 100.0, 100.1, 2.0, 8.0, 32.0, 68.0, now),
-        )
-    return CrossVenueSnapshot(binance=None, bybit=None)
-
-
-def test_unified_engine_produces_up_when_live_evidence_agrees():
+def test_classic_engine_produces_up_when_momentum_and_flow_agree():
     features = build_features(make_candles(1), make_ticks(True))
-    result = BTCFiveSecondEngine().evaluate(
-        features,
-        cross('UP'),
-        seconds_until_start=11.0,
-        contract_duration_seconds=5.0,
-    )
-    assert result.decision.direction == SignalDirection.UP
-    assert result.details['edge'] > result.details['threshold']
+    result = decide(score_features(features), min_score=6, min_margin=3)
+    assert result.direction == SignalDirection.UP
 
 
-def test_unified_engine_produces_down_when_live_evidence_agrees():
+def test_classic_engine_produces_down_when_momentum_and_flow_agree():
     features = build_features(make_candles(-1), make_ticks(False))
-    result = BTCFiveSecondEngine().evaluate(
-        features,
-        cross('DOWN'),
-        seconds_until_start=8.0,
-        contract_duration_seconds=5.0,
-    )
-    assert result.decision.direction == SignalDirection.DOWN
-    assert abs(result.details['edge']) > result.details['threshold']
+    result = decide(score_features(features), min_score=6, min_margin=3)
+    assert result.direction == SignalDirection.DOWN
 
 
-def test_far_horizon_changes_weighting_but_does_not_add_second_veto():
-    features = build_features(make_candles(1), make_ticks(True))
-    engine = BTCFiveSecondEngine()
-    near = engine.evaluate(features, cross('UP'), seconds_until_start=5.0, contract_duration_seconds=5.0)
-    far = engine.evaluate(features, cross('UP'), seconds_until_start=12.0, contract_duration_seconds=5.0)
-    assert near.decision.direction == SignalDirection.UP
-    assert far.decision.direction == SignalDirection.UP
-    assert far.details['threshold'] >= near.details['threshold']
-
-
-def test_genuinely_flat_conflicting_market_can_still_return_no_trade():
+def test_flat_market_can_still_return_no_trade():
     features = build_features(make_candles(1), make_ticks(True, flat=True))
-    result = BTCFiveSecondEngine().evaluate(
-        features,
-        cross('NONE'),
-        seconds_until_start=10.0,
-        contract_duration_seconds=5.0,
-    )
-    assert result.decision.direction == SignalDirection.NO_TRADE
+    result = decide(score_features(features), min_score=6, min_margin=3)
+    assert result.direction == SignalDirection.NO_TRADE
 
 
-def test_wrong_contract_duration_is_rejected_before_direction():
-    features = build_features(make_candles(1), make_ticks(True))
-    result = BTCFiveSecondEngine().evaluate(
-        features,
-        cross('UP'),
-        seconds_until_start=10.0,
-        contract_duration_seconds=7.0,
-    )
-    assert result.decision.direction == SignalDirection.NO_TRADE
-    assert result.details['hard_reject'] == 'contract_duration'
+def test_classic_policy_keeps_valid_and_strong_quality_levels():
+    strong = decide(score_features(build_features(make_candles(1), make_ticks(True))), 6, 3)
+    assert strong.quality in {'VALID', 'STRONG'}
