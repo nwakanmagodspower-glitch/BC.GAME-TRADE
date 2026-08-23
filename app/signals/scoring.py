@@ -13,66 +13,68 @@ class ScoreResult:
 
 
 def score_features(features: FeatureSnapshot) -> ScoreResult:
-    """Score immediate BTC direction for a five-second target.
-
-    This intentionally restores the original simple engine: fast tick velocity
-    and aggressor flow are primary; slower candle context can support a direction
-    but cannot create one by itself. Noise/thin-data handling is soft, not a stack
-    of hard vetoes.
-    """
     bull = 0
     bear = 0
     reasons: list[str] = []
 
-    if features.tick_return_1s_pct >= 0.003:
-        bull += 3; reasons.append('1s price impulse up')
-    elif features.tick_return_1s_pct <= -0.003:
-        bear += 3; reasons.append('1s price impulse down')
-
-    if features.tick_return_3s_pct >= 0.006:
-        bull += 3; reasons.append('3s micro momentum up')
-    elif features.tick_return_3s_pct <= -0.006:
-        bear += 3; reasons.append('3s micro momentum down')
-
-    if features.tick_return_5s_pct >= 0.01:
-        bull += 2; reasons.append('5s directional persistence up')
-    elif features.tick_return_5s_pct <= -0.01:
-        bear += 2; reasons.append('5s directional persistence down')
-
-    if features.tick_acceleration_pct >= 0.002:
-        bull += 1; reasons.append('upward micro acceleration')
-    elif features.tick_acceleration_pct <= -0.002:
-        bear += 1; reasons.append('downward micro acceleration')
-
-    if features.trade_buy_ratio is not None and features.trade_count_recent >= 12:
-        if features.trade_buy_ratio >= 0.60:
-            bull += 3; reasons.append('aggressive trade flow favors buyers')
-        elif features.trade_buy_ratio <= 0.40:
-            bear += 3; reasons.append('aggressive trade flow favors sellers')
-
     if features.ema_fast > features.ema_slow:
-        bull += 1; reasons.append('short trend context bullish')
+        bull += 2
+        reasons.append('fast EMA above slow EMA')
     elif features.ema_fast < features.ema_slow:
-        bear += 1; reasons.append('short trend context bearish')
+        bear += 2
+        reasons.append('fast EMA below slow EMA')
+
+    if features.momentum_5_pct >= 0.08:
+        bull += 2
+        reasons.append('positive 5-minute momentum')
+    elif features.momentum_5_pct <= -0.08:
+        bear += 2
+        reasons.append('negative 5-minute momentum')
 
     if features.structure == 'BULLISH':
-        bull += 1; reasons.append('market structure context bullish')
+        bull += 2
+        reasons.append('bullish short-term structure')
     elif features.structure == 'BEARISH':
-        bear += 1; reasons.append('market structure context bearish')
+        bear += 2
+        reasons.append('bearish short-term structure')
 
-    if features.trade_count_recent < 8:
+    if features.volume_ratio >= 1.20:
+        if features.taker_buy_ratio >= 0.55:
+            bull += 1
+            reasons.append('volume expansion with taker buying')
+        elif features.taker_buy_ratio <= 0.45:
+            bear += 1
+            reasons.append('volume expansion with taker selling')
+
+    if features.trade_buy_ratio is not None and features.trade_count_recent >= 10:
+        if features.trade_buy_ratio >= 0.58:
+            bull += 2
+            reasons.append('recent trade flow favors buyers')
+        elif features.trade_buy_ratio <= 0.42:
+            bear += 2
+            reasons.append('recent trade flow favors sellers')
+
+    if 52 <= features.rsi_14 <= 72:
+        bull += 1
+        reasons.append('RSI supports bullish momentum without extreme extension')
+    elif 28 <= features.rsi_14 <= 48:
+        bear += 1
+        reasons.append('RSI supports bearish momentum without extreme extension')
+
+    if features.rsi_14 > 78:
+        bull = max(0, bull - 1)
+        reasons.append('bullish score reduced for overextension')
+    elif features.rsi_14 < 22:
+        bear = max(0, bear - 1)
+        reasons.append('bearish score reduced for overextension')
+
+    if features.atr_14_pct < 0.03:
+        bull = max(0, bull - 1)
+        bear = max(0, bear - 1)
+        reasons.append('very low volatility reduces trade quality')
+    elif features.atr_14_pct > 1.25:
         bull = max(0, bull - 2)
         bear = max(0, bear - 2)
-        reasons.append('insufficient recent trades')
-
-    if features.tick_volatility_5s_pct > 0.025:
-        bull = max(0, bull - 2)
-        bear = max(0, bear - 2)
-        reasons.append('micro volatility too high')
-
-    if abs(features.tick_return_3s_pct) < 0.002 and abs(features.tick_return_5s_pct) < 0.004:
-        bull = max(0, bull - 2)
-        bear = max(0, bear - 2)
-        reasons.append('micro direction too weak')
+        reasons.append('extreme volatility reduces trade quality')
 
     return ScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
