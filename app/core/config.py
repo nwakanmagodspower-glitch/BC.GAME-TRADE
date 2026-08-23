@@ -41,8 +41,6 @@ class Settings(BaseSettings):
     # Safe local/default mode is manual. Render production explicitly overrides
     # this to HYBRID_SYNC. Timing is a delivery concern and never changes scores.
     signal_timing_mode: str = 'MANUAL_SYNC'
-    manual_sync_allowed_countdowns: str = '15,14,13,12'
-    manual_sync_min_remaining_after_scan: float = 7.0
     bcgame_round_sync_enabled: bool = False
     bcgame_round_sync_max_age_seconds: int = 2
 
@@ -95,14 +93,6 @@ class Settings(BaseSettings):
 
     temporary_retention_days: int = 10
     cleanup_interval_seconds: int = 86400
-
-    def manual_countdowns(self) -> tuple[int, ...]:
-        values: list[int] = []
-        for raw in self.manual_sync_allowed_countdowns.split(','):
-            raw = raw.strip()
-            if raw:
-                values.append(int(raw))
-        return tuple(values)
 
 
 @lru_cache
