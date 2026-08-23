@@ -19,7 +19,7 @@ from app.services.user_signals import UserSignalService
 @pytest.mark.asyncio
 async def test_paper_mode_never_issues_actionable_user_signal(monkeypatch):
     monkeypatch.setattr(user_signals.settings, 'signal_mode', 'PAPER')
-    result = await UserSignalService(None).request_scan(1, countdown_seconds=15)
+    result = await UserSignalService(None).request_scan(1)
     assert result.available is False
     assert result.signal is None
     assert 'PAPER' in result.reason
@@ -35,7 +35,7 @@ def test_database_prevents_two_current_signals_for_one_user():
             'market': 'BTC/USD',
             'product': 'BC_UPDOWN_5S',
             'direction': SignalDirection.UP,
-            'strategy_version': 'BTC_UPDOWN_5S_V1.1',
+            'strategy_version': 'BTC_ORIGINAL_INTELLIGENCE_TIMER_V1',
         }
         db.add(Signal(status=SignalStatus.WAITING_ENTRY, **common))
         db.commit()
@@ -67,7 +67,7 @@ async def test_hybrid_uses_manual_fallback_only_when_feed_is_unavailable(monkeyp
     async def unavailable():
         return BCGameRoundDecision(False, False, None, 'authorization unavailable')
 
-    async def scan(_symbol):
+    async def scan(_symbol, **_timing):
         return SimpleNamespace(service_available=True, reason='qualified')
 
     recorded = object()
@@ -105,7 +105,7 @@ async def test_auto_sync_fails_closed_when_feed_is_unavailable(monkeypatch):
         result = await UserSignalService(db).request_scan(user.id)
         assert not result.available
         assert result.signal is None
-        assert 'temporarily unavailable' in result.reason
+        assert 'timing is refreshing' in result.reason
     finally:
         db.close()
 
@@ -131,7 +131,7 @@ async def test_post_analysis_cutoff_suppresses_signal(monkeypatch):
     async def synchronized():
         return BCGameRoundDecision(True, True, snapshot, 'ok')
 
-    async def scan(_symbol):
+    async def scan(_symbol, **_timing):
         return SimpleNamespace(service_available=True, reason='qualified')
 
     monkeypatch.setattr(user_signals.bcgame_round_service, 'current_round_decision', synchronized)
