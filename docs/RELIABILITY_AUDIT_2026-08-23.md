@@ -12,8 +12,9 @@ It does **not** claim perfect predictions or guaranteed wins. The application do
 2. The observer polled every 50 ms while waiting for a background frame.
 3. Reconnect backoff was reset after sleeping, by which time a formerly fresh 1.5-second observation was necessarily stale. Repeated disconnects could therefore increase recovery delay even after a healthy session.
 4. Health output did not distinguish exchange candle time from the time of the most recent successful cache refresh.
-5. Operators had no single pre-recording check covering the live switch, Binance tick/candle state, trade-flow buffer, and authoritative BCGAME timer.
-6. The baseline test suite had nine failures caused by tests that still asserted removed notification behavior, old UI copy, and an obsolete strategy identifier.
+5. Completed one-minute candles were aged from their opening timestamp. A newly closed candle could therefore be rejected as roughly 60 seconds old even when it had just closed, producing an intermittent false `candle_cache_ready=false` state around minute boundaries.
+6. Operators had no single pre-recording check covering the live switch, Binance tick/candle state, trade-flow buffer, and authoritative BCGAME timer.
+7. The baseline test suite had nine failures caused by tests that still asserted removed notification behavior, old UI copy, and an obsolete strategy identifier.
 
 ## Changes made
 
@@ -22,6 +23,7 @@ It does **not** claim perfect predictions or guaranteed wins. The application do
 - Any session that delivered a valid observation resets reconnect backoff before the reconnect sleep.
 - Authentication-failure paths also wake waiting probes and continue to invalidate the rejected environment token without printing it.
 - Health output now includes non-secret candle refresh age and prediction-compute diagnostics.
+- Completed candles are now aged from their close time; in-progress candles use their open time. This removes the false once-per-minute candle outage without accepting old provider data.
 - New owner-only `/preflight` command reports `READY TO SCAN` only when the live signal switch, market stream, candle cache, and configured timer path are ready. In synchronized modes, an unavailable/manual fallback timer is not considered recording-ready.
 - Tests were aligned with the intentionally disabled lifecycle notifications, current `Scan Market` copy, and locked strategy identity.
 

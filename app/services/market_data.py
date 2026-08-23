@@ -62,7 +62,13 @@ class MarketDataCache:
                 raise ValueError('candle timestamps must be timezone-aware')
             if candle.open_time > now + timedelta(seconds=self.max_future_skew_seconds):
                 raise ValueError('candle open_time is too far in the future')
-            provider_times.append(candle.open_time.astimezone(timezone.utc))
+            # A completed one-minute candle is current through its close, not
+            # merely through its open. Aging it from open_time creates a false
+            # stale window at every minute boundary when Binance returns only
+            # completed rows. For an in-progress candle, its open is the latest
+            # authoritative provider timestamp available.
+            provider_reference = candle.close_time if candle.closed else candle.open_time
+            provider_times.append(provider_reference.astimezone(timezone.utc))
         provider_time = max(provider_times)
         async with self._lock:
             self._candles[symbol.upper()] = list(candles)
