@@ -30,7 +30,6 @@ class IntelligenceResult:
     service_available: bool = True
     seconds_until_start: float | None = None
     contract_duration_seconds: float | None = None
-    cross_venue: dict[str, Any] | None = None
     engine_details: dict[str, Any] | None = None
 
 
@@ -41,7 +40,7 @@ class SignalIntelligenceService:
     momentum, short-term structure, volume/taker behavior, recent aggressive
     trade flow, RSI and ATR. The DeTrade/BC.Game timer may validate the product
     and tell the delivery layer when a round can be used, but it never adds
-    directional weights, horizon penalties, cross-venue votes or extra vetoes.
+    directional weights, horizon penalties, external venue votes or extra vetoes.
     """
 
     def __init__(self) -> None:
@@ -129,7 +128,6 @@ class SignalIntelligenceService:
             service_available=result.service_available,
             seconds_until_start=seconds_until_start,
             contract_duration_seconds=contract_duration_seconds,
-            cross_venue=None,
             engine_details=details,
         )
 
@@ -192,7 +190,6 @@ class SignalIntelligenceService:
             decision=decision,
             reason=decision.reason,
             service_available=True,
-            cross_venue=None,
             engine_details=details,
         )
 
