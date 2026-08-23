@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.integrations.bcgame_rounds import BCGameRoundSnapshot
 from app.models.entities import BCGameRound, Signal, SignalDirection, SignalStatus, utcnow
-from app.services.signal_intelligence import IntelligenceResult
+from app.services.signal_intelligence import ENGINE_NAME, IntelligenceResult
 
 settings = get_settings()
 
@@ -41,9 +41,7 @@ class SignalRecordService:
                     self.db.add(row)
                     self.db.flush()
             except IntegrityError:
-                row = self.db.scalar(
-                    select(BCGameRound).where(BCGameRound.external_round_id == snapshot.round_id)
-                )
+                row = self.db.scalar(select(BCGameRound).where(BCGameRound.external_round_id == snapshot.round_id))
                 if row is None:
                     raise
         return row
@@ -94,20 +92,12 @@ class SignalRecordService:
         feature_data['_scan_trigger'] = {
             'mode': trigger_mode or ('DETRADE_SYNC' if round_snapshot else 'MANUAL_TRIGGER'),
             'received_at': recorded_at.isoformat(),
-            'countdown_confirmed_seconds': None,
             'bcgame_round_synchronized': bool(round_snapshot and round_snapshot.source == 'DETRADE_SYNC'),
         }
         feature_data['_prediction_horizon'] = {
             'seconds_until_start': result.seconds_until_start,
             'contract_duration_seconds': result.contract_duration_seconds,
-            'prediction_horizon_seconds': (
-                result.seconds_until_start + result.contract_duration_seconds
-                if result.seconds_until_start is not None and result.contract_duration_seconds is not None
-                else None
-            ),
         }
-        if result.cross_venue is not None:
-            feature_data['_cross_venue'] = result.cross_venue
         if round_snapshot is not None:
             remaining_seconds = max(0.0, round_snapshot.seconds_until_order_close(recorded_at))
             feature_data['_bcgame_round'] = {
@@ -119,23 +109,7 @@ class SignalRecordService:
                 'start_rate_at': round_snapshot.start_rate_at.isoformat(),
                 'end_rate_at': round_snapshot.end_rate_at.isoformat(),
                 'stake_band': round_snapshot.stake_band,
-                'up_payout_pct': round_snapshot.up_payout_pct,
-                'down_payout_pct': round_snapshot.down_payout_pct,
-                'up_pool_amount': round_snapshot.up_pool_amount,
-                'down_pool_amount': round_snapshot.down_pool_amount,
-                'up_players': round_snapshot.up_players,
-                'down_players': round_snapshot.down_players,
             }
-
-        engine_edge = None
-        if result.engine_details is not None:
-            raw_edge = result.engine_details.get('edge')
-            if isinstance(raw_edge, (int, float)):
-                engine_edge = min(0.99, abs(float(raw_edge)) / 1.5)
-
-        strategy_version = settings.strategy_version
-        if result.engine_details and result.engine_details.get('engine') == 'BTC_5S_UNIFIED_V2':
-            strategy_version = f'{settings.strategy_version}-UNIFIED_V2'
 
         signal = Signal(
             requested_by_user_id=requested_by_user_id,
@@ -144,8 +118,8 @@ class SignalRecordService:
             product=settings.default_product,
             direction=result.direction,
             status=status,
-            strategy_version=strategy_version,
-            confidence=engine_edge,
+            strategy_version=ENGINE_NAME,
+            confidence=None,
             created_at=recorded_at,
             entry_at=round_snapshot.start_rate_at if round_snapshot else None,
             entry_window_start=None,
