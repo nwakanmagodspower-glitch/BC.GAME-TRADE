@@ -1,48 +1,66 @@
 # Render Deployment Checklist
 
-## Before merge/deploy
+## Before deploy
 
 - [ ] `pytest -q` passes locally.
 - [ ] Python compile/parse check passes.
 - [ ] `git diff --check` passes.
-- [ ] Alembic upgrade from empty SQLite succeeds.
-- [ ] Alembic downgrade/upgrade round trip succeeds.
+- [ ] Alembic upgrade succeeds.
 - [ ] `alembic check` reports no model drift.
-- [ ] `render.yaml` parses as YAML and retains exactly one web, worker, and database.
-- [ ] Secret scan finds no credential values or token-bearing WebSocket URLs.
+- [ ] `render.yaml` parses and retains exactly one web service, one worker, and one database.
+- [ ] Secret scan finds no credential values or token-bearing URLs.
+- [ ] Active strategy identity is exactly `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`.
+- [ ] Active thresholds are exactly score `6` / margin `3`.
+- [ ] Active `app/signals/` contains only the restored feature/scoring/decision path; no V2 or cross-venue prediction engine is active.
 
 ## Render configuration
 
-- [ ] Existing services are `bcgame-trade-api` and `bcgame-trade-worker`.
-- [ ] Existing database is `bcgame-trade-db`.
-- [ ] Auto-deploy remains `main`/commit.
-- [ ] Telegram token, webhook secret, and owner ID are populated privately.
-- [ ] BCGAME registration, deposit, Up/Down, and support URLs are correct.
-- [ ] No literal `temporary` or real DeTrade token exists in the Blueprint.
-- [ ] If synchronized timing is desired now, put the current ephemeral token only in the private `DETRADE_WS_TOKEN` value.
+- [ ] Web service is `bcgame-trade-api`.
+- [ ] Worker is `bcgame-trade-worker`.
+- [ ] Database is `bcgame-trade-db`.
+- [ ] Auto-deploy remains `main` / commit.
+- [ ] Production uses `SIGNAL_TIMING_MODE=HYBRID_SYNC` and `BCGAME_ROUND_SYNC_ENABLED=true`.
+- [ ] Production uses `STRATEGY_VERSION=BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`.
+- [ ] Production uses `SIGNAL_MIN_SCORE=6` and `SIGNAL_MIN_MARGIN=3`.
+- [ ] Telegram token, webhook secret, owner ID, BCGAME URLs, and support URL are populated privately.
+- [ ] No placeholder or real DeTrade token exists in source or Blueprint literals.
+- [ ] A current ephemeral DeTrade token, when used, exists only in private `DETRADE_WS_TOKEN`.
 
-## Post-deploy health
+## Post-deploy readiness
 
-- [ ] `/ready` returns ready and the migration completed.
-- [ ] `/health` reports PostgreSQL/market/worker health without secrets or exception text.
-- [ ] owner sends `/round_status`; with a valid token it shows a real round ID, status, remaining time, approximately 5.000s evaluation window, and no credential.
-- [ ] with no token, HYBRID remains healthy and `/round_status` reports authorization unavailable.
-- [ ] known status `1008`, unknown status, stale frame, late round, and wrong-duration frame cannot produce a synchronized signal.
+- [ ] Render build succeeds.
+- [ ] Alembic pre-deploy migration succeeds.
+- [ ] `/ready` returns `ready`.
+- [ ] `/health` returns without exceptions and identifies `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`.
+- [ ] `/health` shows Binance market freshness and labels recent trade flow as optional evidence, not a hard readiness gate.
+- [ ] `/health` exposes no DeTrade credential.
+- [ ] owner `/round_status` with a valid token shows a real round ID, status, remaining time, and approximately 5-second evaluation window.
+- [ ] with no token, HYBRID remains operational through manual Scan Now fallback.
+- [ ] status `1008`, unknown status, stale frame, late round, and wrong-duration frame cannot become a synchronized actionable round.
+
+## Prediction regression
+
+- [ ] bullish original context + flow can produce `UP`.
+- [ ] bearish original context + flow can produce `DOWN`.
+- [ ] neutral/conflicting evidence can produce `NO_TRADE`.
+- [ ] timer metadata changes cannot alter direction, bull score, bear score, or margin.
+- [ ] a wrong/late timer state rejects delivery without recalculating the prediction.
+- [ ] no hard recent-trade-count or tick-span gate blocks the original engine.
 
 ## Telegram journey
 
-- [ ] `/start` onboarding is gated until owner approval.
-- [ ] registration → deposit → BCGAME ID → profile screenshot → deposit screenshot → submit works.
-- [ ] owner receives one media packet and one approve/reject/resubmit review block.
-- [ ] decision purges BCGAME ID and Telegram file IDs while retaining approval state.
-- [ ] permanent menu contains `⚡ BTC 5s Signal`, How It Works, and Support.
-- [ ] there are no `15s/14s/13s/12s`, My Result, or Win/Loss calibration buttons.
-- [ ] synchronized signal is compact and shows round/timing context without authorization.
+- [ ] `/start` remains gated until owner approval.
+- [ ] registration → deposit → BCGAME ID → profile screenshot → deposit proof → submit works.
+- [ ] owner receives the verification packet and approve/reject/resubmit controls.
+- [ ] permanent approved menu contains `⚡ BTC 5s Signal`, How It Works, and Support.
+- [ ] there are no active `15s/14s/13s/12s`, My Result, Win/Loss calibration, or V2 controls.
+- [ ] synchronized signal is compact and may show timing context without exposing authorization.
 - [ ] no automatic trade is placed.
 
 ## Operations
 
-- [ ] dedicated worker heartbeat is fresh before enabling LIVE signals.
-- [ ] ten-day cleanup job records successful runs.
-- [ ] owner kill switch can disable signals.
-- [ ] when DeTrade rejects authorization, replace the private token or accept HYBRID fallback; never reuse or log the rejected value.
+- [ ] dedicated worker is healthy for lifecycle, broadcasts, verification delivery, and cleanup.
+- [ ] worker health is not an artificial prediction gate for a healthy web scan.
+- [ ] temporary-data cleanup records successful runs.
+- [ ] owner kill switch can disable signals immediately.
+- [ ] rejected/expired DeTrade authorization is replaced privately or HYBRID falls back; rejected credentials are never reused or logged.
