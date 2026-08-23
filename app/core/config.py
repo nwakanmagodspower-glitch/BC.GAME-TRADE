@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     default_stake_band: str = '1-50'
     strategy_version: str = 'BTC_ORIGINAL_INTELLIGENCE_TIMER_V1'
 
-    # Timer/synchronization is a delivery concern. It never changes direction scores.
-    signal_timing_mode: str = 'HYBRID_SYNC'
+    # Safe local/default mode is manual. Render production explicitly overrides
+    # this to HYBRID_SYNC. Timing is a delivery concern and never changes scores.
+    signal_timing_mode: str = 'MANUAL_SYNC'
     manual_sync_allowed_countdowns: str = '15,14,13,12'
     manual_sync_min_remaining_after_scan: float = 7.0
     bcgame_round_sync_enabled: bool = False
