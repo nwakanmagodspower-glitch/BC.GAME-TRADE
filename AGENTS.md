@@ -2,124 +2,161 @@
 
 These rules govern every coding agent, developer, automation, and deployment change in this repository.
 
-## Product Boundary
+## Current Product Boundary
 
-V1 is intentionally narrow and is based on the observed BC.GAME Up/Down interface and supplied How to Trade flow:
+This repository has one product scope:
 
-- BC.GAME product: **Up/Down**
-- Game display market: **BTC/USD**
-- External analysis market: **BTCUSDT initially**, treated only as a reference/analysis feed until BC.GAME price-source matching is validated
-- Contract duration: **5 seconds**
-- Initial stake band: **5s $1-50**; other stake bands are research-only until explicitly approved
-- User action: **on-demand scan for the current fresh BC.GAME round**
-- Outputs: `UP`, `DOWN`, `NO_TRADE`, `UNAVAILABLE`
-- Manual user execution on BC.GAME only
-- Manual affiliate verification before access
+- BC.GAME Up/Down
+- game display market: **BTC/USD**
+- external analysis market: **BTCUSDT**
+- duration: **5 seconds**
+- stake band: **$1–$50**
+- manual user execution only
+- Telegram output: `UP`, `DOWN`, `NO_TRADE`, or `UNAVAILABLE`
 
-The observed BC.GAME game contract is round-based: users place orders during a countdown that starts at 15 seconds; when the countdown ends BC.GAME records the Start Rate at the first flag; after the selected 5-second period BC.GAME records the End Rate at the second flag. End > Start means UP wins; otherwise DOWN wins according to the supplied game instructions.
+Do not add other coins, products, durations, stake bands, automatic trade placement, Martingale, recovery logic, or money movement without an explicit owner instruction.
 
-### V1 timing mode — MANUAL_SYNC
+## Source of Truth — Prediction Core
 
-Automatic DeTrade/BC.GAME round data is not required for the first deployable V1. The user must prepare BC.GAME first, enter the stake, wait for a fresh countdown, then tap the Telegram button matching the visible timer at **15, 14, 13, or 12 seconds**. The backend timestamps that confirmation, estimates the current Start/End reference windows, computes the signal from already-running market data, and rejects the result if too little human-action time remains.
+The active prediction engine is **BTC_ORIGINAL_INTELLIGENCE_TIMER_V1**.
 
-### Future upgrade — AUTO_SYNC
+It intentionally restores the first pre-timer intelligence. Direction is calculated from:
 
-A verified structured DeTrade/BC.GAME feed may later replace the manual timer confirmation. It must plug into the existing round adapter and must not require a redesign of onboarding, signal intelligence, persistence, or Telegram menus.
+- EMA 9 vs EMA 21 trend relationship
+- five-minute momentum derived from closed 1-minute candles
+- six-candle short-term market structure
+- current 1-minute volume expansion and taker-buy ratio
+- recent aggressive trade-flow buy/sell ratio when available
+- RSI 14
+- ATR 14 volatility quality adjustment
 
-Do not expand scope unless an explicit milestone authorizes it.
+The decision rule is locked to:
 
-## Mandatory Rules
+- minimum directional score: **6**
+- minimum winning margin over the opposite side: **3**
+- `STRONG` only at score >= 8 and margin >= 4
 
-Every implementation MUST:
+`NO_TRADE` is a first-class outcome. Never lower these rules merely to increase signal frequency, and never raise them silently.
 
-- preserve BTC/USD 5-second BC.GAME Up/Down as V1 product scope;
-- treat BTCUSDT/Binance as an analysis feed, not BC.GAME settlement truth;
-- keep Telegram separate from signal intelligence;
-- keep market-data providers replaceable;
-- keep BC.GAME-specific round/product logic behind an adapter;
-- version every production strategy;
-- record generated directional/no-trade decisions and diagnostic outcomes when a usable reference exists;
-- label manual Start/End timestamps as estimated rather than BC.GAME-issued facts;
-- allow LIVE manual execution in `MANUAL_SYNC` only when the user explicitly confirms 15/14/13/12 seconds and enough action time remains;
-- require verified structured round synchronization before `AUTO_SYNC` is enabled;
-- fail closed when external market data, worker health, or required timing input is stale/unhealthy;
-- preserve `NO_TRADE` as a first-class outcome;
-- keep secrets out of GitHub;
-- use database migrations for schema changes;
-- keep Render compatibility;
-- preserve PAPER/LIVE separation and owner kill switches;
-- keep onboarding state persistent;
-- keep Telegram UI minimal while backend validation and audit trails remain complete;
-- keep latency visible: a signal that cannot reach a human with enough time to act before BC.GAME order close is not actionable;
-- keep the scan path cache-first and avoid per-user market-data downloads.
+## Critical Separation — Intelligence vs Timer
 
-## Prohibited Changes
+The BC.GAME/DeTrade timer is **not part of prediction**.
 
-Do NOT:
+Prediction answers only:
 
-- add coins, durations, or BC.GAME products without approval;
-- implement automatic BC.GAME trade placement in V1;
-- add Martingale, loss chasing, or forced recovery logic;
-- fabricate confidence scores;
-- claim guaranteed accuracy or guaranteed profit;
-- treat leaderboard win rates, Copy Top Trade, or crowd/pool direction as predictive without measured evidence;
-- treat Binance settlement as identical to BC.GAME settlement without validation;
-- represent a synthetic MANUAL_SYNC identifier as a genuine BC.GAME round ID;
-- bypass manual access approval;
-- expose the main menu before onboarding/approval is complete;
-- hardcode admin IDs throughout business logic;
-- silently change thresholds, feature weights, duration rules, or timing rules;
-- overwrite historical strategy results after a new version is deployed;
-- allow stale market data or insufficient action time to produce an actionable signal;
-- allow broadcasts to block signal requests;
-- store unnecessary raw market streams indefinitely in PostgreSQL;
-- re-enable GitHub Actions while the owner has asked that Actions not be used.
+> What does the restored BTC intelligence currently say: UP, DOWN, or NO_TRADE?
 
-## Verification Funnel Contract
+Timing answers only:
 
-Before approval, the bot is a guided workflow, not a menu-driven bot:
+> Is there a verified BC.GAME BTC/USD five-second order window with enough time for the user to act?
 
-1. Registration guidance.
-2. Deposit guidance.
-3. BC.GAME User ID.
-4. Profile screenshot.
-5. Deposit screenshot(s).
-6. Validate completeness.
-7. Forward the complete packet directly to the bot owner's private Telegram chat.
-8. Persist pending review.
-9. Owner checks affiliate dashboard manually.
-10. Owner chooses approve, reject, or request resubmission.
-11. Only `APPROVED` users receive the normal bot menu.
+Therefore timing must never:
 
-Resubmission must preserve the previous reviewed packet as history.
+- add or subtract bull/bear score;
+- change feature weights;
+- change the 6/3 policy;
+- convert UP to DOWN or DOWN to UP;
+- add horizon-dependent prediction weights;
+- add cross-exchange directional votes;
+- force a new prediction merely because countdown metadata changed.
 
-## Signal Safety Contract
+The same computed market result may be decorated with different timer metadata without changing direction or score.
 
-An actionable MANUAL_SYNC directional signal may be returned only when:
+## Timing Modes
 
-- approved user access is valid;
-- signals are enabled;
-- dedicated worker health is fresh;
-- external BTC market data is fresh;
-- the cached slow-context data is ready;
-- the configured strategy is active;
-- the product/duration/stake band match supported V1 scope;
-- the user selected one of the permitted visible countdown values: 15, 14, 13, or 12;
-- enough human-action time remains after calculation;
-- quality thresholds are met.
+### Local/default: MANUAL_SYNC
 
-Otherwise return `NO_TRADE` or `UNAVAILABLE` and tell the user to skip the round when appropriate.
+Safe development defaults use `MANUAL_SYNC`, PAPER mode, signals off, broadcasts off, and DeTrade disabled.
 
-In MANUAL_SYNC, once the actionable direction has been delivered, background reference tracking must not later reverse or cancel what the user already received. External start/end outcomes are diagnostic until exact BC.GAME Start Rate / End Rate ingestion is verified.
+### Production: HYBRID_SYNC
 
-## Source of Truth
+Render production explicitly uses `HYBRID_SYNC`.
 
-When instructions conflict, use this precedence:
+When a fresh authorized DeTrade frame is available:
 
-1. Explicit current owner instruction.
-2. `AGENTS.md`.
-3. `docs/PRODUCT_SPEC.md`.
-4. `docs/ARCHITECTURE.md`.
-5. `docs/STRATEGY_RULES.md`.
-6. Other repository documentation.
-7. Existing implementation details.
+- route: `/contest/BTC/USD/5/ticker/subscribe`
+- actionable status: `1001`
+- `priceStartTime` is the order-close / Start Rate boundary
+- `priceEndTime - priceStartTime` must be about 5000 ms
+- stale, late, unknown, cancelled, payout, transition, or wrong-duration frames fail closed
+- initial synchronized entry requires more than the configured safety margin
+- the timer is checked again after analysis before delivery
+
+If an authoritative synchronized frame exists but says the round is unsafe, HYBRID must not bypass it. Manual fallback is allowed only when the authoritative source itself is unavailable.
+
+## Market Data Rules
+
+- Binance Spot BTCUSDT is the active external analysis feed.
+- Binance prices are reference/analysis data, not BC.GAME settlement truth.
+- Candle cache must contain enough closed candles for the original feature calculation.
+- Recent aggressive trade flow is optional scoring evidence. Lack of a fixed trade count/span must not become a hard readiness gate.
+- Do not reintroduce the removed 1s/3s/5s micro-return engine, cross-venue voting engine, V2 unified engine, horizon-aware scoring, or calibration engine unless the owner explicitly starts a separate research version.
+
+## User Signal Flow
+
+Approved user taps **⚡ BTC 5s Signal**.
+
+1. Recheck user approval/block status and signal kill switch.
+2. Resolve timing according to the configured timing mode.
+3. Compute or reuse a very short-lived market prediction independently of timer values.
+4. If synchronized, recheck remaining BC.GAME order-window time after analysis.
+5. Persist the scan using strategy identity `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`.
+6. Send the compact Telegram result.
+7. User manually executes on BC.GAME if the round is still timely.
+
+There is no active 15/14/13/12 selector UI, My Result button, Win/Loss calibration UI, or automatic order placement.
+
+## Access and Operations
+
+Preserve:
+
+- owner/manual affiliate verification
+- approved-user-only signal access
+- owner block/suspend/kill-switch controls
+- webhook secret verification
+- webhook backpressure and update idempotency
+- PostgreSQL persistence and migrations
+- Render web + dedicated worker topology
+- temporary-data cleanup
+- secrets outside GitHub
+
+Background-worker health may be reported and used for background lifecycle tasks, but it must not become an artificial hard gate on a healthy web-process signal scan unless a future architecture explicitly depends on that worker for required prediction data.
+
+## Prohibited Regressions
+
+Do not:
+
+- restore `engine_v2`;
+- restore cross-venue prediction voting;
+- restore 1s/3s/5s micro-return scoring as the active engine;
+- restore 8/4 production thresholds;
+- make timer/countdown values alter prediction scores;
+- require fixed recent-trade count or tick-span thresholds before the original engine may run;
+- claim Binance reference settlement is BC.GAME result truth;
+- expose DeTrade tokens or secrets;
+- silently change strategy identity, features, thresholds, product duration, or outcome semantics;
+- enable GitHub Actions if the owner has asked not to use them.
+
+## Validation Requirements
+
+Every prediction-core or timing change must preserve tests proving:
+
+- bullish original-context + flow can produce UP;
+- bearish original-context + flow can produce DOWN;
+- neutral/conflicting evidence can produce NO_TRADE;
+- strategy identity is exactly `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`;
+- thresholds remain 6/3;
+- changing timer metadata cannot change direction, scores, or margin;
+- wrong/late/stale synchronized rounds are rejected by the timing layer, not by rewriting prediction.
+
+## Instruction Precedence
+
+When instructions conflict:
+
+1. explicit current owner instruction;
+2. this `AGENTS.md`;
+3. `docs/PRODUCT_SPEC.md`;
+4. `docs/ARCHITECTURE.md`;
+5. `docs/STRATEGY_RULES.md`;
+6. other repository documentation;
+7. historical implementation details.
