@@ -1,165 +1,134 @@
 # Signal Intelligence Rules
 
-## V1 Target
+## Active Strategy
 
-- Game display market: `BTC/USD`
-- External analysis symbol: `BTCUSDT` initially
-- BC.GAME product: `UP_DOWN`
-- Duration: **5 seconds**
-- Initial stake band: **$1-50**
-- Execution: manual user action only
-- Scan mode: on demand for the next synchronized BC.GAME round
+Strategy identity: `BTC_ORIGINAL_INTELLIGENCE_TIMER_V1`
 
-## Actual Outcome Definition
+Product scope:
 
-The supplied BC.GAME How to Trade instructions define the round as:
+- BCGAME Up/Down
+- game market `BTC/USD`
+- external analysis symbol `BTCUSDT`
+- five-second Start Rate to End Rate contract
+- `$1–$50` stake band
+- manual user execution only
 
-1. User places UP/DOWN order during countdown.
-2. When countdown ends, BC.GAME records Start Rate at first flag.
-3. Five seconds later, BC.GAME records End Rate at second flag.
-4. End Rate > Start Rate => UP wins.
-5. Otherwise DOWN wins according to the supplied rules.
+## Direction Engine
 
-The countdown itself is not the five-second prediction horizon.
+The active engine is the original pre-timer intelligence. It is intentionally simple and must remain separate from BC.GAME timing.
 
-## Decision Space
+### Directional evidence
 
-`UP | DOWN | NO_TRADE | UNAVAILABLE`
+1. **EMA trend**
+   - EMA 9 above EMA 21: +2 bull
+   - EMA 9 below EMA 21: +2 bear
 
-`NO_TRADE` is expected and important. The system must not force participation in every round.
+2. **Five-minute momentum**
+   - >= +0.08%: +2 bull
+   - <= -0.08%: +2 bear
 
-## Primary Five-Second Features
+3. **Short-term structure**
+   - bullish higher-high/higher-low structure: +2 bull
+   - bearish lower-high/lower-low structure: +2 bear
 
-Current implementable inputs:
+4. **Volume + taker behavior**
+   - volume ratio >= 1.20 and taker-buy ratio >= 0.55: +1 bull
+   - volume ratio >= 1.20 and taker-buy ratio <= 0.45: +1 bear
 
-- 1-second tick return
-- 3-second tick return
-- 5-second tick return
-- tick acceleration
-- aggressive buy/sell trade-flow ratio
-- number of recent trades
-- 5-second micro-volatility
+5. **Recent aggressive trade flow**
+   - when at least 10 classified recent trades are available:
+   - buy ratio >= 0.58: +2 bull
+   - buy ratio <= 0.42: +2 bear
 
-Context only:
+6. **RSI 14**
+   - 52–72: +1 bull
+   - 28–48: +1 bear
+   - >78 reduces bull by 1
+   - <22 reduces bear by 1
 
-- short EMA relationship
-- 1-minute market structure
-- RSI
-- 1-minute volume/taker context
-- broader volatility/support-resistance context
+7. **ATR 14 quality adjustment**
+   - ATR% < 0.03 reduces both sides by 1
+   - ATR% > 1.25 reduces both sides by 2
 
-A slow/candle indicator alone cannot create a five-second signal.
+### Decision policy
 
-## Planned Microstructure Extensions
+- minimum winning score: **6**
+- minimum margin over opposite side: **3**
+- `STRONG`: winning score >= 8 and margin >= 4
+- otherwise qualifying direction is `VALID`
+- if neither side qualifies: `NO_TRADE`
 
-Add only after reliable implementation and measurement:
+These thresholds are part of the strategy identity. They must not be silently overridden by Render environment values.
 
-- best bid/ask spread
-- top-of-book imbalance
-- multi-level order-book imbalance
-- microprice
-- book replenishment/cancellation pressure
-- cross-exchange short-horizon divergence
-- liquidation/open-interest context if shown to improve the specific five-second objective
+## Important: Trade Flow Is Optional Evidence
 
-## BC.GAME-Specific Research Inputs
+Recent trade flow can strengthen a direction, but it is not a hard readiness gate. The engine may still make a decision from EMA, momentum, structure, volume/taker context, RSI, and ATR when fewer than a fixed number of recent ticks are available.
 
-Collect when a reliable structured source is discovered:
+Do not restore hard requirements such as `SIGNAL_MIN_RECENT_TRADES` or `SIGNAL_MIN_TICK_SPAN_SECONDS` to the active prediction path.
 
-- round ID and countdown
-- first-flag Start Rate
-- second-flag End Rate
-- UP/DOWN payout percentages
-- pool amounts
-- player counts
-- stake band
+## Timer Separation
 
-Do not assume crowd/pool direction predicts price. Test it first.
+BC.GAME timing does not predict direction.
 
-Leaderboard/Copy Top Trade is excluded from V1 direction logic.
+The timer may:
 
-## Round Synchronization
+- identify a genuine BTC/USD five-second round;
+- verify status `1001`;
+- verify the frame is fresh;
+- verify `priceEndTime - priceStartTime` is approximately 5 seconds;
+- determine how much order-window time remains;
+- block delivery when there is too little time to act.
 
-LIVE direction delivery in `HYBRID_SYNC` prefers a fresh authenticated DeTrade round snapshot. The single Scan Now action falls back only when that source is unavailable; it never invents a round ID or claims a local timer is official. A synchronized closed, stale, late, unknown, or wrong-product round fails closed.
+The timer may not:
 
-A signal must leave enough order-window lead time for a human to receive the Telegram message, open/return to BCGAME, set amount and press UP/DOWN before countdown reaches zero. The production defaults require more than 10 seconds before analysis and more than 8 seconds after it.
+- add/subtract bull or bear points;
+- change EMA/momentum/structure/flow weights;
+- change 6/3 qualification rules;
+- make horizon-dependent score adjustments;
+- flip UP to DOWN or DOWN to UP;
+- force a second prediction because only the countdown changed.
 
-If the remaining window is too short, skip the round.
+A timer-invalid or late round is a **delivery/timing rejection**, not a different market prediction.
 
-## Strategy Principles
+## Removed Experimental Logic
 
-- Optimize specifically for direction between BC.GAME Start Rate and End Rate five seconds later.
-- Treat Binance BTCUSDT as analysis/reference data, not settlement truth.
-- Use microstructure first; use slow indicators as regime/context filters.
-- Do not copy a Forex/futures strategy.
-- Do not use Martingale/recovery logic.
-- Do not fabricate confidence percentages.
-- Calibrate confidence only from forward/backtested five-second labels that match the real game semantics.
-- Prefer fewer high-quality signals over frequent weak signals.
+The following are not part of the active strategy:
 
-## Direction vs Expected Value
+- 1-second tick-return score
+- 3-second tick-return score
+- 5-second tick-return score
+- tick acceleration scoring
+- five-second micro-volatility scoring
+- cross-venue Binance/Bybit prediction voting
+- horizon-aware scoring
+- unified V2 engine
+- owner calibration engine
+- 8/4 qualification thresholds
 
-Keep two questions separate:
+Historical commits may contain these experiments. They must not be reintroduced into the active engine without a new explicit research version and owner approval.
 
-1. **Direction:** is UP or DOWN sufficiently more likely over the five-second target?
-2. **Economics:** is the current displayed payout sufficient for the measured probability?
+## Outcome Truth
 
-Do not let payout change the predicted direction. Payout may veto a direction as `NO_TRADE` once reliable payout data is available.
+BC.GAME Start Rate and End Rate define the real product result:
 
-## Result Truth
+- End Rate > Start Rate → UP wins
+- otherwise → DOWN wins according to the supplied product rules
 
-For product validation, BC.GAME Start Rate / End Rate is the desired ground-truth label.
-
-External reference settlement is allowed only for PAPER diagnostics and must be labelled as such. A close external-feed result must not be represented as proof of a BC.GAME win/loss.
-
-If reliable BC.GAME end-rate data is missing, result is unresolved rather than guessed.
-
-## Strategy Versioning
-
-Use immutable identities such as:
-
-```text
-BTC_UPDOWN_5S_V1.1_DEPTH
-BTC_UPDOWN_5S_V2.0_CALIBRATED
-```
-
-Material changes to thresholds, features, duration, round timing or outcome logic require a new version.
+Binance BTCUSDT is external analysis/reference data and must never be represented as BC.GAME settlement truth.
 
 ## Evaluation
 
-Track at minimum:
+Track separately:
 
 - scans
-- directional signals
+- UP signals
+- DOWN signals
 - NO_TRADE rate
 - UNAVAILABLE rate
-- late/too-short-window skips
-- cancellations before Start Rate
-- resolved/unresolved outcomes
-- wins/losses by BC.GAME labels when available
-- external-vs-BC.GAME price disagreements
-- performance by direction
-- performance by micro-volatility regime
-- performance by time of day
-- performance by payout band
-- performance by strategy version
+- late/timer-rejected rounds
+- synchronized vs manual-fallback delivery
+- BC.GAME-resolved wins/losses when real Start/End Rate is available
+- unresolved rounds
+- strategy version
 
-## Historical Research
-
-The old one-minute / five-minute backtest is no longer a valid validator for this product contract. One-minute candles may remain useful for context research, but five-second model evaluation requires sufficiently fine-grained trade/tick/order-book history.
-
-No-lookahead rules still apply: every feature must use only data available before the predicted BC.GAME Start Rate.
-
-## Forward PAPER Validation
-
-This becomes the most important validation phase:
-
-1. observe synchronized BC.GAME rounds;
-2. capture pre-Start-Rate features;
-3. record model decision without encouraging a real trade;
-4. capture BC.GAME Start Rate and End Rate;
-5. label actual round result;
-6. compare with external reference behavior;
-7. collect enough rounds across regimes before considering LIVE.
-
-A strong-looking small sample is not enough evidence of a durable edge.
+Do not judge the restored strategy by a handful of trades. Forward validation must preserve the exact feature definitions, 6/3 policy, and five-second BC.GAME outcome semantics.
