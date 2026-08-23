@@ -66,20 +66,22 @@ class UserSignalService:
         signal.status_reason = 'Stale current signal was cleared before a new scan.'
         return True
 
-    async def request_scan(self, user_id: int, countdown_seconds: int | None = None) -> UserSignalResult:
+    async def request_scan(self, user_id: int) -> UserSignalResult:
         if settings.signal_mode.upper() != 'LIVE':
             return UserSignalResult(None, False, 'Signals are in PAPER validation mode and are not actionable.')
 
-        # The web process owns every dependency required to generate a signal:
-        # DeTrade timing, Binance market data and Binance/Bybit book confirmation.
-        # Background-worker health is monitored separately and must not turn a
-        # healthy live signal path into an artificial outage.
+        # The web process owns the complete user-facing scan path: BC.GAME/DeTrade
+        # timing and Binance BTCUSDT analysis. Background-worker health is monitored
+        # separately and must not create an artificial outage for a healthy web scan.
         user = self.db.scalar(select(User).where(User.id == user_id))
         if user is None or user.status != UserStatus.APPROVED or user.is_blocked:
             self.db.rollback()
             return UserSignalResult(None, False, 'Approved access is required.')
 
-        enabled = AdminOpsService(self.db).get_bool(AdminOpsService.SIGNALS_ENABLED_KEY, default=settings.signals_enabled)
+        enabled = AdminOpsService(self.db).get_bool(
+            AdminOpsService.SIGNALS_ENABLED_KEY,
+            default=settings.signals_enabled,
+        )
         if not enabled:
             self.db.rollback()
             return UserSignalResult(None, False, 'Signals are currently disabled.')
@@ -94,7 +96,11 @@ class UserSignalService:
             expiry = self._aware(current.expiry_at)
             if expiry is None or now <= expiry + timedelta(seconds=settings.signal_settlement_window_seconds):
                 self.db.rollback()
-                return UserSignalResult(None, False, 'Your current signal round is still in progress. Wait for the next fresh round.')
+                return UserSignalResult(
+                    None,
+                    False,
+                    'Your current signal round is still in progress. Wait for the next fresh round.',
+                )
 
         self.db.rollback()
 
@@ -112,7 +118,11 @@ class UserSignalService:
             elif timing.synchronized:
                 return UserSignalResult(None, False, timing.reason)
             elif timing_mode == 'AUTO_SYNC':
-                return UserSignalResult(None, False, 'Live BCGAME timing is refreshing. Wait for the next fresh round.')
+                return UserSignalResult(
+                    None,
+                    False,
+                    'Live BCGAME timing is refreshing. Wait for the next fresh round.',
+                )
             else:
                 trigger_mode = 'MANUAL_FALLBACK'
         else:
@@ -122,7 +132,10 @@ class UserSignalService:
         contract_duration_seconds = None
         if round_snapshot is not None:
             measurement_time = datetime.now(timezone.utc)
-            seconds_until_start = max(0.0, round_snapshot.seconds_until_order_close(measurement_time))
+            seconds_until_start = max(
+                0.0,
+                round_snapshot.seconds_until_order_close(measurement_time),
+            )
             contract_duration_seconds = max(
                 0.0,
                 (round_snapshot.end_rate_at - round_snapshot.start_rate_at).total_seconds(),
@@ -134,12 +147,22 @@ class UserSignalService:
             contract_duration_seconds=contract_duration_seconds,
         )
         if not intelligence.service_available:
-            return UserSignalResult(None, False, 'Live BTC data is refreshing. Please try again in a few seconds.')
+            return UserSignalResult(
+                None,
+                False,
+                'Live BTC data is refreshing. Please try again in a few seconds.',
+            )
 
         if round_snapshot is not None:
-            remaining_after_scan = round_snapshot.seconds_until_order_close(datetime.now(timezone.utc))
+            remaining_after_scan = round_snapshot.seconds_until_order_close(
+                datetime.now(timezone.utc)
+            )
             if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
-                return UserSignalResult(None, False, 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.')
+                return UserSignalResult(
+                    None,
+                    False,
+                    'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.',
+                )
 
         # Final atomic persistence gate. This is the only place a row lock is held,
         # and there are no network awaits after it is acquired.
@@ -148,7 +171,10 @@ class UserSignalService:
             self.db.rollback()
             return UserSignalResult(None, False, 'Approved access is required.')
 
-        enabled = AdminOpsService(self.db).get_bool(AdminOpsService.SIGNALS_ENABLED_KEY, default=settings.signals_enabled)
+        enabled = AdminOpsService(self.db).get_bool(
+            AdminOpsService.SIGNALS_ENABLED_KEY,
+            default=settings.signals_enabled,
+        )
         if not enabled or settings.signal_mode.upper() != 'LIVE':
             self.db.rollback()
             return UserSignalResult(None, False, 'Signals are currently disabled.')
@@ -156,13 +182,21 @@ class UserSignalService:
         now = datetime.now(timezone.utc)
         if self._cooldown_active(user, now):
             self.db.rollback()
-            return UserSignalResult(None, False, 'A scan was just completed for your account. Please wait briefly before scanning again.')
+            return UserSignalResult(
+                None,
+                False,
+                'A scan was just completed for your account. Please wait briefly before scanning again.',
+            )
 
         current = self._current_signal(user_id, lock=True)
         if current is not None:
             if not self._clear_stale_current_signal(current, now):
                 self.db.rollback()
-                return UserSignalResult(None, False, 'Your current signal round is still in progress. Wait for the next fresh round.')
+                return UserSignalResult(
+                    None,
+                    False,
+                    'Your current signal round is still in progress. Wait for the next fresh round.',
+                )
             self.db.flush()
 
         user.last_scan_requested_at = now
