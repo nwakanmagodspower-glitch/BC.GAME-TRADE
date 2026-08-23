@@ -14,7 +14,7 @@ from app.signals.scoring import score_features
 
 settings = get_settings()
 
-ENGINE_NAME = 'BTC_5S_CLASSIC_TIMER_V1'
+ENGINE_NAME = 'BTC_ORIGINAL_INTELLIGENCE_TIMER_V1'
 
 
 @dataclass(frozen=True)
@@ -35,11 +35,13 @@ class IntelligenceResult:
 
 
 class SignalIntelligenceService:
-    """Classic BTC five-second intelligence with timing kept separate.
+    """Original BTC intelligence with BC.Game timing kept outside prediction.
 
-    Direction comes only from the original momentum/flow/context scorer. DeTrade
-    timing validates that the BCGAME contract is the expected five-second product;
-    it never adds directional weights, horizon penalties, or extra veto stacks.
+    The prediction core is the first pre-timer engine: EMA trend, five-minute
+    momentum, short-term structure, volume/taker behavior, recent aggressive
+    trade flow, RSI and ATR. The DeTrade/BC.Game timer may validate the product
+    and tell the delivery layer when a round can be used, but it never adds
+    directional weights, horizon penalties, cross-venue votes or extra vetoes.
     """
 
     def __init__(self) -> None:
@@ -57,50 +59,39 @@ class SignalIntelligenceService:
         market = (symbol or settings.analysis_pair).upper()
         if market != settings.analysis_pair.upper():
             return IntelligenceResult(
-                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None,
-                f'Unsupported market: {market}.', False,
-                seconds_until_start, contract_duration_seconds,
+                market=market,
+                direction=SignalDirection.NO_TRADE,
+                quality='UNAVAILABLE',
+                reference_price=None,
+                market_snapshot=None,
+                features=None,
+                decision=None,
+                reason=f'Unsupported market: {market}.',
+                service_available=False,
+                seconds_until_start=seconds_until_start,
+                contract_duration_seconds=contract_duration_seconds,
             )
 
         max_cache_age = max(0.0, settings.signal_scan_coalesce_ms / 1000.0)
         now_mono = time.monotonic()
-        if self._cached_result_is_usable(now_mono, max_cache_age, seconds_until_start, contract_duration_seconds):
+        if self._cached_result_is_usable(now_mono, max_cache_age):
             assert self._last_result is not None
-            return self._last_result
+            return self._with_timer(self._last_result, seconds_until_start, contract_duration_seconds)
 
         async with self._scan_lock:
             now_mono = time.monotonic()
-            if self._cached_result_is_usable(now_mono, max_cache_age, seconds_until_start, contract_duration_seconds):
+            if self._cached_result_is_usable(now_mono, max_cache_age):
                 assert self._last_result is not None
-                return self._last_result
-            result = await self._compute(
-                market,
-                seconds_until_start=seconds_until_start,
-                contract_duration_seconds=contract_duration_seconds,
-            )
+                return self._with_timer(self._last_result, seconds_until_start, contract_duration_seconds)
+
+            result = await self._compute(market)
             self._last_result = result
             self._last_result_at = time.monotonic()
-            return result
+            return self._with_timer(result, seconds_until_start, contract_duration_seconds)
 
-    def _cached_result_is_usable(
-        self,
-        now_mono: float,
-        max_cache_age: float,
-        seconds_until_start: float | None,
-        contract_duration_seconds: float | None,
-    ) -> bool:
+    def _cached_result_is_usable(self, now_mono: float, max_cache_age: float) -> bool:
         result = self._last_result
         if result is None or (now_mono - self._last_result_at) > max_cache_age:
-            return False
-        if seconds_until_start is None:
-            if result.seconds_until_start is not None:
-                return False
-        elif result.seconds_until_start is None or abs(result.seconds_until_start - seconds_until_start) > 0.5:
-            return False
-        if contract_duration_seconds is None:
-            if result.contract_duration_seconds is not None:
-                return False
-        elif result.contract_duration_seconds is None or abs(result.contract_duration_seconds - contract_duration_seconds) > 0.1:
             return False
         snapshot = result.market_snapshot
         if snapshot is None:
@@ -108,29 +99,41 @@ class SignalIntelligenceService:
         age = time.time() - snapshot.event_time.timestamp()
         return -settings.market_data_future_skew_seconds <= age <= settings.market_data_max_age_seconds
 
-    async def _compute(
-        self,
-        market: str,
-        *,
+    @staticmethod
+    def _with_timer(
+        result: IntelligenceResult,
         seconds_until_start: float | None,
         contract_duration_seconds: float | None,
     ) -> IntelligenceResult:
-        # Timing is a product/window validator only. It never changes direction.
-        if contract_duration_seconds is not None and not 4.5 <= contract_duration_seconds <= 5.5:
-            decision = SignalDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=0,
-                bear_score=0,
-                margin=0,
-                reason='BCGAME round duration does not match the five-second strategy.',
-            )
-            return IntelligenceResult(
-                market, decision.direction, decision.quality, None, None, None, decision,
-                decision.reason, True, seconds_until_start, contract_duration_seconds,
-                None, {'engine': ENGINE_NAME, 'timer_validated': False},
-            )
+        timer_validated = (
+            contract_duration_seconds is None
+            or 4.5 <= contract_duration_seconds <= 5.5
+        )
+        details = dict(result.engine_details or {})
+        details.update(
+            {
+                'timer_validated': timer_validated,
+                'seconds_until_start': seconds_until_start,
+                'contract_duration_seconds': contract_duration_seconds,
+            }
+        )
+        return IntelligenceResult(
+            market=result.market,
+            direction=result.direction,
+            quality=result.quality,
+            reference_price=result.reference_price,
+            market_snapshot=result.market_snapshot,
+            features=result.features,
+            decision=result.decision,
+            reason=result.reason,
+            service_available=result.service_available,
+            seconds_until_start=seconds_until_start,
+            contract_duration_seconds=contract_duration_seconds,
+            cross_venue=None,
+            engine_details=details,
+        )
 
+    async def _compute(self, market: str) -> IntelligenceResult:
         snapshot = await market_data_service.cache.get_snapshot(
             market,
             max_age_seconds=settings.market_data_max_age_seconds,
@@ -139,13 +142,11 @@ class SignalIntelligenceService:
             return IntelligenceResult(
                 market, SignalDirection.NO_TRADE, 'UNAVAILABLE', None, None, None, None,
                 'Live BTC price stream has not warmed up yet.', False,
-                seconds_until_start, contract_duration_seconds,
             )
         if not snapshot.fresh:
             return IntelligenceResult(
                 market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
                 'Live BTC price stream is stale.', False,
-                seconds_until_start, contract_duration_seconds,
             )
 
         candles = await market_data_service.get_cached_candles(market)
@@ -153,27 +154,12 @@ class SignalIntelligenceService:
             return IntelligenceResult(
                 market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
                 'BTC candle context is refreshing.', False,
-                seconds_until_start, contract_duration_seconds,
             )
 
         ticks = await market_data_service.cache.get_recent_ticks(
             market,
             lookback_seconds=settings.signal_trade_flow_lookback_seconds,
         )
-        if len(ticks) < settings.signal_min_recent_trades:
-            return IntelligenceResult(
-                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
-                'BTC trade stream is warming up.', False,
-                seconds_until_start, contract_duration_seconds,
-            )
-
-        tick_span = (max(t.event_time for t in ticks) - min(t.event_time for t in ticks)).total_seconds()
-        if tick_span < settings.signal_min_tick_span_seconds:
-            return IntelligenceResult(
-                market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
-                'BTC trade-history window is rebuilding.', False,
-                seconds_until_start, contract_duration_seconds,
-            )
 
         try:
             features = build_features(candles, ticks)
@@ -181,18 +167,16 @@ class SignalIntelligenceService:
             return IntelligenceResult(
                 market, SignalDirection.NO_TRADE, 'UNAVAILABLE', snapshot.price, snapshot, None, None,
                 f'BTC feature preparation failed ({type(exc).__name__}).', False,
-                seconds_until_start, contract_duration_seconds,
             )
 
-        # Intentionally fixed to the original 6/3 policy so old Render 8/4 env
-        # values cannot silently turn this reset back into the over-strict engine.
         score = score_features(features)
-        decision = decide(score, min_score=6, min_margin=3)
+        decision = decide(
+            score,
+            min_score=settings.signal_min_score,
+            min_margin=settings.signal_min_margin,
+        )
         details = {
             'engine': ENGINE_NAME,
-            'timer_validated': contract_duration_seconds is None or 4.5 <= contract_duration_seconds <= 5.5,
-            'seconds_until_start': seconds_until_start,
-            'contract_duration_seconds': contract_duration_seconds,
             'bull_score': decision.bull_score,
             'bear_score': decision.bear_score,
             'margin': decision.margin,
@@ -208,8 +192,6 @@ class SignalIntelligenceService:
             decision=decision,
             reason=decision.reason,
             service_available=True,
-            seconds_until_start=seconds_until_start,
-            contract_duration_seconds=contract_duration_seconds,
             cross_venue=None,
             engine_details=details,
         )
