@@ -177,7 +177,7 @@ class MicrostructureIntelligenceService:
                 latest_book=ms_snapshot.book_ticker,
                 book_history=book_history,
                 depth=ms_snapshot.depth,
-                depth_history=(),
+                depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0),
                 recent_ticks=ms_snapshot.recent_ticks,
                 now=now,
             )

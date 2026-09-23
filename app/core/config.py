@@ -89,7 +89,6 @@ class Settings(BaseSettings):
     market_candle_max_age_seconds: int = 60
     market_data_future_skew_seconds: float = 2.0
     market_trade_buffer_size: int = 50_000
-    market_trade_buffer_size: int = 50_000
 
     # BTC_MICROSTRUCTURE_V2 experimental settings
     microstructure_enabled: bool = False

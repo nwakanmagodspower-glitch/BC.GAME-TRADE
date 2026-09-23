@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Record high-frequency Binance BTCUSDT microstructure streams to JSONL for replay evaluation.
 
+Captures:
+- bookTicker (best bid/ask price and qty)
+- depth5@100ms (top 5 bids and asks levels)
+- trade (individual executed market trades)
+
+Includes both provider event timestamp (event_ts) and local receive timestamp (local_ts).
+
 Usage:
     python3 scripts/record_microstructure_dataset.py --duration-seconds 300 --output-file data/sample_microstructure.jsonl
 """
@@ -33,9 +40,11 @@ async def record_stream(duration_seconds: int, output_file: str) -> None:
     async def stream_book():
         nonlocal count
         async for book in provider.stream_book_ticker(symbol):
+            local_ts = datetime.now(timezone.utc).timestamp()
             payload = {
                 'type': 'book_ticker',
-                'ts': book.event_time.timestamp(),
+                'event_ts': book.event_time.timestamp(),
+                'local_ts': local_ts,
                 'bid': book.best_bid_price,
                 'bid_qty': book.best_bid_qty,
                 'ask': book.best_ask_price,
@@ -47,12 +56,31 @@ async def record_stream(duration_seconds: int, output_file: str) -> None:
             if datetime.now(timezone.utc).timestamp() - start_time >= duration_seconds:
                 break
 
+    async def stream_depth():
+        nonlocal count
+        async for depth in provider.stream_depth(symbol, levels=5, update_speed_ms=100):
+            local_ts = datetime.now(timezone.utc).timestamp()
+            payload = {
+                'type': 'depth',
+                'event_ts': depth.event_time.timestamp(),
+                'local_ts': local_ts,
+                'bids': [[b.price, b.quantity] for b in depth.bids],
+                'asks': [[a.price, a.quantity] for a in depth.asks],
+            }
+            with open(output_file, 'a') as f:
+                f.write(json.dumps(payload) + '\n')
+            count += 1
+            if datetime.now(timezone.utc).timestamp() - start_time >= duration_seconds:
+                break
+
     async def stream_trades():
         nonlocal count
         async for tick in provider.stream_ticks(symbol):
+            local_ts = datetime.now(timezone.utc).timestamp()
             payload = {
                 'type': 'trade',
-                'ts': tick.event_time.timestamp(),
+                'event_ts': tick.event_time.timestamp(),
+                'local_ts': local_ts,
                 'price': tick.price,
                 'qty': tick.quantity,
                 'is_buyer_maker': tick.is_buyer_maker,
@@ -66,12 +94,13 @@ async def record_stream(duration_seconds: int, output_file: str) -> None:
     try:
         await asyncio.gather(
             asyncio.wait_for(stream_book(), timeout=duration_seconds + 5),
+            asyncio.wait_for(stream_depth(), timeout=duration_seconds + 5),
             asyncio.wait_for(stream_trades(), timeout=duration_seconds + 5),
         )
     except asyncio.TimeoutError:
         pass
 
-    print(f"Recording complete. Captured {count} events.")
+    print(f"Recording complete. Captured {count} events in {output_file}.")
 
 
 def main():

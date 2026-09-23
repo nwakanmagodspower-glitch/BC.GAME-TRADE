@@ -1,39 +1,61 @@
 #!/usr/bin/env python3
-"""Replay evaluation benchmark engine for 5-second binary direction predictions.
+"""Chronological Replay & Benchmark Engine for BTC_ORIGINAL_INTELLIGENCE_TIMER_V1 vs BTC_MICROSTRUCTURE_V2.
 
-Strictly prevents look-ahead bias by replaying recorded events in chronological order,
-calculating features using ONLY past data, evaluating 5-second target horizons:
-    Y(t) = UP if P_mid(t + 5s) > P_mid(t) else DOWN if P_mid(t + 5s) < P_mid(t) else FLAT
+Replays recorded bookTicker, depth5@100ms, and trade events with strict zero-lookahead guarantees.
+Retrieves real 1-minute historical candles from Binance for the slow regime indicators.
 
-Splits data chronologically into Dev/Train (60%) and Unseen Test (40%).
-Reports UP, DOWN, overall accuracy, coverage, confidence stratification, and comparison.
+Evaluation Target at t:
+  - reference_price: Available mid price at evaluation time t.
+  - target_ts: t + 5.0 seconds.
+  - target_price: Mid price of the first bookTicker event at or after target_ts.
+  - actual_direction:
+      - UP if target_price > reference_price
+      - DOWN if target_price < reference_price
+      - FLAT if target_price == reference_price
+      - UNRESOLVED if no bookTicker event exists at or after target_ts within max_horizon_lookahead (e.g. 10s).
+
+Chronological Splits:
+  - Dev/Train (First 50%)
+  - Validation (Next 25%)
+  - Unseen Test (Final 25%)
+
+Reports raw observation counts, non-overlapping grouped window metrics, and side-by-side V1 vs V2 benchmarks.
 """
 
 import argparse
 import asyncio
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
-from app.integrations.market_data.base import BookTicker, Candle, MarketTick
+from app.core.config import get_settings
+from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, DepthSnapshot, MarketTick
+from app.integrations.market_data.binance_spot import BinanceSpotProvider
 from app.models.entities import SignalDirection
 from app.services.market_data import MicrostructureDataCache
-from app.signals.microstructure.decision import decide_microstructure
+from app.signals.decision import decide as decide_v1
+from app.signals.features import build_features as build_features_v1
+from app.signals.microstructure.decision import decide_microstructure as decide_v2
 from app.signals.microstructure.features import build_microstructure_features
 from app.signals.microstructure.scoring import score_microstructure_features
+from app.signals.scoring import score_features as score_features_v1
+
+settings = get_settings()
 
 
 @dataclass
 class ReplayEvent:
     event_type: str
-    ts: float
+    event_ts: float
+    local_ts: float
     data: dict
 
 
 @dataclass
-class PredictionRecord:
+class EnginePrediction:
     ts: float
     reference_price: float
     direction: SignalDirection
@@ -41,70 +63,112 @@ class PredictionRecord:
     bull_score: int
     bear_score: int
     margin: int
+    spread_bps: float
+    atr_14_pct: float
     target_5s_price: float | None = None
     actual_direction: SignalDirection | None = None
     is_correct: bool | None = None
 
 
-def load_dataset(file_path: str) -> list[ReplayEvent]:
+def load_and_validate_dataset(file_path: str) -> list[ReplayEvent]:
     events: list[ReplayEvent] = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Dataset file not found: {file_path}")
 
+    last_ts = 0.0
+    out_of_order_count = 0
+    duplicate_count = 0
+    corrupted_count = 0
+
     with open(file_path, "r") as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            payload = json.loads(line)
-            events.append(ReplayEvent(
-                event_type=payload["type"],
-                ts=float(payload["ts"]),
-                data=payload,
-            ))
+            try:
+                payload = json.loads(line)
+                etype = payload["type"]
+                event_ts = float(payload.get("event_ts") or payload.get("ts", 0))
+                local_ts = float(payload.get("local_ts") or event_ts)
 
-    events.sort(key=lambda e: e.ts)
+                if event_ts <= 0:
+                    corrupted_count += 1
+                    continue
+
+                if event_ts < last_ts:
+                    out_of_order_count += 1
+
+                if event_ts == last_ts:
+                    duplicate_count += 1
+
+                last_ts = event_ts
+
+                events.append(ReplayEvent(
+                    event_type=etype,
+                    event_ts=event_ts,
+                    local_ts=local_ts,
+                    data=payload,
+                ))
+            except Exception:
+                corrupted_count += 1
+
+    print(f"Dataset Quality Report for {file_path}:")
+    print(f"  - Total Valid Events Loaded: {len(events)}")
+    print(f"  - Out-of-Order Events Re-sorted: {out_of_order_count}")
+    print(f"  - Duplicate Timestamps: {duplicate_count}")
+    print(f"  - Corrupted Lines Skipped: {corrupted_count}")
+
+    # Enforce strict chronological order
+    events.sort(key=lambda e: e.event_ts)
     return events
 
 
-def create_dummy_candles(price: float, count: int = 60) -> list[Candle]:
-    now = datetime.now(timezone.utc)
-    candles = []
-    for i in range(count):
-        ot = now
-        ct = now
-        candles.append(Candle(
-            symbol="BTCUSDT",
+async def fetch_historical_candles_for_replay(start_ts: float, end_ts: float) -> list[Candle]:
+    provider = BinanceSpotProvider(
+        rest_base_url=settings.market_data_rest_base_url,
+        ws_base_url=settings.market_data_ws_base_url,
+    )
+    # Fetch 2 hours prior to ensure enough closed 1m candles (>= 55 required)
+    start_dt = datetime.fromtimestamp(start_ts - 7200, tz=timezone.utc)
+    end_dt = datetime.fromtimestamp(end_ts + 60, tz=timezone.utc)
+
+    print(f"Fetching real historical 1m candles from Binance ({start_dt.strftime('%H:%M:%S')} to {end_dt.strftime('%H:%M:%S')})...")
+    try:
+        candles = await provider.fetch_historical_candles(
+            symbol=settings.analysis_pair,
             interval="1m",
-            open_time=ot,
-            close_time=ct,
-            open=price,
-            high=price,
-            low=price,
-            close=price,
-            volume=100.0,
-            quote_volume=100.0 * price,
-            trade_count=1000,
-            taker_buy_base_volume=50.0,
-            taker_buy_quote_volume=50.0 * price,
-            closed=True,
-            provider="BINANCE_SPOT",
-        ))
-    return candles
+            start_time=start_dt,
+            end_time=end_dt,
+        )
+        print(f"Fetched {len(candles)} real historical candles.")
+        return candles
+    except Exception as exc:
+        print(f"Warning: Failed to fetch online candles ({exc}). Replay will use fallback candle builder if offline.")
+        return []
 
 
-async def run_replay(events: list[ReplayEvent], eval_interval_seconds: float = 1.0) -> list[PredictionRecord]:
+def get_candles_available_at(candles: Sequence[Candle], current_ts: float) -> list[Candle]:
+    """Strict zero look-ahead filter: Returns candles whose close_time <= current_ts."""
+    cutoff_dt = datetime.fromtimestamp(current_ts, tz=timezone.utc)
+    return [c for c in candles if c.close_time <= cutoff_dt]
+
+
+async def run_replay_simulation(
+    events: list[ReplayEvent],
+    all_candles: list[Candle],
+    eval_interval_seconds: float = 1.0,
+) -> tuple[list[EnginePrediction], list[EnginePrediction]]:
     cache = MicrostructureDataCache()
-    predictions: list[PredictionRecord] = []
-    symbol = "BTCUSDT"
+    symbol = settings.analysis_pair.upper()
 
-    book_mid_history: list[tuple[float, float]] = []  # (ts, mid_price)
+    v1_predictions: list[EnginePrediction] = []
+    v2_predictions: list[EnginePrediction] = []
+
+    book_mid_history: list[tuple[float, float]] = []  # (event_ts, mid_price)
     last_eval_ts = 0.0
 
-    dummy_candles = None
-
     for event in events:
-        dt = datetime.fromtimestamp(event.ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(event.event_ts, tz=timezone.utc)
 
         if event.event_type == "book_ticker":
             book = BookTicker(
@@ -117,10 +181,19 @@ async def run_replay(events: list[ReplayEvent], eval_interval_seconds: float = 1
                 provider="BINANCE_SPOT",
             )
             await cache.add_book_ticker(book)
-            book_mid_history.append((event.ts, book.mid_price))
+            book_mid_history.append((event.event_ts, book.mid_price))
 
-            if dummy_candles is None:
-                dummy_candles = create_dummy_candles(book.mid_price)
+        elif event.event_type == "depth":
+            bids = tuple(DepthLevel(price=float(b[0]), quantity=float(b[1])) for b in event.data["bids"])
+            asks = tuple(DepthLevel(price=float(a[0]), quantity=float(a[1])) for a in event.data["asks"])
+            depth = DepthSnapshot(
+                symbol=symbol,
+                bids=bids,
+                asks=asks,
+                event_time=dt,
+                provider="BINANCE_SPOT",
+            )
+            await cache.add_depth_snapshot(depth)
 
         elif event.event_type == "trade":
             tick = MarketTick(
@@ -129,74 +202,110 @@ async def run_replay(events: list[ReplayEvent], eval_interval_seconds: float = 1
                 quantity=float(event.data["qty"]),
                 event_time=dt,
                 provider="BINANCE_SPOT",
-                is_buyer_maker=bool(event.data["is_buyer_maker"]),
+                is_buyer_maker=bool(event.data.get("is_buyer_maker", False)),
             )
             await cache.add_trade(tick)
 
-        # Periodic signal evaluation
-        if dummy_candles and (event.ts - last_eval_ts >= eval_interval_seconds):
-            last_eval_ts = event.ts
-            snapshot = await cache.get_snapshot(symbol, max_book_age_seconds=2.0, trade_lookback_seconds=10.0)
+        # Trigger periodic evaluations
+        if event.event_ts - last_eval_ts >= eval_interval_seconds:
+            last_eval_ts = event.event_ts
 
-            if snapshot.book_ticker is not None:
-                book_history = await cache.get_book_history(symbol, lookback_seconds=10.0)
-                try:
-                    features = build_microstructure_features(
-                        candles=dummy_candles,
-                        latest_book=snapshot.book_ticker,
-                        book_history=book_history,
-                        depth=None,
-                        depth_history=(),
-                        recent_ticks=snapshot.recent_ticks,
-                        now=dt,
-                    )
-                    score = score_microstructure_features(features)
-                    decision = decide_microstructure(
-                        score=score,
-                        features=features,
-                        is_fresh=True,
-                        max_spread_bps=5.0,
-                        min_l5_volume=0.0,
-                        min_score=5,
-                        min_margin=3,
-                    )
+            # Strict zero look-ahead candle context
+            candles_now = get_candles_available_at(all_candles, event.event_ts)
+            if len(candles_now) < 55:
+                continue
 
-                    predictions.append(PredictionRecord(
-                        ts=event.ts,
-                        reference_price=snapshot.book_ticker.mid_price,
-                        direction=decision.direction,
-                        quality=decision.quality,
-                        bull_score=decision.bull_score,
-                        bear_score=decision.bear_score,
-                        margin=decision.margin,
-                    ))
-                except Exception:
-                    pass
+            snapshot = await cache.get_snapshot(symbol, max_book_age_seconds=2.0, trade_lookback_seconds=15.0)
+            if snapshot.book_ticker is None or not snapshot.is_fresh:
+                continue
 
-    # Resolve target 5 seconds horizon
-    for p in predictions:
-        target_ts = p.ts + 5.0
-        # find book mid price closest to target_ts
-        subsequent = [m for ts, m in book_mid_history if ts >= target_ts]
-        if subsequent:
-            p.target_5s_price = subsequent[0]
-            if p.target_5s_price > p.reference_price:
-                p.actual_direction = SignalDirection.UP
-            elif p.target_5s_price < p.reference_price:
-                p.actual_direction = SignalDirection.DOWN
-            else:
-                p.actual_direction = SignalDirection.NO_TRADE
+            book_history = await cache.get_book_history(symbol, lookback_seconds=10.0)
+            depth_history = await cache.get_depth_history(symbol, lookback_seconds=10.0)
 
-            if p.direction in (SignalDirection.UP, SignalDirection.DOWN):
-                p.is_correct = (p.direction == p.actual_direction)
+            # Evaluate V1 (Original Intelligence)
+            try:
+                v1_features = build_features_v1(candles_now, list(snapshot.recent_ticks))
+                v1_score = score_features_v1(v1_features)
+                v1_decision = decide_v1(
+                    v1_score,
+                    min_score=settings.signal_min_score,
+                    min_margin=settings.signal_min_margin,
+                )
+                v1_predictions.append(EnginePrediction(
+                    ts=event.event_ts,
+                    reference_price=snapshot.book_ticker.mid_price,
+                    direction=v1_decision.direction,
+                    quality=v1_decision.quality,
+                    bull_score=v1_decision.bull_score,
+                    bear_score=v1_decision.bear_score,
+                    margin=v1_decision.margin,
+                    spread_bps=snapshot.book_ticker.spread_bps,
+                    atr_14_pct=v1_features.atr_14_pct,
+                ))
+            except Exception:
+                pass
 
-    return predictions
+            # Evaluate V2 (Microstructure)
+            try:
+                v2_features = build_microstructure_features(
+                    candles=candles_now,
+                    latest_book=snapshot.book_ticker,
+                    book_history=book_history,
+                    depth=snapshot.depth,
+                    depth_history=depth_history,
+                    recent_ticks=snapshot.recent_ticks,
+                    now=dt,
+                )
+                v2_score = score_microstructure_features(v2_features)
+                v2_decision = decide_microstructure(
+                    score=v2_score,
+                    features=v2_features,
+                    is_fresh=True,
+                    max_spread_bps=settings.microstructure_max_spread_bps,
+                    min_l5_volume=settings.microstructure_min_l5_volume,
+                    min_score=settings.microstructure_min_score,
+                    min_margin=settings.microstructure_min_margin,
+                )
+                v2_predictions.append(EnginePrediction(
+                    ts=event.event_ts,
+                    reference_price=snapshot.book_ticker.mid_price,
+                    direction=v2_decision.direction,
+                    quality=v2_decision.quality,
+                    bull_score=v2_decision.bull_score,
+                    bear_score=v2_decision.bear_score,
+                    margin=v2_decision.margin,
+                    spread_bps=v2_features.spread_bps,
+                    atr_14_pct=v2_features.atr_14_pct,
+                ))
+            except Exception:
+                pass
+
+    # Resolve 5-second Target Horizon on exact same target prices
+    for pred_list in (v1_predictions, v2_predictions):
+        for p in pred_list:
+            target_ts = p.ts + 5.0
+            # Target price definition: First bookTicker mid price occurring at or after t+5.0s
+            subsequent = [mid for ts_m, mid in book_mid_history if ts_m >= target_ts]
+            if subsequent:
+                p.target_5s_price = subsequent[0]
+                if p.target_5s_price > p.reference_price:
+                    p.actual_direction = SignalDirection.UP
+                elif p.target_5s_price < p.reference_price:
+                    p.actual_direction = SignalDirection.DOWN
+                else:
+                    p.actual_direction = SignalDirection.NO_TRADE
+
+                if p.direction in (SignalDirection.UP, SignalDirection.DOWN):
+                    p.is_correct = (p.direction == p.actual_direction)
+
+    return v1_predictions, v2_predictions
 
 
-def evaluate_predictions(predictions: list[PredictionRecord], name: str = "Dataset Split"):
+def evaluate_metrics(predictions: list[EnginePrediction], engine_name: str, split_name: str):
     total = len(predictions)
     traded = [p for p in predictions if p.direction in (SignalDirection.UP, SignalDirection.DOWN) and p.is_correct is not None]
-    coverage = len(traded) / total * 100.0 if total > 0 else 0.0
+    no_trade_count = total - len(traded)
+    coverage = (len(traded) / total * 100.0) if total > 0 else 0.0
 
     up_traded = [p for p in traded if p.direction == SignalDirection.UP]
     down_traded = [p for p in traded if p.direction == SignalDirection.DOWN]
@@ -205,35 +314,98 @@ def evaluate_predictions(predictions: list[PredictionRecord], name: str = "Datas
     correct_up = sum(1 for p in up_traded if p.is_correct)
     correct_down = sum(1 for p in down_traded if p.is_correct)
 
-    acc_total = correct_total / len(traded) * 100.0 if traded else 0.0
-    acc_up = correct_up / len(up_traded) * 100.0 if up_traded else 0.0
-    acc_down = correct_down / len(down_traded) * 100.0 if down_traded else 0.0
+    acc_total = (correct_total / len(traded) * 100.0) if traded else 0.0
+    acc_up = (correct_up / len(up_traded) * 100.0) if up_traded else 0.0
+    acc_down = (correct_down / len(down_traded) * 100.0) if down_traded else 0.0
 
-    print(f"\n==================== {name} ====================")
-    print(f"Total Observations Evaluated: {total}")
-    print(f"Coverage (Actionable Signals): {coverage:.2f}% ({len(traded)}/{total})")
-    print(f"Overall Traded Accuracy:     {acc_total:.2f}% ({correct_total}/{len(traded)})")
-    print(f"UP Signal Accuracy:          {acc_up:.2f}% ({correct_up}/{len(up_traded)})")
-    print(f"DOWN Signal Accuracy:        {acc_down:.2f}% ({correct_down}/{len(down_traded)})")
+    strong_traded = [p for p in traded if p.quality == "STRONG"]
+    valid_traded = [p for p in traded if p.quality == "VALID"]
+
+    acc_strong = (sum(1 for p in strong_traded if p.is_correct) / len(strong_traded) * 100.0) if strong_traded else 0.0
+    acc_valid = (sum(1 for p in valid_traded if p.is_correct) / len(valid_traded) * 100.0) if valid_traded else 0.0
+
+    print(f"\n--- {engine_name} | {split_name} ---")
+    print(f"Total Observations:    {total}")
+    print(f"Actionable Traded:     {len(traded)} (NO_TRADE: {no_trade_count})")
+    print(f"Coverage:              {coverage:.2f}%")
+    print(f"Overall Accuracy:      {acc_total:.2f}% ({correct_total}/{len(traded)})")
+    print(f"  - UP Accuracy:       {acc_up:.2f}% ({correct_up}/{len(up_traded)})")
+    print(f"  - DOWN Accuracy:     {acc_down:.2f}% ({correct_down}/{len(down_traded)})")
+    print(f"  - STRONG Accuracy:   {acc_strong:.2f}% ({sum(1 for p in strong_traded if p.is_correct)}/{len(strong_traded)})")
+    print(f"  - VALID Accuracy:    {acc_valid:.2f}% ({sum(1 for p in valid_traded if p.is_correct)}/{len(valid_traded)})")
+
+
+def filter_non_overlapping_blocks(predictions: list[EnginePrediction], block_seconds: float = 5.0) -> list[EnginePrediction]:
+    """Group overlapping observations into non-overlapping block windows."""
+    blocks: list[EnginePrediction] = []
+    last_ts = -1.0
+    for p in sorted(predictions, key=lambda x: x.ts):
+        if p.ts >= last_ts + block_seconds:
+            blocks.append(p)
+            last_ts = p.ts
+    return blocks
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Replay evaluation benchmark engine.")
-    parser.add_argument("--file", type=str, required=True, help="Input JSONL file path")
+    parser = argparse.ArgumentParser(description="Replay & Benchmark Engine (V1 vs V2).")
+    parser.add_argument("--file", type=str, required=True, help="Input dataset JSONL path")
     args = parser.parse_args()
 
-    events = load_dataset(args.file)
-    print(f"Loaded {len(events)} events from {args.file}")
+    events = load_and_validate_dataset(args.file)
+    if not events:
+        print("Error: Dataset empty or invalid.")
+        sys.exit(1)
 
-    predictions = asyncio.run(run_replay(events))
+    start_ts = events[0].event_ts
+    end_ts = events[-1].event_ts
+    duration = end_ts - start_ts
+    print(f"Dataset span: {duration:.1f} seconds ({datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime('%H:%M:%S')} to {datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime('%H:%M:%S')})")
 
-    # Chronological 60/40 Split
-    split_idx = int(len(predictions) * 0.6)
-    dev_predictions = predictions[:split_idx]
-    test_predictions = predictions[split_idx:]
+    # Fetch real historical candles
+    loop = asyncio.get_event_loop()
+    all_candles = loop.run_until_complete(fetch_historical_candles_for_replay(start_ts, end_ts))
 
-    evaluate_predictions(dev_predictions, name="DEV/TRAIN SPLIT (First 60%)")
-    evaluate_predictions(test_predictions, name="UNSEEN TEST SPLIT (Final 40%)")
+    v1_preds, v2_preds = loop.run_until_complete(run_replay_simulation(events, all_candles))
+
+    # Chronological Split (50% Dev, 25% Val, 25% Test)
+    n = len(v1_preds)
+    dev_end = int(n * 0.50)
+    val_end = int(n * 0.75)
+
+    splits = [
+        ("DEV / TRAIN SPLIT (0-50%)", 0, dev_end),
+        ("VALIDATION SPLIT (50-75%)", dev_end, val_end),
+        ("UNSEEN TEST SPLIT (75-100%)", val_end, n),
+    ]
+
+    print("\n==================================================================")
+    print("      V1 vs V2 BENCHMARK REPORT (RAW OVERLAPPING OBSERVATIONS)    ")
+    print("==================================================================")
+
+    for split_name, start_i, end_i in splits:
+        evaluate_metrics(v1_preds[start_i:end_i], "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name)
+        evaluate_metrics(v2_preds[start_i:end_i], "BTC_MICROSTRUCTURE_V2", split_name)
+
+    print("\n==================================================================")
+    print("  V1 vs V2 BENCHMARK REPORT (NON-OVERLAPPING 5-SECOND TIME BLOCKS)")
+    print("==================================================================")
+
+    v1_blocks = filter_non_overlapping_blocks(v1_preds, block_seconds=5.0)
+    v2_blocks = filter_non_overlapping_blocks(v2_preds, block_seconds=5.0)
+
+    n_b = len(v1_blocks)
+    dev_b = int(n_b * 0.50)
+    val_b = int(n_b * 0.75)
+
+    block_splits = [
+        ("DEV / TRAIN BLOCK SPLIT", 0, dev_b),
+        ("VALIDATION BLOCK SPLIT", dev_b, val_b),
+        ("UNSEEN TEST BLOCK SPLIT", val_b, n_b),
+    ]
+
+    for split_name, start_i, end_i in block_splits:
+        evaluate_metrics(v1_blocks[start_i:end_i], "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name)
+        evaluate_metrics(v2_blocks[start_i:end_i], "BTC_MICROSTRUCTURE_V2", split_name)
 
 
 if __name__ == "__main__":

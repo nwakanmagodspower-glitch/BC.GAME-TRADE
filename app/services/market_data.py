@@ -140,7 +140,12 @@ class MarketDataService:
         self._stop = asyncio.Event()
         self.last_error: str | None = None
         self.candle_last_error: str | None = None
+        self.book_ticker_last_error: str | None = None
+        self.depth_last_error: str | None = None
         self.connected = False
+        self._book_ticker_task: asyncio.Task | None = None
+        self._depth_task: asyncio.Task | None = None
+        self.microstructure_cache = MicrostructureDataCache()
 
     async def bootstrap(self, symbol: str) -> None:
         tick, candles = await asyncio.gather(
@@ -170,10 +175,12 @@ class MarketDataService:
             self.candle_last_error = error
         self._task = asyncio.create_task(self._run_ticks(symbol), name=f'market-data-{symbol.lower()}')
         self._candle_task = asyncio.create_task(self._run_candles(symbol), name=f'candle-cache-{symbol.lower()}')
+        self._book_ticker_task = asyncio.create_task(self._run_book_ticker(symbol), name=f'book-ticker-{symbol.lower()}')
+        self._depth_task = asyncio.create_task(self._run_depth(symbol), name=f'depth-{symbol.lower()}')
 
     async def stop(self) -> None:
         self._stop.set()
-        for task in (self._task, self._candle_task):
+        for task in (self._task, self._candle_task, self._book_ticker_task, self._depth_task):
             if task:
                 task.cancel()
                 try:
@@ -191,6 +198,7 @@ class MarketDataService:
                     if self._stop.is_set():
                         return
                     await self.cache.set_tick(tick)
+                    await self.microstructure_cache.add_trade(tick)
                 self.connected = False
             except asyncio.CancelledError:
                 raise
@@ -212,20 +220,6 @@ class MarketDataService:
             await asyncio.sleep(settings.market_candle_refresh_seconds)
 
 
-def build_market_data_service() -> MarketDataService:
-    provider_name = settings.market_data_provider.upper()
-    if provider_name != 'BINANCE_SPOT':
-        raise ValueError(f'Unsupported market data provider: {provider_name}')
-    provider = BinanceSpotProvider(
-        rest_base_url=settings.market_data_rest_base_url,
-        ws_base_url=settings.market_data_ws_base_url,
-        max_response_bytes=settings.market_data_rest_max_response_bytes,
-    )
-    return MarketDataService(provider=provider, cache=MarketDataCache(settings.market_trade_buffer_size))
-
-
-market_data_service = build_market_data_service()
-
 
 @dataclass(frozen=True)
 class MicrostructureSnapshot:
@@ -239,7 +233,7 @@ class MicrostructureSnapshot:
 
 
 class MicrostructureDataCache:
-    """Thread-safe rolling buffer cache for high-frequency microstructure streams."""
+    """Thread-safe (asyncio.Lock protected) rolling buffer cache for high-frequency microstructure streams."""
 
     def __init__(self, book_history_size: int = 100, depth_history_size: int = 50, trade_history_size: int = 5000):
         self._book_tickers: dict[str, deque[BookTicker]] = defaultdict(lambda: deque(maxlen=book_history_size))
@@ -315,3 +309,54 @@ class MicrostructureDataCache:
         async with self._lock:
             books = list(self._book_tickers.get(sym, ()))
         return [b for b in books if b.event_time >= cutoff]
+
+    async def get_depth_history(self, symbol: str, lookback_seconds: float = 10.0) -> list[DepthSnapshot]:
+        sym = symbol.upper()
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
+        async with self._lock:
+            depths = list(self._depth_snapshots.get(sym, ()))
+        return [d for d in depths if d.event_time >= cutoff]
+
+
+    async def _run_book_ticker(self, symbol: str) -> None:
+        while not self._stop.is_set():
+            try:
+                self.book_ticker_last_error = None
+                async for book in self.provider.stream_book_ticker(symbol):
+                    if self._stop.is_set():
+                        return
+                    await self.microstructure_cache.add_book_ticker(book)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.book_ticker_last_error = f'{type(exc).__name__}: {exc}'
+                await asyncio.sleep(settings.market_data_reconnect_seconds)
+
+    async def _run_depth(self, symbol: str) -> None:
+        while not self._stop.is_set():
+            try:
+                self.depth_last_error = None
+                async for depth in self.provider.stream_depth(symbol, levels=5, update_speed_ms=100):
+                    if self._stop.is_set():
+                        return
+                    await self.microstructure_cache.add_depth_snapshot(depth)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.depth_last_error = f'{type(exc).__name__}: {exc}'
+                await asyncio.sleep(settings.market_data_reconnect_seconds)
+
+
+def build_market_data_service() -> MarketDataService:
+    provider_name = settings.market_data_provider.upper()
+    if provider_name != 'BINANCE_SPOT':
+        raise ValueError(f'Unsupported market data provider: {provider_name}')
+    provider = BinanceSpotProvider(
+        rest_base_url=settings.market_data_rest_base_url,
+        ws_base_url=settings.market_data_ws_base_url,
+        max_response_bytes=settings.market_data_rest_max_response_bytes,
+    )
+    return MarketDataService(provider=provider, cache=MarketDataCache(settings.market_trade_buffer_size))
+
+
+market_data_service = build_market_data_service()
