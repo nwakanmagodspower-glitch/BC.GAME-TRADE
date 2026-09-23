@@ -83,6 +83,7 @@ class MicrostructureIntelligenceService:
         *,
         seconds_until_start: float | None = None,
         contract_duration_seconds: float | None = None,
+        now: datetime | None = None,
     ) -> MicrostructureIntelligenceResult:
         market = (symbol or settings.analysis_pair).upper()
         if market != settings.analysis_pair.upper():
@@ -102,7 +103,7 @@ class MicrostructureIntelligenceService:
 
         async with self._scan_lock:
             started = time.monotonic()
-            result = await self._compute(market, seconds_until_start, contract_duration_seconds)
+            result = await self._compute(market, seconds_until_start, contract_duration_seconds, now=now)
             self._last_compute_duration_ms = max(0, int((time.monotonic() - started) * 1000))
             self._compute_count += 1
             self._last_result = result
@@ -114,13 +115,15 @@ class MicrostructureIntelligenceService:
         market: str,
         seconds_until_start: float | None,
         contract_duration_seconds: float | None,
+        now: datetime | None = None,
     ) -> MicrostructureIntelligenceResult:
-        now = datetime.now(timezone.utc)
+        now_dt = now or datetime.now(timezone.utc)
         ms_snapshot = await self.cache.get_snapshot(
             market,
             max_book_age_seconds=settings.microstructure_book_max_age_seconds,
             max_depth_age_seconds=2.0,
             trade_lookback_seconds=10.0,
+            reference_time=now_dt,
         )
 
         if ms_snapshot.book_ticker is None:
@@ -169,7 +172,7 @@ class MicrostructureIntelligenceService:
                 contract_duration_seconds=contract_duration_seconds,
             )
 
-        book_history = await self.cache.get_book_history(market, lookback_seconds=10.0)
+        book_history = await self.cache.get_book_history(market, lookback_seconds=10.0, reference_time=now_dt)
 
         try:
             features = build_microstructure_features(
@@ -177,9 +180,9 @@ class MicrostructureIntelligenceService:
                 latest_book=ms_snapshot.book_ticker,
                 book_history=book_history,
                 depth=ms_snapshot.depth,
-                depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0),
+                depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0, reference_time=now_dt),
                 recent_ticks=ms_snapshot.recent_ticks,
-                now=now,
+                now=now_dt,
             )
         except Exception as exc:
             return MicrostructureIntelligenceResult(

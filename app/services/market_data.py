@@ -269,13 +269,14 @@ class MicrostructureDataCache:
         max_book_age_seconds: float = 1.0,
         max_depth_age_seconds: float = 2.0,
         trade_lookback_seconds: float = 10.0,
+        reference_time: datetime | None = None,
     ) -> MicrostructureSnapshot:
         sym = symbol.upper()
-        now = datetime.now(timezone.utc)
+        now = reference_time or datetime.now(timezone.utc)
         async with self._lock:
-            books = self._book_tickers.get(sym)
-            depths = self._depth_snapshots.get(sym)
-            trades = list(self._trades.get(sym, ()))
+            books = [b for b in self._book_tickers.get(sym, ()) if b.event_time <= now]
+            depths = [d for d in self._depth_snapshots.get(sym, ()) if d.event_time <= now]
+            trades = [t for t in self._trades.get(sym, ()) if t.event_time <= now]
 
         latest_book = books[-1] if books else None
         latest_depth = depths[-1] if depths else None
@@ -303,19 +304,25 @@ class MicrostructureDataCache:
             is_fresh=fresh,
         )
 
-    async def get_book_history(self, symbol: str, lookback_seconds: float = 10.0) -> list[BookTicker]:
+    async def get_book_history(
+        self, symbol: str, lookback_seconds: float = 10.0, reference_time: datetime | None = None
+    ) -> list[BookTicker]:
         sym = symbol.upper()
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
+        now = reference_time or datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=lookback_seconds)
         async with self._lock:
             books = list(self._book_tickers.get(sym, ()))
-        return [b for b in books if b.event_time >= cutoff]
+        return [b for b in books if cutoff <= b.event_time <= now]
 
-    async def get_depth_history(self, symbol: str, lookback_seconds: float = 10.0) -> list[DepthSnapshot]:
+    async def get_depth_history(
+        self, symbol: str, lookback_seconds: float = 10.0, reference_time: datetime | None = None
+    ) -> list[DepthSnapshot]:
         sym = symbol.upper()
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
+        now = reference_time or datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=lookback_seconds)
         async with self._lock:
             depths = list(self._depth_snapshots.get(sym, ()))
-        return [d for d in depths if d.event_time >= cutoff]
+        return [d for d in depths if cutoff <= d.event_time <= now]
 
 
     async def _run_book_ticker(self, symbol: str) -> None:
