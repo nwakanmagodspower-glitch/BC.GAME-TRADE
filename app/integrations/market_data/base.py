@@ -34,6 +34,45 @@ class Candle:
     provider: str
 
 
+@dataclass(frozen=True)
+class BookTicker:
+    symbol: str
+    best_bid_price: float
+    best_bid_qty: float
+    best_ask_price: float
+    best_ask_qty: float
+    event_time: datetime
+    provider: str
+
+    @property
+    def mid_price(self) -> float:
+        return (self.best_bid_price + self.best_ask_price) / 2.0
+
+    @property
+    def spread(self) -> float:
+        return self.best_ask_price - self.best_bid_price
+
+    @property
+    def spread_bps(self) -> float:
+        mid = self.mid_price
+        return (self.spread / mid * 10000.0) if mid > 0 else 0.0
+
+
+@dataclass(frozen=True)
+class DepthLevel:
+    price: float
+    quantity: float
+
+
+@dataclass(frozen=True)
+class DepthSnapshot:
+    symbol: str
+    bids: tuple[DepthLevel, ...]
+    asks: tuple[DepthLevel, ...]
+    event_time: datetime
+    provider: str
+
+
 class MarketDataProvider(ABC):
     name: str
 
@@ -48,6 +87,14 @@ class MarketDataProvider(ABC):
     @abstractmethod
     async def stream_ticks(self, symbol: str):
         """Yield normalized MarketTick objects indefinitely until cancelled."""
+        raise NotImplementedError
+
+    async def stream_book_ticker(self, symbol: str):
+        """Yield normalized BookTicker objects indefinitely until cancelled."""
+        raise NotImplementedError
+
+    async def stream_depth(self, symbol: str, levels: int = 5, update_speed_ms: int = 100):
+        """Yield normalized DepthSnapshot objects indefinitely until cancelled."""
         raise NotImplementedError
 
 

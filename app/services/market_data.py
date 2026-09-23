@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
-from app.integrations.market_data.base import Candle, MarketDataProvider, MarketTick
+from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, DepthSnapshot, MarketDataProvider, MarketTick
 from app.integrations.market_data.binance_spot import BinanceSpotProvider
 
 settings = get_settings()
@@ -225,3 +225,93 @@ def build_market_data_service() -> MarketDataService:
 
 
 market_data_service = build_market_data_service()
+
+
+@dataclass(frozen=True)
+class MicrostructureSnapshot:
+    symbol: str
+    book_ticker: BookTicker | None
+    depth: DepthSnapshot | None
+    recent_ticks: tuple[MarketTick, ...]
+    book_ticker_age_seconds: float | None
+    depth_age_seconds: float | None
+    is_fresh: bool
+
+
+class MicrostructureDataCache:
+    """Thread-safe rolling buffer cache for high-frequency microstructure streams."""
+
+    def __init__(self, book_history_size: int = 100, depth_history_size: int = 50, trade_history_size: int = 5000):
+        self._book_tickers: dict[str, deque[BookTicker]] = defaultdict(lambda: deque(maxlen=book_history_size))
+        self._depth_snapshots: dict[str, deque[DepthSnapshot]] = defaultdict(lambda: deque(maxlen=depth_history_size))
+        self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_history_size))
+        self._lock = asyncio.Lock()
+
+    async def add_book_ticker(self, ticker: BookTicker) -> None:
+        symbol = ticker.symbol.upper()
+        async with self._lock:
+            self._book_tickers[symbol].append(ticker)
+
+    async def add_depth_snapshot(self, depth: DepthSnapshot) -> None:
+        symbol = depth.symbol.upper()
+        async with self._lock:
+            self._depth_snapshots[symbol].append(depth)
+
+    async def add_trade(self, tick: MarketTick) -> None:
+        symbol = tick.symbol.upper()
+        async with self._lock:
+            self._trades[symbol].append(tick)
+
+    async def clear(self, symbol: str) -> None:
+        sym = symbol.upper()
+        async with self._lock:
+            self._book_tickers[sym].clear()
+            self._depth_snapshots[sym].clear()
+            self._trades[sym].clear()
+
+    async def get_snapshot(
+        self,
+        symbol: str,
+        max_book_age_seconds: float = 1.0,
+        max_depth_age_seconds: float = 2.0,
+        trade_lookback_seconds: float = 10.0,
+    ) -> MicrostructureSnapshot:
+        sym = symbol.upper()
+        now = datetime.now(timezone.utc)
+        async with self._lock:
+            books = self._book_tickers.get(sym)
+            depths = self._depth_snapshots.get(sym)
+            trades = list(self._trades.get(sym, ()))
+
+        latest_book = books[-1] if books else None
+        latest_depth = depths[-1] if depths else None
+
+        book_age = (now - latest_book.event_time).total_seconds() if latest_book else None
+        depth_age = (now - latest_depth.event_time).total_seconds() if latest_depth else None
+
+        fresh = (
+            latest_book is not None
+            and book_age is not None
+            and 0.0 <= book_age <= max_book_age_seconds
+            and (latest_depth is None or (depth_age is not None and 0.0 <= depth_age <= max_depth_age_seconds))
+        )
+
+        cutoff = now - timedelta(seconds=trade_lookback_seconds)
+        recent_trades = tuple(t for t in trades if t.event_time >= cutoff)
+
+        return MicrostructureSnapshot(
+            symbol=sym,
+            book_ticker=latest_book,
+            depth=latest_depth,
+            recent_ticks=recent_trades,
+            book_ticker_age_seconds=book_age,
+            depth_age_seconds=depth_age,
+            is_fresh=fresh,
+        )
+
+    async def get_book_history(self, symbol: str, lookback_seconds: float = 10.0) -> list[BookTicker]:
+        sym = symbol.upper()
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
+        async with self._lock:
+            books = list(self._book_tickers.get(sym, ()))
+        return [b for b in books if b.event_time >= cutoff]

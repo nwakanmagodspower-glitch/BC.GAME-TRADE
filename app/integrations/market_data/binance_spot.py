@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import httpx
 import websockets
 
-from app.integrations.market_data.base import Candle, MarketDataProvider, MarketTick, ms_to_datetime
+from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, DepthSnapshot, MarketDataProvider, MarketTick, ms_to_datetime
 
 
 class BinanceSpotProvider(MarketDataProvider):
@@ -157,4 +157,55 @@ class BinanceSpotProvider(MarketDataProvider):
                     event_time=ms_to_datetime(int(payload['T'])),
                     provider=self.name,
                     is_buyer_maker=bool(payload['m']),
+                )
+
+    async def stream_book_ticker(self, symbol: str):
+        stream = f'{symbol.lower()}@bookTicker'
+        url = f'{self.ws_base_url}/{stream}'
+        async with websockets.connect(url, ping_interval=20, ping_timeout=20, close_timeout=10) as websocket:
+            async for raw_message in websocket:
+                payload = json.loads(raw_message)
+                if not isinstance(payload, dict) or 'b' not in payload or 'a' not in payload:
+                    continue
+                # Binance bookTicker raw stream payload does not always include 'T'/'E',
+                # fallback to current UTC time if not present or 0.
+                event_time = (
+                    ms_to_datetime(int(payload['T']))
+                    if payload.get('T')
+                    else datetime.now(timezone.utc)
+                )
+                yield BookTicker(
+                    symbol=payload.get('s', symbol).upper(),
+                    best_bid_price=float(payload['b']),
+                    best_bid_qty=float(payload['B']),
+                    best_ask_price=float(payload['a']),
+                    best_ask_qty=float(payload['A']),
+                    event_time=event_time,
+                    provider=self.name,
+                )
+
+    async def stream_depth(self, symbol: str, levels: int = 5, update_speed_ms: int = 100):
+        allowed_levels = (5, 10, 20)
+        lvl = levels if levels in allowed_levels else 5
+        speed = 100 if update_speed_ms <= 100 else 1000
+        stream = f'{symbol.lower()}@depth{lvl}@{speed}ms'
+        url = f'{self.ws_base_url}/{stream}'
+        async with websockets.connect(url, ping_interval=20, ping_timeout=20, close_timeout=10) as websocket:
+            async for raw_message in websocket:
+                payload = json.loads(raw_message)
+                if not isinstance(payload, dict) or 'bids' not in payload or 'asks' not in payload:
+                    continue
+                event_time = (
+                    ms_to_datetime(int(payload['E']))
+                    if payload.get('E')
+                    else datetime.now(timezone.utc)
+                )
+                bids = tuple(DepthLevel(price=float(b[0]), quantity=float(b[1])) for b in payload['bids'])
+                asks = tuple(DepthLevel(price=float(a[0]), quantity=float(a[1])) for a in payload['asks'])
+                yield DepthSnapshot(
+                    symbol=payload.get('s', symbol).upper(),
+                    bids=bids,
+                    asks=asks,
+                    event_time=event_time,
+                    provider=self.name,
                 )
