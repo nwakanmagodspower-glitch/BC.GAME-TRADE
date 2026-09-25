@@ -1,38 +1,41 @@
 #!/usr/bin/env python3
 """Chronological Replay & Benchmark Engine for BTC_ORIGINAL_INTELLIGENCE_TIMER_V1 vs BTC_MICROSTRUCTURE_V2.
 
-Replays recorded bookTicker, depth5@100ms, and trade events with strict zero-lookahead guarantees.
-Retrieves real 1-minute historical candles from Binance for slow regime indicators.
+Architectural Modes:
+  MODE A: BINANCE PROXY BENCHMARK
+    - Prediction: V2 (and V1 paired)
+    - Target: Binance BTCUSDT mid-price movement over 5.0 seconds (with +/-500ms tolerance via O(log M) bisect).
+    - Labeled strictly as: "BINANCE PROXY BENCHMARK" (NEVER "BC.GAME ACCURACY").
 
-Paired Target & Evaluation Structure:
-  At each evaluation timestamp t:
-    - reference_price: Available mid price at evaluation time t.
-    - target_ts: t + 5.0 seconds.
-    - target_price: Mid price of the first bookTicker event occurring at or after target_ts (up to 10s max lookahead).
-    - actual_direction:
-        - UP if target_price > reference_price
-        - DOWN if target_price < reference_price
-        - FLAT if target_price == reference_price
-        - UNRESOLVED if no target bookTicker event is found.
+  MODE B: ACTUAL BC.GAME BENCHMARK
+    - Prediction: Generated at or before round priceStartTime using only market data available at that moment.
+    - Target: Actual DeTrade/BC.GAME aggregated BTC/USD settlement:
+        * endPrice > startPrice  -> UP
+        * endPrice < startPrice  -> DOWN
+        * endPrice == startPrice -> FLAT
+    - Strictly zero-lookahead. Evaluates whether Binance predictive signals predict actual DeTrade settlements.
 
-V1 and V2 are evaluated as a paired observation on the exact same timestamp t, reference price, and target direction.
-
-Chronological Splits (Shared Timestamps):
-  - Dev / Train (0 - 50%)
-  - Validation (50 - 75%)
-  - Unseen Test (75 - 100%)
-
-Detailed reporting of raw event counts, evaluation timestamps, unresolved targets, coverage, and actionable signal accuracy.
+Key Engineering Features:
+  - Exact 5-second target horizon with +/-500ms tolerance via bisect.
+  - Correct flat-outcome accounting: FLAT settlements are treated as losses for directional predictions.
+  - Chronological splits (Dev 50%, Validation 25%, Test 25%) with 5-second embargo to prevent target leakage.
+  - Fully offline-reproducible: loads embedded candles from dataset; fails loudly if required data is missing.
+  - Deterministic same-timestamp event sorting.
+  - Live/replay configuration parity.
 """
 
 import argparse
 import asyncio
+import bisect
 import json
 import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Sequence
+from pathlib import Path
+from typing import Any, Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import get_settings
 from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, DepthSnapshot, MarketTick
@@ -47,6 +50,14 @@ from app.signals.microstructure.scoring import score_microstructure_features
 from app.signals.scoring import score_features as score_features_v1
 
 settings = get_settings()
+
+EVENT_TYPE_PRIORITY = {
+    'candle': 0,
+    'detrade_round': 1,
+    'depth': 2,
+    'trade': 3,
+    'book_ticker': 4,
+}
 
 
 @dataclass
@@ -79,7 +90,41 @@ class PairedObservation:
     v2_pred: EnginePrediction | None
 
 
+@dataclass
+class DeTradeRoundResult:
+    round_id: str
+    price_start_ts: float
+    price_end_ts: float
+    start_price: float
+    end_price: float
+    actual_outcome: SignalDirection
+    v1_pred: EnginePrediction | None = None
+    v2_pred: EnginePrediction | None = None
+
+
+def resolve_target_bisect(
+    book_ts_list: list[float],
+    book_mid_list: list[float],
+    target_ts: float,
+    tolerance: float = 0.500,
+) -> float | None:
+    """Efficient O(log M) target lookup with exact tolerance."""
+    if not book_ts_list:
+        return None
+    idx = bisect.bisect_left(book_ts_list, target_ts)
+    best_diff = float('inf')
+    best_mid: float | None = None
+    for cand_idx in (idx - 1, idx):
+        if 0 <= cand_idx < len(book_ts_list):
+            diff = abs(book_ts_list[cand_idx] - target_ts)
+            if diff <= tolerance and diff < best_diff:
+                best_diff = diff
+                best_mid = book_mid_list[cand_idx]
+    return best_mid
+
+
 def load_and_validate_dataset(file_path: str) -> tuple[list[ReplayEvent], dict]:
+    """Load, validate, and sort recorded dataset with deterministic tie-breaking."""
     events: list[ReplayEvent] = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Dataset file not found: {file_path}")
@@ -89,16 +134,18 @@ def load_and_validate_dataset(file_path: str) -> tuple[list[ReplayEvent], dict]:
     duplicate_count = 0
     corrupted_count = 0
 
-    type_counts = {"book_ticker": 0, "depth": 0, "trade": 0}
+    type_counts = {"book_ticker": 0, "depth": 0, "trade": 0, "detrade_round": 0, "candle": 0}
+    embedded_candles: list[Candle] = []
+    detrade_rounds: dict[str, dict[str, Any]] = {}
 
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
                 payload = json.loads(line)
-                etype = payload["type"]
+                etype = payload.get("type", "")
                 event_ts = float(payload.get("event_ts") or payload.get("ts", 0))
                 local_ts = float(payload.get("local_ts") or event_ts)
 
@@ -108,38 +155,84 @@ def load_and_validate_dataset(file_path: str) -> tuple[list[ReplayEvent], dict]:
 
                 if event_ts < last_ts:
                     out_of_order_count += 1
-
                 if event_ts == last_ts:
                     duplicate_count += 1
-
                 last_ts = event_ts
 
                 if etype in type_counts:
                     type_counts[etype] += 1
 
+                # Parse embedded candles
+                if etype == "candle":
+                    c_data = payload.get("data", payload)
+                    dt_open = datetime.fromtimestamp(float(c_data["open_time"]), tz=timezone.utc)
+                    dt_close = datetime.fromtimestamp(float(c_data["close_time"]), tz=timezone.utc)
+                    candle = Candle(
+                        symbol=settings.analysis_pair.upper(),
+                        interval="1m",
+                        open_time=dt_open,
+                        close_time=dt_close,
+                        open=float(c_data["open"]),
+                        high=float(c_data["high"]),
+                        low=float(c_data["low"]),
+                        close=float(c_data["close"]),
+                        volume=float(c_data.get("volume", 0.0)),
+                        quote_volume=float(c_data.get("quote_volume", 0.0)),
+                        trade_count=int(c_data.get("trade_count", 0)),
+                        taker_buy_base_volume=float(c_data.get("taker_buy_base_volume", 0.0)),
+                        taker_buy_quote_volume=float(c_data.get("taker_buy_quote_volume", 0.0)),
+                        closed=bool(c_data.get("closed", True)),
+                        provider="BINANCE_SPOT",
+                    )
+                    embedded_candles.append(candle)
+
+                # Parse DeTrade round frames
+                elif etype == "detrade_round":
+                    r_data = payload.get("data", payload)
+                    r_id = str(r_data.get("round_id") or "")
+                    if r_id:
+                        if r_id not in detrade_rounds:
+                            detrade_rounds[r_id] = {}
+                        detrade_rounds[r_id].update({k: v for k, v in r_data.items() if v is not None})
+
                 events.append(ReplayEvent(
                     event_type=etype,
                     event_ts=event_ts,
                     local_ts=local_ts,
-                    data=payload,
+                    data=payload.get("data", payload),
                 ))
             except Exception:
                 corrupted_count += 1
 
-    events.sort(key=lambda e: e.event_ts)
+    # Deterministic sorting: event_ts -> local_ts -> event_type priority
+    events.sort(key=lambda e: (e.event_ts, e.local_ts, EVENT_TYPE_PRIORITY.get(e.event_type, 99)))
+
+    # Deduplicate embedded candles by close_time
+    seen_candle_closes = set()
+    unique_candles: list[Candle] = []
+    for c in sorted(embedded_candles, key=lambda c: c.close_time):
+        if c.close_time not in seen_candle_closes:
+            seen_candle_closes.add(c.close_time)
+            unique_candles.append(c)
+
     stats = {
         "total_raw_events": len(events),
         "book_ticker_events": type_counts["book_ticker"],
         "depth_events": type_counts["depth"],
         "trade_events": type_counts["trade"],
+        "detrade_round_events": type_counts["detrade_round"],
+        "candle_events": type_counts["candle"],
         "out_of_order_re_sorted": out_of_order_count,
         "duplicate_timestamps": duplicate_count,
         "corrupted_lines": corrupted_count,
+        "embedded_candles": unique_candles,
+        "detrade_rounds": detrade_rounds,
     }
     return events, stats
 
 
 async def fetch_historical_candles_for_replay(start_ts: float, end_ts: float) -> list[Candle]:
+    """Fetch real 1-minute historical candles from Binance as a fallback."""
     provider = BinanceSpotProvider(
         rest_base_url=settings.market_data_rest_base_url,
         ws_base_url=settings.market_data_ws_base_url,
@@ -156,7 +249,7 @@ async def fetch_historical_candles_for_replay(start_ts: float, end_ts: float) ->
         )
         return candles
     except Exception as exc:
-        print(f"Warning: Online candle fetch failed ({exc}). Using historical candle context from dataset if available.")
+        print(f"Warning: Online candle fetch failed ({exc}).")
         return []
 
 
@@ -169,12 +262,15 @@ async def run_replay_simulation(
     events: list[ReplayEvent],
     all_candles: list[Candle],
     eval_interval_seconds: float = 1.0,
+    target_tolerance_seconds: float = 0.500,
 ) -> list[PairedObservation]:
+    """Execute paired V1 vs V2 simulation with strict zero lookahead."""
     cache = MicrostructureDataCache()
     symbol = settings.analysis_pair.upper()
 
     observations: list[PairedObservation] = []
-    book_mid_history: list[tuple[float, float]] = []  # (event_ts, mid_price)
+    book_ts_list: list[float] = []
+    book_mid_list: list[float] = []
     last_eval_ts = 0.0
 
     for event in events:
@@ -191,7 +287,8 @@ async def run_replay_simulation(
                 provider="BINANCE_SPOT",
             )
             await cache.add_book_ticker(book)
-            book_mid_history.append((event.event_ts, book.mid_price))
+            book_ts_list.append(event.event_ts)
+            book_mid_list.append(book.mid_price)
 
         elif event.event_type == "depth":
             bids = tuple(DepthLevel(price=float(b[0]), quantity=float(b[1])) for b in event.data["bids"])
@@ -226,7 +323,7 @@ async def run_replay_simulation(
             snapshot = await cache.get_snapshot(
                 symbol,
                 max_book_age_seconds=settings.microstructure_book_max_age_seconds,
-                trade_lookback_seconds=15.0,
+                trade_lookback_seconds=10.0,
                 reference_time=dt,
             )
             if snapshot.book_ticker is None or not snapshot.is_fresh:
@@ -236,7 +333,7 @@ async def run_replay_simulation(
             depth_history = await cache.get_depth_history(symbol, lookback_seconds=10.0, reference_time=dt)
 
             # Evaluate V1
-            v1_pred = None
+            v1_pred: EnginePrediction | None = None
             try:
                 v1_features = build_features_v1(candles_now, list(snapshot.recent_ticks))
                 v1_score = score_features_v1(v1_features)
@@ -258,7 +355,7 @@ async def run_replay_simulation(
                 pass
 
             # Evaluate V2
-            v2_pred = None
+            v2_pred: EnginePrediction | None = None
             try:
                 v2_features = build_microstructure_features(
                     candles=candles_now,
@@ -300,31 +397,193 @@ async def run_replay_simulation(
                 v2_pred=v2_pred,
             ))
 
-    # Resolve 5-second Target Horizon on shared PairedObservation objects
+    # Resolve 5-second Target Horizon using O(log M) bisect with exact tolerance
     for obs in observations:
         target_ts = obs.ts + 5.0
-        subsequent = [mid for ts_m, mid in book_mid_history if target_ts <= ts_m <= target_ts + 10.0]
-        if subsequent:
-            obs.target_5s_price = subsequent[0]
+        target_mid = resolve_target_bisect(
+            book_ts_list, book_mid_list, target_ts, tolerance=target_tolerance_seconds
+        )
+        if target_mid is not None:
+            obs.target_5s_price = target_mid
             if obs.target_5s_price > obs.reference_price:
                 obs.actual_direction = SignalDirection.UP
             elif obs.target_5s_price < obs.reference_price:
                 obs.actual_direction = SignalDirection.DOWN
             else:
-                obs.actual_direction = SignalDirection.NO_TRADE
+                obs.actual_direction = SignalDirection.NO_TRADE  # FLAT
 
+            # Proper directional accounting: FLAT is incorrect for both UP and DOWN
             if obs.v1_pred and obs.v1_pred.direction in (SignalDirection.UP, SignalDirection.DOWN):
-                obs.v1_pred.is_correct = (obs.v1_pred.direction == obs.actual_direction)
+                if obs.actual_direction == SignalDirection.NO_TRADE:
+                    obs.v1_pred.is_correct = False
+                else:
+                    obs.v1_pred.is_correct = (obs.v1_pred.direction == obs.actual_direction)
 
             if obs.v2_pred and obs.v2_pred.direction in (SignalDirection.UP, SignalDirection.DOWN):
-                obs.v2_pred.is_correct = (obs.v2_pred.direction == obs.actual_direction)
+                if obs.actual_direction == SignalDirection.NO_TRADE:
+                    obs.v2_pred.is_correct = False
+                else:
+                    obs.v2_pred.is_correct = (obs.v2_pred.direction == obs.actual_direction)
 
     return observations
 
 
-def print_split_metrics(observations: Sequence[PairedObservation], engine_name: str, split_name: str, is_v2: bool):
-    valid_obs = [o for o in observations if o.actual_direction in (SignalDirection.UP, SignalDirection.DOWN)]
-    preds = [(o.v2_pred if is_v2 else o.v1_pred) for o in valid_obs]
+async def evaluate_actual_detrade_rounds(
+    events: list[ReplayEvent],
+    all_candles: list[Candle],
+    detrade_rounds: dict[str, dict[str, Any]],
+) -> list[DeTradeRoundResult]:
+    """MODE B: Evaluate V2 predictions strictly against authoritative DeTrade round settlements."""
+    results: list[DeTradeRoundResult] = []
+    symbol = settings.analysis_pair.upper()
+
+    completed_rounds: list[dict[str, Any]] = []
+    for r_id, r in detrade_rounds.items():
+        s_price = r.get("start_price")
+        e_price = r.get("end_price")
+        p_start_ms = r.get("price_start_time_ms")
+        p_end_ms = r.get("price_end_time_ms")
+
+        if s_price is not None and e_price is not None and p_start_ms is not None:
+            completed_rounds.append({
+                "round_id": r_id,
+                "start_price": float(s_price),
+                "end_price": float(e_price),
+                "price_start_ts": float(p_start_ms) / 1000.0,
+                "price_end_ts": (float(p_end_ms) / 1000.0) if p_end_ms else (float(p_start_ms) / 1000.0 + 5.0),
+            })
+
+    completed_rounds.sort(key=lambda r: r["price_start_ts"])
+    if not completed_rounds:
+        return []
+
+    # Replay cache up to each round's start time
+    cache = MicrostructureDataCache()
+    event_idx = 0
+    n_events = len(events)
+
+    for round_info in completed_rounds:
+        target_ts = round_info["price_start_ts"]
+
+        # Advance cache strictly up to decision cutoff (priceStartTime)
+        while event_idx < n_events and events[event_idx].event_ts <= target_ts:
+            ev = events[event_idx]
+            dt = datetime.fromtimestamp(ev.event_ts, tz=timezone.utc)
+            if ev.event_type == "book_ticker":
+                await cache.add_book_ticker(BookTicker(
+                    symbol=symbol,
+                    best_bid_price=float(ev.data["bid"]),
+                    best_bid_qty=float(ev.data["bid_qty"]),
+                    best_ask_price=float(ev.data["ask"]),
+                    best_ask_qty=float(ev.data["ask_qty"]),
+                    event_time=dt,
+                    provider="BINANCE_SPOT",
+                ))
+            elif ev.event_type == "depth":
+                bids = tuple(DepthLevel(price=float(b[0]), quantity=float(b[1])) for b in ev.data["bids"])
+                asks = tuple(DepthLevel(price=float(a[0]), quantity=float(a[1])) for a in ev.data["asks"])
+                await cache.add_depth_snapshot(DepthSnapshot(
+                    symbol=symbol, bids=bids, asks=asks, event_time=dt, provider="BINANCE_SPOT",
+                ))
+            elif ev.event_type == "trade":
+                await cache.add_trade(MarketTick(
+                    symbol=symbol,
+                    price=float(ev.data["price"]),
+                    quantity=float(ev.data["qty"]),
+                    event_time=dt,
+                    provider="BINANCE_SPOT",
+                    is_buyer_maker=bool(ev.data.get("is_buyer_maker", False)),
+                ))
+            event_idx += 1
+
+        # Determine authoritative DeTrade settlement outcome
+        s_price = round_info["start_price"]
+        e_price = round_info["end_price"]
+        if e_price > s_price:
+            outcome = SignalDirection.UP
+        elif e_price < s_price:
+            outcome = SignalDirection.DOWN
+        else:
+            outcome = SignalDirection.NO_TRADE  # FLAT
+
+        # Evaluate V2 at cutoff timestamp using only market data available at that moment
+        cutoff_dt = datetime.fromtimestamp(target_ts, tz=timezone.utc)
+        candles_now = get_candles_available_at(all_candles, target_ts)
+        snapshot = await cache.get_snapshot(
+            symbol,
+            max_book_age_seconds=settings.microstructure_book_max_age_seconds,
+            trade_lookback_seconds=10.0,
+            reference_time=cutoff_dt,
+        )
+
+        v2_pred: EnginePrediction | None = None
+        if snapshot.book_ticker is not None and snapshot.is_fresh and len(candles_now) >= 55:
+            book_history = await cache.get_book_history(symbol, lookback_seconds=10.0, reference_time=cutoff_dt)
+            depth_history = await cache.get_depth_history(symbol, lookback_seconds=10.0, reference_time=cutoff_dt)
+            try:
+                v2_features = build_microstructure_features(
+                    candles=candles_now,
+                    latest_book=snapshot.book_ticker,
+                    book_history=book_history,
+                    depth=snapshot.depth,
+                    depth_history=depth_history,
+                    recent_ticks=snapshot.recent_ticks,
+                    now=cutoff_dt,
+                )
+                v2_score = score_microstructure_features(v2_features)
+                v2_decision = decide_v2(
+                    score=v2_score,
+                    features=v2_features,
+                    is_fresh=True,
+                    max_spread_bps=settings.microstructure_max_spread_bps,
+                    min_l5_volume=settings.microstructure_min_l5_volume,
+                    min_score=settings.microstructure_min_score,
+                    min_margin=settings.microstructure_min_margin,
+                )
+                is_corr = None
+                if v2_decision.direction in (SignalDirection.UP, SignalDirection.DOWN):
+                    if outcome == SignalDirection.NO_TRADE:
+                        is_corr = False
+                    else:
+                        is_corr = (v2_decision.direction == outcome)
+
+                v2_pred = EnginePrediction(
+                    direction=v2_decision.direction,
+                    quality=v2_decision.quality,
+                    bull_score=v2_decision.bull_score,
+                    bear_score=v2_decision.bear_score,
+                    margin=v2_decision.margin,
+                    spread_bps=v2_features.spread_bps,
+                    atr_14_pct=v2_features.atr_14_pct,
+                    is_correct=is_corr,
+                )
+            except Exception:
+                pass
+
+        results.append(DeTradeRoundResult(
+            round_id=round_info["round_id"],
+            price_start_ts=round_info["price_start_ts"],
+            price_end_ts=round_info["price_end_ts"],
+            start_price=s_price,
+            end_price=e_price,
+            actual_outcome=outcome,
+            v2_pred=v2_pred,
+        ))
+
+    return results
+
+
+def print_split_metrics(
+    observations: Sequence[PairedObservation],
+    engine_name: str,
+    split_name: str,
+    is_v2: bool,
+    benchmark_label: str = "BINANCE PROXY BENCHMARK",
+) -> None:
+    """Print split metrics with proper flat-outcome accounting."""
+    # Denominator includes all resolved observations (UP, DOWN, or FLAT)
+    resolved_obs = [o for o in observations if o.actual_direction is not None]
+    preds = [(o.v2_pred if is_v2 else o.v1_pred) for o in resolved_obs]
     preds = [p for p in preds if p is not None]
 
     total_evals = len(observations)
@@ -335,9 +594,9 @@ def print_split_metrics(observations: Sequence[PairedObservation], engine_name: 
     up_actionable = [p for p in actionable if p.direction == SignalDirection.UP]
     down_actionable = [p for p in actionable if p.direction == SignalDirection.DOWN]
 
-    correct_total = sum(1 for p in actionable if p.is_correct)
-    correct_up = sum(1 for p in up_actionable if p.is_correct)
-    correct_down = sum(1 for p in down_actionable if p.is_correct)
+    correct_total = sum(1 for p in actionable if p.is_correct is True)
+    correct_up = sum(1 for p in up_actionable if p.is_correct is True)
+    correct_down = sum(1 for p in down_actionable if p.is_correct is True)
 
     acc_total = (correct_total / len(actionable) * 100.0) if actionable else 0.0
     acc_up = (correct_up / len(up_actionable) * 100.0) if up_actionable else 0.0
@@ -346,18 +605,63 @@ def print_split_metrics(observations: Sequence[PairedObservation], engine_name: 
     strong_actionable = [p for p in actionable if p.quality == "STRONG"]
     valid_actionable = [p for p in actionable if p.quality == "VALID"]
 
-    acc_strong = (sum(1 for p in strong_actionable if p.is_correct) / len(strong_actionable) * 100.0) if strong_actionable else 0.0
-    acc_valid = (sum(1 for p in valid_actionable if p.is_correct) / len(valid_actionable) * 100.0) if valid_actionable else 0.0
+    acc_strong = (sum(1 for p in strong_actionable if p.is_correct is True) / len(strong_actionable) * 100.0) if strong_actionable else 0.0
+    acc_valid = (sum(1 for p in valid_actionable if p.is_correct is True) / len(valid_actionable) * 100.0) if valid_actionable else 0.0
 
-    print(f"\n--- {engine_name} | {split_name} ---")
-    print(f"Total Shared Timestamps: {total_evals}")
+    flat_settlements = sum(1 for o in resolved_obs if o.actual_direction == SignalDirection.NO_TRADE)
+
+    print(f"\n--- [{benchmark_label}] {engine_name} | {split_name} ---")
+    print(f"Total Shared Timestamps: {total_evals} (Resolved: {len(resolved_obs)}, Flat: {flat_settlements})")
     print(f"Actionable Signals:     {len(actionable)} (NO_TRADE: {no_trade_count})")
     print(f"Coverage:              {coverage:.2f}%")
     print(f"Overall Accuracy:      {acc_total:.2f}% ({correct_total}/{len(actionable)})")
     print(f"  - UP Accuracy:       {acc_up:.2f}% ({correct_up}/{len(up_actionable)})")
     print(f"  - DOWN Accuracy:     {acc_down:.2f}% ({correct_down}/{len(down_actionable)})")
-    print(f"  - STRONG Accuracy:   {acc_strong:.2f}% ({sum(1 for p in strong_actionable if p.is_correct)}/{len(strong_actionable)})")
-    print(f"  - VALID Accuracy:    {acc_valid:.2f}% ({sum(1 for p in valid_actionable if p.is_correct)}/{len(valid_actionable)})")
+    print(f"  - STRONG Accuracy:   {acc_strong:.2f}% ({sum(1 for p in strong_actionable if p.is_correct is True)}/{len(strong_actionable)})")
+    print(f"  - VALID Accuracy:    {acc_valid:.2f}% ({sum(1 for p in valid_actionable if p.is_correct is True)}/{len(valid_actionable)})")
+
+
+def create_embargoed_splits(
+    observations: Sequence[PairedObservation],
+    embargo_seconds: float = 5.0,
+) -> list[tuple[str, int, int]]:
+    """Create Dev/Val/Test splits with strict embargo to prevent target leakage."""
+    n = len(observations)
+    if n == 0:
+        return []
+
+    dev_target_end = int(n * 0.50)
+    val_target_end = int(n * 0.75)
+
+    dev_end = dev_target_end
+
+    val_start = dev_end
+    if dev_end > 0 and dev_end < n:
+        last_dev_ts = observations[dev_end - 1].ts
+        while val_start < n and observations[val_start].ts < last_dev_ts + embargo_seconds:
+            val_start += 1
+
+    val_end = max(val_start, val_target_end)
+
+    test_start = val_end
+    if val_end > val_start and val_end < n:
+        last_val_ts = observations[val_end - 1].ts
+        while test_start < n and observations[test_start].ts < last_val_ts + embargo_seconds:
+            test_start += 1
+
+    # Fallback to direct slices if dataset is very short
+    if val_start >= val_end or test_start >= n:
+        return [
+            ("DEV / TRAIN SPLIT (0-50%)", 0, dev_target_end),
+            ("VALIDATION SPLIT (50-75%)", dev_target_end, val_target_end),
+            ("UNSEEN TEST SPLIT (75-100%)", val_target_end, n),
+        ]
+
+    return [
+        (f"DEV / TRAIN SPLIT (0-{dev_end})", 0, dev_end),
+        (f"VALIDATION SPLIT ({val_start}-{val_end}) [Embargo {embargo_seconds}s applied]", val_start, val_end),
+        (f"UNSEEN TEST SPLIT ({test_start}-{n}) [Embargo {embargo_seconds}s applied]", test_start, n),
+    ]
 
 
 def filter_non_overlapping_obs(observations: Sequence[PairedObservation], block_seconds: float = 5.0) -> list[PairedObservation]:
@@ -370,28 +674,42 @@ def filter_non_overlapping_obs(observations: Sequence[PairedObservation], block_
     return blocks
 
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Replay & Benchmark Engine (V1 vs V2).")
     parser.add_argument("--file", type=str, required=True, help="Input dataset JSONL path")
     args = parser.parse_args()
 
     events, stats = load_and_validate_dataset(args.file)
     if not events:
-        print("Error: Dataset empty or invalid.")
+        print("CRITICAL REPLAY ERROR: Dataset empty or invalid.")
         sys.exit(1)
 
     start_ts = events[0].event_ts
     end_ts = events[-1].event_ts
     duration = end_ts - start_ts
 
-    loop = asyncio.get_event_loop()
-    all_candles = loop.run_until_complete(fetch_historical_candles_for_replay(start_ts, end_ts))
-    observations = loop.run_until_complete(run_replay_simulation(events, all_candles))
+    # Use embedded candles if available; otherwise fetch from Binance REST
+    all_candles: list[Candle] = stats.get("embedded_candles", [])
+    if len(all_candles) < 55:
+        print(f"Embedded candles insufficient ({len(all_candles)} found). Fetching online fallback candles...")
+        online_candles = await fetch_historical_candles_for_replay(start_ts, end_ts)
+        if online_candles:
+            all_candles = online_candles
+            print(f"Fetched {len(all_candles)} online historical candles.")
+
+    # Fail loudly if required candles are missing
+    if len(all_candles) < 55:
+        print(f"\nCRITICAL REPLAY ERROR: Insufficient candle history ({len(all_candles)} available, minimum 55 required for ATR/regime indicators).")
+        print("Replay cannot proceed without required historical context. Exiting with failure.")
+        sys.exit(1)
+
+    observations = await run_replay_simulation(events, all_candles)
 
     v1_preds_count = sum(1 for o in observations if o.v1_pred is not None)
     v2_preds_count = sum(1 for o in observations if o.v2_pred is not None)
 
     valid_targets_count = sum(1 for o in observations if o.actual_direction in (SignalDirection.UP, SignalDirection.DOWN))
+    flat_targets_count = sum(1 for o in observations if o.actual_direction == SignalDirection.NO_TRADE)
     unresolved_targets_count = sum(1 for o in observations if o.actual_direction is None)
 
     v1_actionable = sum(1 for o in observations if o.v1_pred and o.v1_pred.direction in (SignalDirection.UP, SignalDirection.DOWN))
@@ -406,51 +724,80 @@ def main():
     print(f"  - bookTicker Events:    {stats['book_ticker_events']}")
     print(f"  - depth Events:         {stats['depth_events']}")
     print(f"  - trade Events:         {stats['trade_events']}")
+    print(f"  - detrade round Events: {stats['detrade_round_events']}")
+    print(f"  - candle Context:       {len(all_candles)} (embedded={len(stats.get('embedded_candles', []))})")
     print(f"Data Quality Issues:      Out-of-order={stats['out_of_order_re_sorted']}, Duplicates={stats['duplicate_timestamps']}, Corrupted={stats['corrupted_lines']}")
-    print(f"Total Evaluation Timestamps: {len(observations)}")
-    print(f"Target Resolution:        Valid 5s Targets={valid_targets_count}, Unresolved Targets={unresolved_targets_count}")
+    print(f"Total Evaluation Points:  {len(observations)}")
+    print(f"Target Resolution (5s):   Directional={valid_targets_count}, Flat={flat_targets_count}, Unresolved={unresolved_targets_count}")
     print(f"Predictions Generated:    V1={v1_preds_count}, V2={v2_preds_count}")
     print(f"Actionable Signals:       V1={v1_actionable}, V2={v2_actionable}")
 
-    # Shared Chronological Splits (50% Dev, 25% Val, 25% Test)
-    n = len(observations)
-    dev_end = int(n * 0.50)
-    val_end = int(n * 0.75)
-
-    splits = [
-        ("DEV / TRAIN SPLIT (0-50%)", 0, dev_end),
-        ("VALIDATION SPLIT (50-75%)", dev_end, val_end),
-        ("UNSEEN TEST SPLIT (75-100%)", val_end, n),
-    ]
-
+    # ==================================================================
+    # MODE A: BINANCE PROXY BENCHMARK
+    # ==================================================================
     print("\n==================================================================")
-    print("     PAIRED V1 vs V2 BENCHMARK REPORT (RAW OBSERVATIONS)          ")
+    print("      MODE A: BINANCE PROXY BENCHMARK (V2 vs Binance 5s Movement) ")
+    print("  NOTICE: Target is Binance BTCUSDT movement over ~5 seconds.     ")
+    print("  This is a PROXY BENCHMARK only. It is NOT BC.GAME ACCURACY.     ")
     print("==================================================================")
 
+    splits = create_embargoed_splits(observations, embargo_seconds=5.0)
     for split_name, start_i, end_i in splits:
         split_obs = observations[start_i:end_i]
-        print_split_metrics(split_obs, "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name, is_v2=False)
-        print_split_metrics(split_obs, "BTC_MICROSTRUCTURE_V2", split_name, is_v2=True)
+        print_split_metrics(split_obs, "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name, is_v2=False, benchmark_label="BINANCE PROXY")
+        print_split_metrics(split_obs, "BTC_MICROSTRUCTURE_V2", split_name, is_v2=True, benchmark_label="BINANCE PROXY")
 
-    print("\n==================================================================")
-    print("   PAIRED V1 vs V2 BENCHMARK REPORT (NON-OVERLAPPING 5S BLOCKS)   ")
-    print("==================================================================")
-
+    print("\n------------------------------------------------------------------")
+    print("   MODE A: NON-OVERLAPPING 5S BLOCKS (BINANCE PROXY BENCHMARK)    ")
+    print("------------------------------------------------------------------")
     block_obs = filter_non_overlapping_obs(observations, block_seconds=5.0)
-    n_b = len(block_obs)
-    dev_b = int(n_b * 0.50)
-    val_b = int(n_b * 0.75)
-
-    block_splits = [
-        ("DEV / TRAIN BLOCK SPLIT", 0, dev_b),
-        ("VALIDATION BLOCK SPLIT", dev_b, val_b),
-        ("UNSEEN TEST BLOCK SPLIT", val_b, n_b),
-    ]
-
+    block_splits = create_embargoed_splits(block_obs, embargo_seconds=5.0)
     for split_name, start_i, end_i in block_splits:
         split_b = block_obs[start_i:end_i]
-        print_split_metrics(split_b, "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name, is_v2=False)
-        print_split_metrics(split_b, "BTC_MICROSTRUCTURE_V2", split_name, is_v2=True)
+        print_split_metrics(split_b, "BTC_ORIGINAL_INTELLIGENCE_TIMER_V1", split_name, is_v2=False, benchmark_label="BINANCE PROXY")
+        print_split_metrics(split_b, "BTC_MICROSTRUCTURE_V2", split_name, is_v2=True, benchmark_label="BINANCE PROXY")
+
+    # ==================================================================
+    # MODE B: ACTUAL BC.GAME BENCHMARK
+    # ==================================================================
+    print("\n==================================================================")
+    print("      MODE B: ACTUAL BC.GAME BENCHMARK (DeTrade Round Settlement) ")
+    print("  AUTHORITATIVE TARGET: DeTrade/BC.GAME BTC/USD Aggregated Index  ")
+    print("==================================================================")
+
+    detrade_rounds_raw = stats.get("detrade_rounds", {})
+    if not detrade_rounds_raw:
+        print("STATUS: UNAVAILABLE in this dataset.")
+        print("Note: No DeTrade round settlement frames were recorded.")
+        print("Actual BC.GAME accuracy can only be evaluated when DeTrade round frames are present.")
+        print("Use 'record_microstructure_dataset.py' with DeTrade observer enabled to collect actual settlement data.")
+    else:
+        detrade_results = await evaluate_actual_detrade_rounds(events, all_candles, detrade_rounds_raw)
+        if not detrade_results:
+            print("STATUS: INCOMPLETE DeTrade round frames (missing startPrice/endPrice pairs).")
+        else:
+            actionable_detrade = [r for r in detrade_results if r.v2_pred and r.v2_pred.direction in (SignalDirection.UP, SignalDirection.DOWN)]
+            correct_detrade = sum(1 for r in actionable_detrade if r.v2_pred and r.v2_pred.is_correct is True)
+            up_detrade = [r for r in actionable_detrade if r.v2_pred and r.v2_pred.direction == SignalDirection.UP]
+            down_detrade = [r for r in actionable_detrade if r.v2_pred and r.v2_pred.direction == SignalDirection.DOWN]
+
+            acc_detrade = (correct_detrade / len(actionable_detrade) * 100.0) if actionable_detrade else 0.0
+            acc_detrade_up = (sum(1 for r in up_detrade if r.v2_pred and r.v2_pred.is_correct is True) / len(up_detrade) * 100.0) if up_detrade else 0.0
+            acc_detrade_down = (sum(1 for r in down_detrade if r.v2_pred and r.v2_pred.is_correct is True) / len(down_detrade) * 100.0) if down_detrade else 0.0
+
+            print(f"Total Authoritative Rounds Evaluated: {len(detrade_results)}")
+            print(f"V2 Actionable Round Signals:          {len(actionable_detrade)}")
+            print(f"V2 ACTUAL BC.GAME ACCURACY:           {acc_detrade:.2f}% ({correct_detrade}/{len(actionable_detrade)})")
+            print(f"  - UP Accuracy:                      {acc_detrade_up:.2f}% ({sum(1 for r in up_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(up_detrade)})")
+            print(f"  - DOWN Accuracy:                    {acc_detrade_down:.2f}% ({sum(1 for r in down_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(down_detrade)})")
+
+    print("\n==================================================================")
+    print("                     BENCHMARK EVALUATION COMPLETE                ")
+    print("==================================================================")
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

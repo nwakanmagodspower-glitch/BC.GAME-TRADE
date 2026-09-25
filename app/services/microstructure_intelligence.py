@@ -240,4 +240,7 @@ class MicrostructureIntelligenceService:
         )
 
 
-microstructure_intelligence_service = MicrostructureIntelligenceService()
+microstructure_intelligence_service = MicrostructureIntelligenceService(
+    cache=market_data_service.microstructure_cache
+)
+

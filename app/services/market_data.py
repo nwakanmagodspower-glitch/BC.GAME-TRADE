@@ -190,6 +190,8 @@ class MarketDataService:
         self.connected = False
 
     async def _run_ticks(self, symbol: str) -> None:
+        backoff = float(settings.market_data_reconnect_seconds)
+        max_backoff = 30.0
         while not self._stop.is_set():
             try:
                 self.connected = True
@@ -197,6 +199,7 @@ class MarketDataService:
                 async for tick in self.provider.stream_ticks(symbol):
                     if self._stop.is_set():
                         return
+                    backoff = float(settings.market_data_reconnect_seconds)
                     await self.cache.set_tick(tick)
                     await self.microstructure_cache.add_trade(tick)
                 self.connected = False
@@ -205,7 +208,8 @@ class MarketDataService:
             except Exception as exc:
                 self.connected = False
                 self.last_error = f'{type(exc).__name__}: {exc}'
-                await asyncio.sleep(settings.market_data_reconnect_seconds)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 1.5, max_backoff)
 
     async def _run_candles(self, symbol: str) -> None:
         while not self._stop.is_set():
@@ -218,6 +222,42 @@ class MarketDataService:
             except Exception as exc:
                 self.candle_last_error = f'{type(exc).__name__}: {exc}'
             await asyncio.sleep(settings.market_candle_refresh_seconds)
+
+    async def _run_book_ticker(self, symbol: str) -> None:
+        backoff = float(settings.market_data_reconnect_seconds)
+        max_backoff = 30.0
+        while not self._stop.is_set():
+            try:
+                self.book_ticker_last_error = None
+                async for book in self.provider.stream_book_ticker(symbol):
+                    if self._stop.is_set():
+                        return
+                    backoff = float(settings.market_data_reconnect_seconds)
+                    await self.microstructure_cache.add_book_ticker(book)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.book_ticker_last_error = f'{type(exc).__name__}: {exc}'
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 1.5, max_backoff)
+
+    async def _run_depth(self, symbol: str) -> None:
+        backoff = float(settings.market_data_reconnect_seconds)
+        max_backoff = 30.0
+        while not self._stop.is_set():
+            try:
+                self.depth_last_error = None
+                async for depth in self.provider.stream_depth(symbol, levels=5, update_speed_ms=100):
+                    if self._stop.is_set():
+                        return
+                    backoff = float(settings.market_data_reconnect_seconds)
+                    await self.microstructure_cache.add_depth_snapshot(depth)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.depth_last_error = f'{type(exc).__name__}: {exc}'
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 1.5, max_backoff)
 
 
 
@@ -235,7 +275,7 @@ class MicrostructureSnapshot:
 class MicrostructureDataCache:
     """Thread-safe (asyncio.Lock protected) rolling buffer cache for high-frequency microstructure streams."""
 
-    def __init__(self, book_history_size: int = 100, depth_history_size: int = 50, trade_history_size: int = 5000):
+    def __init__(self, book_history_size: int = 2000, depth_history_size: int = 500, trade_history_size: int = 10000):
         self._book_tickers: dict[str, deque[BookTicker]] = defaultdict(lambda: deque(maxlen=book_history_size))
         self._depth_snapshots: dict[str, deque[DepthSnapshot]] = defaultdict(lambda: deque(maxlen=depth_history_size))
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_history_size))
@@ -252,6 +292,8 @@ class MicrostructureDataCache:
             self._depth_snapshots[symbol].append(depth)
 
     async def add_trade(self, tick: MarketTick) -> None:
+        if tick.quantity <= 0:
+            return
         symbol = tick.symbol.upper()
         async with self._lock:
             self._trades[symbol].append(tick)
@@ -323,35 +365,6 @@ class MicrostructureDataCache:
         async with self._lock:
             depths = list(self._depth_snapshots.get(sym, ()))
         return [d for d in depths if cutoff <= d.event_time <= now]
-
-
-    async def _run_book_ticker(self, symbol: str) -> None:
-        while not self._stop.is_set():
-            try:
-                self.book_ticker_last_error = None
-                async for book in self.provider.stream_book_ticker(symbol):
-                    if self._stop.is_set():
-                        return
-                    await self.microstructure_cache.add_book_ticker(book)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self.book_ticker_last_error = f'{type(exc).__name__}: {exc}'
-                await asyncio.sleep(settings.market_data_reconnect_seconds)
-
-    async def _run_depth(self, symbol: str) -> None:
-        while not self._stop.is_set():
-            try:
-                self.depth_last_error = None
-                async for depth in self.provider.stream_depth(symbol, levels=5, update_speed_ms=100):
-                    if self._stop.is_set():
-                        return
-                    await self.microstructure_cache.add_depth_snapshot(depth)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                self.depth_last_error = f'{type(exc).__name__}: {exc}'
-                await asyncio.sleep(settings.market_data_reconnect_seconds)
 
 
 def build_market_data_service() -> MarketDataService:

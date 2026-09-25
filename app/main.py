@@ -13,7 +13,8 @@ from app.core.database import SessionLocal, engine
 from app.core.startup import validate_settings
 from app.integrations.bcgame_rounds import bcgame_round_service
 from app.integrations.detrade_observer import detrade_observer
-from app.integrations.detrade_token_provider import usable_detrade_token
+from app.integrations.detrade_token_provider import detrade_token_provider, usable_detrade_token
+from app.services.detrade_token_service import DETRADE_TOKEN_KEY
 from app.services.background_coordinator import background_job_coordinator
 from app.services.market_data import market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
@@ -35,6 +36,17 @@ async def lifespan(app: FastAPI):
     if not startup_check.ok:
         raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
     await market_data_service.start(settings.analysis_pair)
+    # Wire database token getter so tokens set via /set_token survive Render restarts.
+    if hasattr(detrade_token_provider, 'set_db_token_getter'):
+        from app.models.entities import RuntimeSetting as _RS
+        def _db_token_getter():
+            try:
+                with SessionLocal() as _db:
+                    row = _db.get(_RS, DETRADE_TOKEN_KEY)
+                    return row.value if row else None
+            except Exception:
+                return None
+        detrade_token_provider.set_db_token_getter(_db_token_getter)
     await detrade_observer.start()
     if settings.run_background_jobs:
         await background_job_coordinator.start()

@@ -111,8 +111,9 @@ class DeTradeRoundObservation:
 class DeTradeObserver:
     """Read-only authoritative BCGAME/DeTrade BTC/USD 5s round clock."""
 
-    def __init__(self, token_provider: DeTradeTokenProvider = detrade_token_provider) -> None:
+    def __init__(self, token_provider: DeTradeTokenProvider = detrade_token_provider, on_observation: Any = None) -> None:
         self.token_provider = token_provider
+        self.on_observation = on_observation
         self.latest: DeTradeRoundObservation | None = None
         self.last_error: str | None = None
         self.connected: bool = False
@@ -273,6 +274,13 @@ class DeTradeObserver:
         )
         self.last_error = None
         self._observation_event.set()
+        if self.on_observation is not None:
+            try:
+                res = self.on_observation(self.latest)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
         return True
 
     async def _heartbeat(self, ws: Any, credentials: DeTradeCredentials) -> None:

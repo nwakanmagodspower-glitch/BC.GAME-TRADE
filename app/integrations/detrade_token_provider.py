@@ -63,34 +63,54 @@ class DeTradeTokenProvider(Protocol):
 
 
 class EnvironmentDeTradeTokenProvider:
-    """Development/manual-test provider.
+    """Production token provider.
 
-    This never obtains credentials itself. It only exposes a token already supplied
-    securely to the process environment. The final production refresh path must use
-    an authorized BCGAME tradingLogin -> DeTrade login/verify integration.
+    Priority order at each credential request:
+      1. Database-persisted token (set via /set_token command) — survives restarts.
+      2. DETRADE_WS_TOKEN environment variable — cold-start fallback.
+
+    Once a token is rejected by DeTrade (codes 603/3100), invalidate() is called.
+    The connection stays down until /set_token supplies a new valid token.
     """
 
     def __init__(self) -> None:
         self._invalidated = False
+        # Injected at app startup to avoid circular imports.
+        # Signature: () -> str | None
+        self._db_token_getter = None
+
+    def set_db_token_getter(self, getter) -> None:
+        """Wire up the database token lookup after the service layer is ready."""
+        self._db_token_getter = getter
 
     @staticmethod
     def _usable_token(raw: str | None) -> str | None:
         return usable_detrade_token(raw)
 
     async def get_credentials(self, *, force_refresh: bool = False) -> DeTradeCredentials | None:
-        # Environment values cannot be refreshed in-process. force_refresh is kept
-        # on the interface so an official provider can replace this implementation.
-        # An environment value cannot change inside a running Render process.
-        # Never revive the same token after the server has rejected it. Rotating
-        # the Render secret restarts the service and creates a new provider.
         if self._invalidated:
             return None
+
+        # 1. Database-persisted token wins (set via /set_token).
+        if self._db_token_getter is not None:
+            try:
+                db_token = self._db_token_getter()
+            except Exception:
+                db_token = None
+            if db_token:
+                token = self._usable_token(db_token)
+                if token:
+                    return DeTradeCredentials(token=token, account_type=settings.detrade_client_type)
+
+        # 2. Environment variable fallback (cold-start default).
         token = self._usable_token(settings.detrade_ws_token)
         if token is None:
             return None
         return DeTradeCredentials(token=token, account_type=settings.detrade_client_type)
 
     async def invalidate(self) -> None:
+        # Block further use of the current token until /set_token provides a new one.
+        # The /set_token handler resets this flag explicitly after persisting a valid token.
         self._invalidated = True
 
 

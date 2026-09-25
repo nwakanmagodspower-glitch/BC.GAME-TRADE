@@ -253,7 +253,7 @@ class BroadcastDelivery(Base):
 class RuntimeSetting(Base):
     __tablename__ = 'runtime_settings'
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
-    value: Mapped[str] = mapped_column(String(255))
+    value: Mapped[str] = mapped_column(Text)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
