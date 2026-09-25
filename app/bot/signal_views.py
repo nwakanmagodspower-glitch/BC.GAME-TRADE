@@ -1,107 +1,56 @@
+from __future__ import annotations
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-
-
 from app.core.config import get_settings
-
 from app.integrations.bcgame import bcgame_adapter
-
 from app.models.entities import Signal, SignalDirection, SignalStatus
-
-
 
 settings = get_settings()
 
 
-
-
-
 def build_scan_prompt_keyboard() -> InlineKeyboardMarkup:
-
     rows: list[list[InlineKeyboardButton]] = []
-
     if bcgame_adapter.updown_url:
-
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-
     rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
-
     return InlineKeyboardMarkup(rows)
-
-
-
 
 
 def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = None) -> InlineKeyboardMarkup:
-
     rows: list[list[InlineKeyboardButton]] = []
-
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
-
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-
     rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
-
     return InlineKeyboardMarkup(rows)
 
 
-
-
-
 def format_scan_context() -> str:
-
     return (
-
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
-
         '🎯 CORRECT MARKET\n'
-
         'Pair: BTC/USD\n'
-
         'Duration: 5 Seconds\n'
-
         f'Range: ${settings.default_stake_band}\n\n'
-
         '1️⃣ Open BCGAME Up/Down and set your amount. Do not choose UP or DOWN yet.\n\n'
-
         '2️⃣ Wait for a fresh round to begin.\n\n'
-
         '3️⃣ Tap ⚡ Scan Market. The bot checks timing and market quality before returning a decision.\n\n'
-
         '🟢 UP — qualified upward setup\n'
-
         '🔴 DOWN — qualified downward setup\n'
-
         '⚪ NO TRADE — no qualified setup\n'
-
         '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-
         'If the round is already late, skip it rather than forcing an entry.'
-
     )
 
 
-
-
-
 def _entry_window_text(signal: Signal) -> str:
-
     data = signal.features_snapshot or {}
-
     round_meta = data.get('_bcgame_round') or {}
-
     if round_meta.get('source') == 'DETRADE_SYNC':
-
         remaining = round_meta.get('remaining_seconds_at_scan')
-
         if isinstance(remaining, (int, float)):
-
             return f'⏱️ Entry window: ~{float(remaining):.1f}s\n'
-
     return ''
-
-
-
 
 
 def _format_confidence_tag(decision: dict) -> str:
@@ -125,7 +74,7 @@ def format_signal(signal: Signal) -> str:
         bear = decision.get('bear_score', 0)
         score_line = f'\n📊 Momentum Scan: Bull {bull}/10 • Bear {bear}/10 (Flat)\n' if (bull or bear) else ''
         return (
-            '⚡ BCGAME BTC/USD — 5s • –\n\n'
+            '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
             '⚪ NO TRADE\n'
             + score_line +
             '\nNo qualified setup right now (momentum is neutral or choppy).\n'
@@ -142,18 +91,12 @@ def format_signal(signal: Signal) -> str:
         if mode == 'PAPER'
         else f'🚀 Direction: {signal.direction.value}. Use it only if the BCGAME entry window is still open.'
     )
-    staking_tip = (
-        '\n💡 Stake Tip: Recommended 2%–5% of balance. If round retraces, follow 1-step recovery on next signal.'
-        if mode != 'PAPER'
-        else ''
-    )
     return (
-        '⚡ BCGAME BTC/USD — 5s • –\n\n'
+        '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
         f'{icon} {signal.direction.value} SIGNAL\n\n'
         f'🔥 Strength: {quality} • {conf_tag}\n'
         + entry_window
         + '\n'
         + action
-        + staking_tip
         + paper
     )
