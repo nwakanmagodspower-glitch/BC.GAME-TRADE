@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     detrade_max_frame_bytes: int = 1_000_000
 
     # Exact original intelligence policy from before timer integration.
-    signal_min_score: int = 6
-    signal_min_margin: int = 3
+    signal_min_score: int = 3
+    signal_min_margin: int = 1
     signal_trade_flow_lookback_seconds: int = 15
     signal_settlement_window_seconds: int = 2
     signal_scan_coalesce_ms: int = 250

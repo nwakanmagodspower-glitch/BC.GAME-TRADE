@@ -85,9 +85,9 @@ services:
       - key: DETRADE_MAX_FRAME_BYTES
         value: "1000000"
       - key: SIGNAL_MIN_SCORE
-        value: "6"
-      - key: SIGNAL_MIN_MARGIN
         value: "3"
+      - key: SIGNAL_MIN_MARGIN
+        value: "1"
       - key: SIGNAL_TRADE_FLOW_LOOKBACK_SECONDS
         value: "15"
       - key: SIGNAL_SCAN_COALESCE_MS
