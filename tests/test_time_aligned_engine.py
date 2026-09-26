@@ -54,12 +54,14 @@ def make_test_candles(direction: int = 1, rsi_extreme: bool = False) -> list[Can
     return candles
 
 
-def make_test_ticks(bullish: bool = True, count: int = 24) -> list[MarketTick]:
+def make_test_ticks(bullish: bool = True, count: int = 24, price_step: float = 0.20) -> list[MarketTick]:
     now = datetime.now(timezone.utc)
     ticks = []
+    base_price = 61000.0
     for i in range(count):
+        step_val = i * price_step if bullish else -i * price_step
         ticks.append(MarketTick(
-            symbol='BTCUSDT', price=61000.0, quantity=1.0,
+            symbol='BTCUSDT', price=base_price + step_val, quantity=1.0,
             event_time=now - timedelta(milliseconds=(count - 1 - i) * 250),
             provider='TEST', is_buyer_maker=not bullish,
         ))

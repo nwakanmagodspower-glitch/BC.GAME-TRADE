@@ -426,6 +426,8 @@ class SignalIntelligenceService:
             min_score=settings.signal_min_score,
             min_margin=settings.signal_min_margin,
             target=target,
+            features=features,
+            min_lead_range=settings.signal_min_lead_range_dollars,
         )
         scan_stage = target.scan_stage.value if target else ScanStage.UNALIGNED.value
         details = {
@@ -433,6 +435,9 @@ class SignalIntelligenceService:
             'bull_score': decision.bull_score,
             'bear_score': decision.bear_score,
             'margin': decision.margin,
+            'lead_range_dollars': features.lead_range_dollars,
+            'lead_mom_dollars': features.lead_mom_dollars,
+            'lead_speed_sec': features.lead_speed_sec,
             'round_id': target.round_id if target else None,
             'target_start': target.target_start.isoformat() if target else None,
             'target_end': target.target_end.isoformat() if target else None,

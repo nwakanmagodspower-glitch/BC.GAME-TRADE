@@ -46,13 +46,25 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
             bear += 1
             reasons.append('volume expansion with taker selling')
 
-    if features.trade_buy_ratio is not None and features.trade_count_recent >= 10:
+    if features.trade_buy_ratio is not None and features.trade_count_recent >= 5:
         if features.trade_buy_ratio >= 0.58:
             bull += 2
             reasons.append('recent trade flow favors buyers')
         elif features.trade_buy_ratio <= 0.42:
             bear += 2
             reasons.append('recent trade flow favors sellers')
+
+    if features.lead_range_dollars >= 1.50:
+        if features.lead_mom_dollars >= 0.50:
+            bull += 1
+            reasons.append(f'lead price expansion favors buyers (+${features.lead_mom_dollars:.2f})')
+        elif features.lead_mom_dollars <= -0.50:
+            bear += 1
+            reasons.append(f'lead price expansion favors sellers (-${abs(features.lead_mom_dollars):.2f})')
+    elif 0.0 < features.lead_range_dollars < 1.00:
+        bull = max(0, bull - 1)
+        bear = max(0, bear - 1)
+        reasons.append('lead range < $1.00 indicates quiet chop')
 
     if 52 <= features.rsi_14 <= 72:
         bull += 1

@@ -60,8 +60,8 @@ def _format_confidence_tag(decision: dict) -> str:
     if peak >= 7:
         return '94% (High Conviction)'
     elif peak >= 5:
-        return '87% (Strong Momentum)'
-    return '79% (Confirmed)'
+        return '85% (Triple Confluence)'
+    return '75% (Confirmed)'
 
 
 def format_signal(signal: Signal) -> str:
@@ -72,6 +72,21 @@ def format_signal(signal: Signal) -> str:
     if signal.direction == SignalDirection.NO_TRADE or signal.status == SignalStatus.NO_TRADE:
         bull = decision.get('bull_score', 0)
         bear = decision.get('bear_score', 0)
+        quality = decision.get('quality', '')
+        lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
+
+        if quality == 'LOW_SPEED' or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < settings.signal_min_lead_range_dollars):
+            range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else 'Low'
+            return (
+                '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
+                '⚪ NO TRADE — Low Market Speed\n\n'
+                f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
+                '💡 Why skip? BCGAME 5-second rounds result in tie-losses when BTC does not move. '
+                'Skipping preserves your balance until clean momentum returns.\n\n'
+                'Wait for a fresh round with active movement before scanning again.'
+                + paper
+            )
+
         score_line = f'\n📊 Momentum Scan: Bull {bull}/10 • Bear {bear}/10 (Flat)\n' if (bull or bear) else ''
         return (
             '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
@@ -86,6 +101,8 @@ def format_signal(signal: Signal) -> str:
     quality = decision.get('quality', 'QUALIFIED')
     conf_tag = _format_confidence_tag(decision)
     entry_window = _entry_window_text(signal)
+    lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
+    speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
@@ -95,6 +112,7 @@ def format_signal(signal: Signal) -> str:
         '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
         f'{icon} {signal.direction.value} SIGNAL\n\n'
         f'🔥 Strength: {quality} • {conf_tag}\n'
+        + speed_line
         + entry_window
         + '\n'
         + action

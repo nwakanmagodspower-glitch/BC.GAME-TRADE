@@ -69,9 +69,11 @@ class Settings(BaseSettings):
     detrade_reconnect_max_seconds: float = 30.0
     detrade_max_frame_bytes: int = 1_000_000
 
-    # Exact original intelligence policy from before timer integration.
-    signal_min_score: int = 3
-    signal_min_margin: int = 1
+    # Calibrated Triple Confluence policy with Speed & Volatility Gate
+    signal_min_score: int = 5
+    signal_min_margin: int = 2
+    signal_min_lead_range_dollars: float = 1.50
+    signal_min_trade_count: int = 5
     signal_trade_flow_lookback_seconds: int = 15
     signal_settlement_window_seconds: int = 2
     signal_scan_coalesce_ms: int = 250

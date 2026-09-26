@@ -21,6 +21,9 @@ class FeatureSnapshot:
     distance_to_recent_low_pct: float
     trade_buy_ratio: float | None
     trade_count_recent: int
+    lead_range_dollars: float = 0.0
+    lead_mom_dollars: float = 0.0
+    lead_speed_sec: float = 0.0
     target_round_id: str | None = None
     target_lead_time_seconds: float | None = None
     target_duration_seconds: float | None = None
@@ -128,6 +131,19 @@ def build_features(
     dist_low = ((price - recent_low) / price) * 100.0 if price else 0.0
     trade_ratio = _trade_buy_ratio(recent_ticks)
 
+    lead_range = 0.0
+    lead_mom = 0.0
+    lead_speed = 0.0
+    if recent_ticks:
+        valid_prices = [t.price for t in recent_ticks if t.price > 0]
+        if valid_prices:
+            lead_range = max(valid_prices) - min(valid_prices)
+            lead_mom = valid_prices[-1] - valid_prices[0]
+            if len(recent_ticks) >= 2:
+                time_span = abs((recent_ticks[-1].event_time - recent_ticks[0].event_time).total_seconds())
+                if time_span > 0.1:
+                    lead_speed = lead_range / time_span
+
     target_round_id = target.round_id if target else None
     target_lead_time = target.lead_time_seconds if target else None
     target_duration = target.duration_seconds if target else None
@@ -173,6 +189,9 @@ def build_features(
         distance_to_recent_low_pct=dist_low,
         trade_buy_ratio=trade_ratio,
         trade_count_recent=len(recent_ticks),
+        lead_range_dollars=round(lead_range, 2),
+        lead_mom_dollars=round(lead_mom, 2),
+        lead_speed_sec=round(lead_speed, 2),
         target_round_id=target_round_id,
         target_lead_time_seconds=target_lead_time,
         target_duration_seconds=target_duration,

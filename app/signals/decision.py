@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.models.entities import SignalDirection
 from app.signals.contracts import PredictionTarget, ScanStage
+from app.signals.features import FeatureSnapshot
 from app.signals.scoring import ScoreResult
 
 
@@ -19,10 +20,12 @@ class SignalDecision:
 
 def decide(
     score: ScoreResult,
-    min_score: int = 3,
-    min_margin: int = 1,
+    min_score: int = 5,
+    min_margin: int = 2,
     *,
     target: PredictionTarget | None = None,
+    features: FeatureSnapshot | None = None,
+    min_lead_range: float = 0.0,
 ) -> SignalDecision:
     bull = score.bull_score
     bear = score.bear_score
@@ -39,6 +42,22 @@ def decide(
         )
 
     target_prefix = f'Target [{target.round_id} {target.lead_time_seconds:.1f}s lead]: ' if target else ''
+
+    # Speed & Volatility Gate:
+    # If recent trade range before contract start is below the minimum threshold,
+    # the market is in flat micro-chop where 5-second outcomes are noise and flat ties lose.
+    if features is not None and min_lead_range > 0.0 and features.lead_range_dollars < min_lead_range:
+        return SignalDecision(
+            direction=SignalDirection.NO_TRADE,
+            quality='LOW_SPEED',
+            bull_score=bull,
+            bear_score=bear,
+            margin=margin,
+            reason=(
+                f'{target_prefix}Market speed is low (BTC range ${features.lead_range_dollars:.2f} < ${min_lead_range:.2f}). '
+                'Preserving balance from flat chop losses.'
+            ),
+        )
 
     if bull >= min_score and bull - bear >= min_margin:
         if target is not None and target.scan_stage == ScanStage.STAGE_A_PREPARING:
