@@ -50,6 +50,10 @@ async def lifespan(app: FastAPI):
     await detrade_observer.start()
     if settings.run_background_jobs:
         await background_job_coordinator.start()
+        from app.services.worker_heartbeat import worker_heartbeat_service
+        from app.worker import _critical_worker_health
+        worker_heartbeat_service.health_provider = _critical_worker_health
+        await worker_heartbeat_service.start()
     if telegram_app is not None:
         await telegram_app.initialize(); await telegram_app.start()
     try:
@@ -58,6 +62,8 @@ async def lifespan(app: FastAPI):
         if telegram_app is not None:
             await telegram_app.stop(); await telegram_app.shutdown()
         if settings.run_background_jobs:
+            from app.services.worker_heartbeat import worker_heartbeat_service
+            await worker_heartbeat_service.stop()
             await background_job_coordinator.stop()
         await detrade_observer.stop()
         await market_data_service.stop()

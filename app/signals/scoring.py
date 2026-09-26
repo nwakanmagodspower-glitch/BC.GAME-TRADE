@@ -73,14 +73,14 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
         bear += 1
         reasons.append('RSI supports bearish momentum without extreme extension')
 
-    if features.rsi_14 > 78:
+    if features.rsi_14 > 85:
         bull = max(0, bull - 1)
         reasons.append('bullish score reduced for overextension')
-    elif features.rsi_14 < 22:
+    elif features.rsi_14 < 15:
         bear = max(0, bear - 1)
         reasons.append('bearish score reduced for overextension')
 
-    if features.atr_14_pct < 0.03:
+    if features.atr_14_pct < 0.012:
         bull = max(0, bull - 1)
         bear = max(0, bear - 1)
         reasons.append('very low volatility reduces trade quality')

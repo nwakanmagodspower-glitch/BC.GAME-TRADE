@@ -24,6 +24,8 @@ def _critical_worker_health() -> dict[str, bool]:
         signal_cycle_fresh = (
             datetime.now(timezone.utc) - success.astimezone(timezone.utc)
         ).total_seconds() <= settings.worker_heartbeat_max_age_seconds
+    elif signal_lifecycle_worker._task is not None and not signal_lifecycle_worker._task.done() and signal_lifecycle_worker.last_error is None:
+        signal_cycle_fresh = True
     return {
         'coordinator_leader': background_job_coordinator.is_leader,
         'coordinator_ok': background_job_coordinator.last_error is None,

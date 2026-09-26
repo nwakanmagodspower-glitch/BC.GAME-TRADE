@@ -100,6 +100,7 @@ class SignalLifecycleService:
         feature_data = dict(signal.features_snapshot or {})
         market_meta = dict(feature_data.get('_market') or {})
         market_meta.update({
+            'settled_at': current.isoformat(),
             'external_expiry_sampled_at': current.isoformat(),
             'external_expiry_event_time': snapshot.event_time.isoformat(),
             'external_expiry_provider': snapshot.provider,

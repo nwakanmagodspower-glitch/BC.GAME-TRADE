@@ -5,12 +5,13 @@ from datetime import datetime
 from typing import Sequence
 
 from app.integrations.market_data.base import BookTicker, Candle, DepthSnapshot, MarketTick
+from app.integrations.market_data.five_second_bar import FiveSecondBar, FiveSecondBarAggregator
 from app.signals.features import _atr_pct, _ema, _rsi, _structure
 
 
 @dataclass(frozen=True)
 class MicrostructureFeatureSnapshot:
-    # Slow regime context (from 1m candles)
+    # Slow regime context (from 1m candles if available, else 5s bars)
     ema_fast: float
     ema_slow: float
     rsi_14: float
@@ -47,6 +48,16 @@ class MicrostructureFeatureSnapshot:
     bid_depth_l5_qty: float
     ask_depth_l5_qty: float
     liquidity_delta_l5_pct: float  # 1s change in total top 5 depth
+
+    # 5-Second Bar Micro-Regime (synthesized from trade ticks)
+    bar_5s_return: float = 0.0
+    bar_5s_range: float = 0.0
+    bar_5s_taker_ratio: float = 0.5
+    bar_5s_ema_fast: float = 0.0
+    bar_5s_ema_slow: float = 0.0
+    bar_5s_rsi_14: float = 50.0
+    bar_5s_momentum_3bar: float = 0.0
+    lead_range_dollars: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -108,31 +119,68 @@ def _find_historical_mid(books: Sequence[BookTicker], target_time_ts: float) -> 
 
 
 def build_microstructure_features(
-    candles: Sequence[Candle],
-    latest_book: BookTicker,
-    book_history: Sequence[BookTicker],
-    depth: DepthSnapshot | None,
-    depth_history: Sequence[DepthSnapshot],
-    recent_ticks: Sequence[MarketTick],
-    now: datetime,
+    candles: Sequence[Candle] | None = None,
+    latest_book: BookTicker | None = None,
+    book_history: Sequence[BookTicker] = (),
+    depth: DepthSnapshot | None = None,
+    depth_history: Sequence[DepthSnapshot] = (),
+    recent_ticks: Sequence[MarketTick] = (),
+    now: datetime | None = None,
+    bars_5s: Sequence[FiveSecondBar] | None = None,
+    bar_metrics_5s: dict[str, Any] | None = None,
 ) -> MicrostructureFeatureSnapshot:
-    closed = [c for c in candles if c.closed]
-    if len(closed) < 55:
-        raise ValueError('at least 55 closed candles required for regime calculation')
+    if latest_book is None:
+        raise ValueError('latest_book is required for microstructure features')
+    if now is None:
+        now = datetime.now(timezone.utc)
 
-    closes = [c.close for c in closed]
-    price = closes[-1]
+    # 1. 5-Second Candlestick Synthesis & Micro-Regime
+    if bars_5s is None and recent_ticks:
+        agg = FiveSecondBarAggregator(max_bars=60)
+        sorted_ticks = sorted(recent_ticks, key=lambda x: x.event_time.timestamp())
+        for t in sorted_ticks:
+            agg.add_trade(
+                price=t.price,
+                quantity=t.quantity,
+                is_buyer_maker=bool(t.is_buyer_maker) if t.is_buyer_maker is not None else False,
+                event_time_ts=t.event_time.timestamp(),
+            )
+        bars_5s = agg.get_closed_bars()
+        if bar_metrics_5s is None:
+            bar_metrics_5s = agg.get_metrics()
 
-    # 1. Slow Regime
-    ema_fast = _ema(closes[-30:], 9)
-    ema_slow = _ema(closes[-55:], 21)
-    rsi_14 = _rsi(closes, 14)
-    atr_14_pct = _atr_pct(closed, 14)
-    momentum_5m_pct = ((price / closes[-6]) - 1.0) * 100.0 if closes[-6] else 0.0
-    structure = _structure(closed)
+    last_5s_bar = bars_5s[-1] if bars_5s else None
+    bar_5s_return = last_5s_bar.return_usd if last_5s_bar else 0.0
+    bar_5s_range = last_5s_bar.range if last_5s_bar else 0.0
+    bar_5s_taker_ratio = last_5s_bar.taker_ratio if last_5s_bar else 0.5
 
-    # 2. Fast Microstructure Top-of-Book & Depth
+    b_metrics = bar_metrics_5s or {}
     mid = latest_book.mid_price
+    bar_5s_ema_fast = float(b_metrics.get('ema_fast_9') or mid)
+    bar_5s_ema_slow = float(b_metrics.get('ema_slow_21') or mid)
+    bar_5s_rsi_14 = float(b_metrics.get('rsi_14') or 50.0)
+    bar_5s_momentum_3bar = float(b_metrics.get('momentum_3bar_usd') or bar_5s_return)
+
+    # 2. Slow Regime Context (1m candles if available, else 5s micro-regime)
+    closed = [c for c in (candles or ()) if c.closed]
+    if len(closed) >= 55:
+        closes = [c.close for c in closed]
+        price = closes[-1]
+        ema_fast = _ema(closes[-30:], 9)
+        ema_slow = _ema(closes[-55:], 21)
+        rsi_14 = _rsi(closes, 14)
+        atr_14_pct = _atr_pct(closed, 14)
+        momentum_5m_pct = ((price / closes[-6]) - 1.0) * 100.0 if closes[-6] else 0.0
+        structure = _structure(closed)
+    else:
+        ema_fast = bar_5s_ema_fast
+        ema_slow = bar_5s_ema_slow
+        rsi_14 = bar_5s_rsi_14
+        atr_14_pct = (bar_5s_range / mid * 100.0) if mid > 0 else 0.05
+        momentum_5m_pct = (bar_5s_momentum_3bar / mid * 100.0) if mid > 0 else 0.0
+        structure = 'BULLISH' if bar_5s_return > 0 else ('BEARISH' if bar_5s_return < 0 else 'FLAT')
+
+    # 3. Fast Microstructure Top-of-Book & Depth
     spread = latest_book.spread
     spread_bps = latest_book.spread_bps
     obi_top = calculate_obi_top(latest_book)
@@ -140,11 +188,11 @@ def build_microstructure_features(
     microprice = calculate_microprice(latest_book)
     microprice_dev_bps = ((microprice - mid) / mid * 10000.0) if mid > 0 else 0.0
 
-    # 3. Trade Flow
+    # 4. Fast Trade Flow
     tfi_1s, count_1s, _ = calculate_tfi(recent_ticks, now, lookback_seconds=1.0)
     tfi_5s, count_5s, vol_5s = calculate_tfi(recent_ticks, now, lookback_seconds=5.0)
 
-    # 4. Returns, Velocity, Acceleration
+    # 5. Returns, Velocity, Acceleration
     now_ts = now.timestamp()
     p_now = mid
 
@@ -167,7 +215,7 @@ def build_microstructure_features(
     prev_velocity_1s_bps = ((p_500ms - p_1s_500ms_ago) / p_1s_500ms_ago * 10000.0) if p_1s_500ms_ago > 0 else 0.0
     acceleration_1s_bps = velocity_1s_bps - prev_velocity_1s_bps
 
-    # 5. Liquidity Dynamics
+    # 6. Liquidity Dynamics
     if depth and depth.bids and depth.asks:
         bid_depth_l5 = sum(b.quantity for b in depth.bids[:5])
         ask_depth_l5 = sum(a.quantity for a in depth.asks[:5])
@@ -189,6 +237,14 @@ def build_microstructure_features(
         liquidity_delta_l5_pct = 0.0
 
     return MicrostructureFeatureSnapshot(
+        bar_5s_return=bar_5s_return,
+        bar_5s_range=bar_5s_range,
+        lead_range_dollars=bar_5s_range,
+        bar_5s_taker_ratio=bar_5s_taker_ratio,
+        bar_5s_ema_fast=bar_5s_ema_fast,
+        bar_5s_ema_slow=bar_5s_ema_slow,
+        bar_5s_rsi_14=bar_5s_rsi_14,
+        bar_5s_momentum_3bar=bar_5s_momentum_3bar,
         ema_fast=ema_fast,
         ema_slow=ema_slow,
         rsi_14=rsi_14,

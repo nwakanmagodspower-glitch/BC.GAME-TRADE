@@ -45,15 +45,45 @@ class PaperValidationService:
     def build_report(self, *, limit: int = 1000) -> PaperValidationReport:
         signals = list(self.db.scalars(select(Signal).order_by(Signal.id.desc()).limit(limit)).all())
         directional = [s for s in signals if s.direction in {SignalDirection.UP, SignalDirection.DOWN}]
-        settled = [s for s in directional if s.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE}]
+        settled = [
+            s for s in directional
+            if s.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE}
+            or (s.reference_entry_price is not None and s.reference_expiry_price is not None)
+        ]
         entry_delays: list[float] = []
         settlement_delays: list[float] = []
         now = datetime.now(timezone.utc)
 
+        wins = 0
+        losses = 0
+        ties = 0
+        for s in settled:
+            if s.status == SignalStatus.WIN:
+                wins += 1
+            elif s.status == SignalStatus.LOSS:
+                losses += 1
+            elif s.status == SignalStatus.TIE:
+                ties += 1
+            elif s.reference_entry_price is not None and s.reference_expiry_price is not None:
+                entry = s.reference_entry_price
+                expiry = s.reference_expiry_price
+                if expiry == entry:
+                    ties += 1
+                elif s.direction == SignalDirection.UP:
+                    if expiry > entry:
+                        wins += 1
+                    else:
+                        losses += 1
+                elif s.direction == SignalDirection.DOWN:
+                    if expiry < entry:
+                        wins += 1
+                    else:
+                        losses += 1
+
         for signal in directional:
             meta = ((signal.features_snapshot or {}).get('_market') or {})
             activated_at_text = meta.get('activated_at')
-            settled_at_text = meta.get('settled_at')
+            settled_at_text = meta.get('settled_at') or meta.get('external_expiry_sampled_at')
             if activated_at_text and signal.entry_at:
                 try:
                     activated_at = datetime.fromisoformat(activated_at_text)
@@ -67,9 +97,23 @@ class PaperValidationService:
                     settlement_delays.append(max(0.0, (settled_at - signal.expiry_at).total_seconds()))
                 except ValueError: pass
 
-        missing_entry = sum(s.status in {SignalStatus.ACTIVE, SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE} and s.reference_entry_price is None for s in directional)
-        missing_expiry = sum(s.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE} and s.reference_expiry_price is None for s in directional)
-        stuck_active = sum(s.status == SignalStatus.ACTIVE and s.expiry_at is not None and now > s.expiry_at and (now - s.expiry_at).total_seconds() > max(10, settings.market_data_max_age_seconds * 3) for s in directional)
+        missing_entry = sum(
+            (s.status in {SignalStatus.ACTIVE, SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE} or s in settled)
+            and s.reference_entry_price is None
+            for s in directional
+        )
+        missing_expiry = sum(
+            s.status in {SignalStatus.WIN, SignalStatus.LOSS, SignalStatus.TIE}
+            and s.reference_expiry_price is None
+            for s in directional
+        )
+        stuck_active = sum(
+            s.status == SignalStatus.ACTIVE
+            and s.expiry_at is not None
+            and now > s.expiry_at
+            and (now - s.expiry_at).total_seconds() > max(10, settings.market_data_max_age_seconds * 3)
+            for s in directional
+        )
         versions = tuple(sorted({s.strategy_version for s in signals}))
 
         blockers: list[str] = []
@@ -89,8 +133,8 @@ class PaperValidationService:
             waiting=sum(s.status == SignalStatus.WAITING_ENTRY for s in signals),
             active=sum(s.status == SignalStatus.ACTIVE for s in signals),
             cancelled=sum(s.status == SignalStatus.CANCELLED for s in signals),
-            settled=len(settled), wins=sum(s.status == SignalStatus.WIN for s in settled),
-            losses=sum(s.status == SignalStatus.LOSS for s in settled), ties=sum(s.status == SignalStatus.TIE for s in settled),
+            settled=len(settled), wins=wins,
+            losses=losses, ties=ties,
             avg_entry_delay_seconds=mean(entry_delays) if entry_delays else None,
             max_entry_delay_seconds=max(entry_delays) if entry_delays else None,
             avg_settlement_delay_seconds=mean(settlement_delays) if settlement_delays else None,

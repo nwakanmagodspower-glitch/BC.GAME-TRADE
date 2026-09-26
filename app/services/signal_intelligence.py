@@ -8,14 +8,17 @@ from typing import Any
 from app.core.config import get_settings
 from app.models.entities import SignalDirection
 from app.services.market_data import MarketSnapshot, market_data_service
+from app.services.microstructure_intelligence import microstructure_intelligence_service
 from app.signals.contracts import PredictionTarget, RoundPredictionContext, ScanStage
 from app.signals.decision import SignalDecision, decide
 from app.signals.features import FeatureSnapshot, build_features
+from app.signals.microstructure.decision import MicrostructureDecision
+from app.signals.microstructure.features import MicrostructureFeatureSnapshot
 from app.signals.scoring import score_features
 
 settings = get_settings()
 
-ENGINE_NAME = 'BTC_TIME_ALIGNED_INTELLIGENCE_V1'
+ENGINE_NAME = settings.strategy_version
 
 
 @dataclass(frozen=True)
@@ -25,8 +28,8 @@ class IntelligenceResult:
     quality: str
     reference_price: float | None
     market_snapshot: MarketSnapshot | None
-    features: FeatureSnapshot | None
-    decision: SignalDecision | None
+    features: FeatureSnapshot | MicrostructureFeatureSnapshot | None
+    decision: SignalDecision | MicrostructureDecision | None
     reason: str
     service_available: bool = True
     seconds_until_start: float | None = None
@@ -382,6 +385,87 @@ class SignalIntelligenceService:
                 context=context,
             )
 
+        scan_stage = target.scan_stage.value if target else ScanStage.UNALIGNED.value
+
+        # Check target cutoff veto first
+        if target and target.scan_stage == ScanStage.POST_CUTOFF:
+            return IntelligenceResult(
+                market=market,
+                direction=SignalDirection.NO_TRADE,
+                quality='NO_TRADE',
+                reference_price=snapshot.price,
+                market_snapshot=snapshot,
+                features=None,
+                decision=SignalDecision(
+                    direction=SignalDirection.NO_TRADE,
+                    quality='NO_TRADE',
+                    bull_score=0,
+                    bear_score=0,
+                    margin=0,
+                    reason='Order placement cutoff has passed.',
+                ),
+                reason='Order placement cutoff has passed.',
+                service_available=True,
+                target=target,
+                context=context,
+                scan_stage=scan_stage,
+                temporal_alignment_valid=temporal_alignment_valid,
+                engine_details={
+                    'engine': ENGINE_NAME,
+                    'scan_stage': scan_stage,
+                    'round_id': target.round_id,
+                },
+            )
+
+        # 1. Primary Engine: 5-Second Microstructure Intelligence Engine
+        try:
+            ms_result = await microstructure_intelligence_service.scan(
+                market,
+                seconds_until_start=seconds_until_start,
+                contract_duration_seconds=contract_duration_seconds,
+                now=now_dt,
+            )
+            if ms_result.service_available and ms_result.decision is not None and ms_result.features is not None:
+                details = {
+                    'engine': ms_result.engine,
+                    'bull_score': ms_result.decision.bull_score,
+                    'bear_score': ms_result.decision.bear_score,
+                    'margin': ms_result.decision.margin,
+                    'bar_5s_return': ms_result.features.bar_5s_return,
+                    'bar_5s_range': ms_result.features.bar_5s_range,
+                    'lead_range_dollars': ms_result.features.lead_range_dollars,
+                    'bar_5s_taker_ratio': ms_result.features.bar_5s_taker_ratio,
+                    'spread_bps': ms_result.features.spread_bps,
+                    'obi_l5': ms_result.features.obi_l5,
+                    'microprice_dev_bps': ms_result.features.microprice_dev_bps,
+                    'round_id': target.round_id if target else None,
+                    'target_start': target.target_start.isoformat() if target else None,
+                    'target_end': target.target_end.isoformat() if target else None,
+                    'lead_time_seconds': target.lead_time_seconds if target else None,
+                    'contract_duration_seconds': target.duration_seconds if target else None,
+                    'scan_stage': scan_stage,
+                    'temporal_alignment_valid': temporal_alignment_valid,
+                }
+                return IntelligenceResult(
+                    market=market,
+                    direction=ms_result.direction,
+                    quality=ms_result.quality,
+                    reference_price=ms_result.reference_price or snapshot.price,
+                    market_snapshot=snapshot,
+                    features=ms_result.features,
+                    decision=ms_result.decision,
+                    reason=ms_result.reason,
+                    service_available=True,
+                    engine_details=details,
+                    target=target,
+                    context=context,
+                    scan_stage=scan_stage,
+                    temporal_alignment_valid=temporal_alignment_valid,
+                )
+        except Exception:
+            pass
+
+        # 2. Fallback if microstructure stream is not yet active (e.g. unit tests without websocket ticks)
         candles = await market_data_service.get_cached_candles(market)
         if not candles:
             return IntelligenceResult(
@@ -392,7 +476,7 @@ class SignalIntelligenceService:
                 market_snapshot=snapshot,
                 features=None,
                 decision=None,
-                reason='BTC candle context is refreshing.',
+                reason='BTC market data stream is warming up.',
                 service_available=False,
                 target=target,
                 context=context,
@@ -429,7 +513,6 @@ class SignalIntelligenceService:
             features=features,
             min_lead_range=settings.signal_min_lead_range_dollars,
         )
-        scan_stage = target.scan_stage.value if target else ScanStage.UNALIGNED.value
         details = {
             'engine': ENGINE_NAME,
             'bull_score': decision.bull_score,

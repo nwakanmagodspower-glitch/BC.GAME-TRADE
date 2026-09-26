@@ -157,20 +157,6 @@ class MicrostructureIntelligenceService:
             )
 
         candles = await market_data_service.get_cached_candles(market)
-        if not candles:
-            return MicrostructureIntelligenceResult(
-                market=market,
-                direction=SignalDirection.NO_TRADE,
-                quality='UNAVAILABLE',
-                reference_price=ms_snapshot.book_ticker.mid_price,
-                snapshot=ms_snapshot,
-                features=None,
-                decision=None,
-                reason='BTC candle regime context is refreshing.',
-                service_available=False,
-                seconds_until_start=seconds_until_start,
-                contract_duration_seconds=contract_duration_seconds,
-            )
 
         book_history = await self.cache.get_book_history(market, lookback_seconds=10.0, reference_time=now_dt)
 
@@ -183,6 +169,8 @@ class MicrostructureIntelligenceService:
                 depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0, reference_time=now_dt),
                 recent_ticks=ms_snapshot.recent_ticks,
                 now=now_dt,
+                bars_5s=ms_snapshot.bars_5s,
+                bar_metrics_5s=ms_snapshot.bar_metrics_5s,
             )
         except Exception as exc:
             return MicrostructureIntelligenceResult(
@@ -208,6 +196,8 @@ class MicrostructureIntelligenceService:
             min_l5_volume=settings.microstructure_min_l5_volume,
             min_score=settings.microstructure_min_score,
             min_margin=settings.microstructure_min_margin,
+            min_5s_range=settings.signal_min_lead_range_dollars,
+            max_5s_range=12.0,
         )
 
         details = {
@@ -221,6 +211,10 @@ class MicrostructureIntelligenceService:
             'microprice_dev_bps': features.microprice_dev_bps,
             'tfi_1s': features.tfi_1s,
             'velocity_1s_bps': features.velocity_1s_bps,
+            'bar_5s_return': features.bar_5s_return,
+            'bar_5s_range': features.bar_5s_range,
+            'lead_range_dollars': features.lead_range_dollars,
+            'bar_5s_taker_ratio': features.bar_5s_taker_ratio,
         }
 
         return MicrostructureIntelligenceResult(

@@ -42,6 +42,7 @@ from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, De
 from app.integrations.market_data.binance_spot import BinanceSpotProvider
 from app.models.entities import SignalDirection
 from app.services.market_data import MicrostructureDataCache
+from app.signals.contracts import PredictionTarget
 from app.signals.decision import decide as decide_v1
 from app.signals.features import build_features as build_features_v1
 from app.signals.microstructure.decision import decide_microstructure as decide_v2
@@ -215,13 +216,58 @@ def load_and_validate_dataset(file_path: str) -> tuple[list[ReplayEvent], dict]:
             seen_candle_closes.add(c.close_time)
             unique_candles.append(c)
 
+    # Synthesize rolling 1m candles if recorded trade events extend past embedded candle context
+    last_candle_ts = max((c.close_time.timestamp() for c in unique_candles), default=0.0)
+    trades = [e for e in events if e.event_type == "trade" and e.event_ts > last_candle_ts]
+    if trades:
+        buckets: dict[int, list[tuple[float, float, float, bool]]] = {}
+        for ev in trades:
+            ts = ev.event_ts
+            p = float(ev.data.get("price") or ev.data.get("data", {}).get("price", 0))
+            q = float(ev.data.get("qty") or ev.data.get("data", {}).get("qty", 0))
+            is_bm = bool(ev.data.get("is_buyer_maker", False))
+            b_ts = int(ts // 60) * 60
+            if b_ts not in buckets:
+                buckets[b_ts] = []
+            buckets[b_ts].append((ts, p, q, is_bm))
+        for b_ts in sorted(buckets.keys()):
+            b_trades = buckets[b_ts]
+            dt_open = datetime.fromtimestamp(b_ts, tz=timezone.utc)
+            dt_close = datetime.fromtimestamp(b_ts + 60, tz=timezone.utc)
+            if dt_close not in seen_candle_closes:
+                seen_candle_closes.add(dt_close)
+                open_p = b_trades[0][1]
+                high_p = max(x[1] for x in b_trades)
+                low_p = min(x[1] for x in b_trades)
+                close_p = b_trades[-1][1]
+                vol = sum(x[2] for x in b_trades)
+                taker_buy_vol = sum(x[2] for x in b_trades if not x[3])
+                unique_candles.append(Candle(
+                    symbol=settings.analysis_pair.upper(),
+                    interval="1m",
+                    open_time=dt_open,
+                    close_time=dt_close,
+                    open=open_p,
+                    high=high_p,
+                    low=low_p,
+                    close=close_p,
+                    volume=vol,
+                    quote_volume=vol * close_p,
+                    trade_count=len(b_trades),
+                    taker_buy_base_volume=taker_buy_vol,
+                    taker_buy_quote_volume=taker_buy_vol * close_p,
+                    closed=True,
+                    provider="BINANCE_SPOT",
+                ))
+    unique_candles.sort(key=lambda c: c.close_time)
+
     stats = {
         "total_raw_events": len(events),
         "book_ticker_events": type_counts["book_ticker"],
         "depth_events": type_counts["depth"],
         "trade_events": type_counts["trade"],
         "detrade_round_events": type_counts["detrade_round"],
-        "candle_events": type_counts["candle"],
+        "candle_events": len(unique_candles),
         "out_of_order_re_sorted": out_of_order_count,
         "duplicate_timestamps": duplicate_count,
         "corrupted_lines": corrupted_count,
@@ -323,7 +369,7 @@ async def run_replay_simulation(
             snapshot = await cache.get_snapshot(
                 symbol,
                 max_book_age_seconds=settings.microstructure_book_max_age_seconds,
-                trade_lookback_seconds=10.0,
+                trade_lookback_seconds=float(settings.signal_trade_flow_lookback_seconds),
                 reference_time=dt,
             )
             if snapshot.book_ticker is None or not snapshot.is_fresh:
@@ -341,6 +387,8 @@ async def run_replay_simulation(
                     v1_score,
                     min_score=settings.signal_min_score,
                     min_margin=settings.signal_min_margin,
+                    features=v1_features,
+                    min_lead_range=settings.signal_min_lead_range_dollars,
                 )
                 v1_pred = EnginePrediction(
                     direction=v1_decision.direction,
@@ -365,6 +413,8 @@ async def run_replay_simulation(
                     depth_history=depth_history,
                     recent_ticks=snapshot.recent_ticks,
                     now=dt,
+                    bars_5s=snapshot.bars_5s,
+                    bar_metrics_5s=snapshot.bar_metrics_5s,
                 )
                 v2_score = score_microstructure_features(v2_features)
                 v2_decision = decide_v2(
@@ -432,8 +482,9 @@ async def evaluate_actual_detrade_rounds(
     events: list[ReplayEvent],
     all_candles: list[Candle],
     detrade_rounds: dict[str, dict[str, Any]],
+    scan_lead_seconds: float = 10.0,
 ) -> list[DeTradeRoundResult]:
-    """MODE B: Evaluate V2 predictions strictly against authoritative DeTrade round settlements."""
+    """MODE B: Evaluate V2 and V1 predictions strictly against authoritative DeTrade round settlements."""
     results: list[DeTradeRoundResult] = []
     symbol = settings.analysis_pair.upper()
 
@@ -451,22 +502,24 @@ async def evaluate_actual_detrade_rounds(
                 "end_price": float(e_price),
                 "price_start_ts": float(p_start_ms) / 1000.0,
                 "price_end_ts": (float(p_end_ms) / 1000.0) if p_end_ms else (float(p_start_ms) / 1000.0 + 5.0),
+                "trade_cutoff_ts": (float(r.get("trade_cutoff_time_ms", p_start_ms)) / 1000.0),
             })
 
     completed_rounds.sort(key=lambda r: r["price_start_ts"])
     if not completed_rounds:
         return []
 
-    # Replay cache up to each round's start time
+    # Replay cache up to each round's scan lead time (during the active betting window)
     cache = MicrostructureDataCache()
     event_idx = 0
     n_events = len(events)
 
     for round_info in completed_rounds:
         target_ts = round_info["price_start_ts"]
+        eval_ts = target_ts - scan_lead_seconds
 
-        # Advance cache strictly up to decision cutoff (priceStartTime)
-        while event_idx < n_events and events[event_idx].event_ts <= target_ts:
+        # Advance cache strictly up to decision timestamp (scan_time during betting window)
+        while event_idx < n_events and events[event_idx].event_ts <= eval_ts:
             ev = events[event_idx]
             dt = datetime.fromtimestamp(ev.event_ts, tz=timezone.utc)
             if ev.event_type == "book_ticker":
@@ -486,10 +539,12 @@ async def evaluate_actual_detrade_rounds(
                     symbol=symbol, bids=bids, asks=asks, event_time=dt, provider="BINANCE_SPOT",
                 ))
             elif ev.event_type == "trade":
+                p = float(ev.data.get("price") or ev.data.get("data", {}).get("price", 0))
+                q = float(ev.data.get("qty") or ev.data.get("data", {}).get("qty", 0))
                 await cache.add_trade(MarketTick(
                     symbol=symbol,
-                    price=float(ev.data["price"]),
-                    quantity=float(ev.data["qty"]),
+                    price=p,
+                    quantity=q,
                     event_time=dt,
                     provider="BINANCE_SPOT",
                     is_buyer_maker=bool(ev.data.get("is_buyer_maker", False)),
@@ -506,18 +561,18 @@ async def evaluate_actual_detrade_rounds(
         else:
             outcome = SignalDirection.NO_TRADE  # FLAT
 
-        # Evaluate V2 at cutoff timestamp using only market data available at that moment
-        cutoff_dt = datetime.fromtimestamp(target_ts, tz=timezone.utc)
-        candles_now = get_candles_available_at(all_candles, target_ts)
+        # Evaluate V2 at scan timestamp using only market data available at that moment
+        cutoff_dt = datetime.fromtimestamp(eval_ts, tz=timezone.utc)
+        candles_now = get_candles_available_at(all_candles, eval_ts)
         snapshot = await cache.get_snapshot(
             symbol,
             max_book_age_seconds=settings.microstructure_book_max_age_seconds,
-            trade_lookback_seconds=10.0,
+            trade_lookback_seconds=float(settings.signal_trade_flow_lookback_seconds),
             reference_time=cutoff_dt,
         )
 
         v2_pred: EnginePrediction | None = None
-        if snapshot.book_ticker is not None and snapshot.is_fresh and len(candles_now) >= 55:
+        if snapshot.book_ticker is not None and snapshot.is_fresh:
             book_history = await cache.get_book_history(symbol, lookback_seconds=10.0, reference_time=cutoff_dt)
             depth_history = await cache.get_depth_history(symbol, lookback_seconds=10.0, reference_time=cutoff_dt)
             try:
@@ -529,6 +584,8 @@ async def evaluate_actual_detrade_rounds(
                     depth_history=depth_history,
                     recent_ticks=snapshot.recent_ticks,
                     now=cutoff_dt,
+                    bars_5s=snapshot.bars_5s,
+                    bar_metrics_5s=snapshot.bar_metrics_5s,
                 )
                 v2_score = score_microstructure_features(v2_features)
                 v2_decision = decide_v2(
@@ -560,6 +617,53 @@ async def evaluate_actual_detrade_rounds(
             except Exception:
                 pass
 
+        # Evaluate V1 (Production Confluence Engine)
+        v1_pred: EnginePrediction | None = None
+        if snapshot.is_fresh and len(candles_now) >= 55:
+            try:
+                start_dt = datetime.fromtimestamp(round_info["price_start_ts"], tz=timezone.utc)
+                end_dt = datetime.fromtimestamp(round_info["price_end_ts"], tz=timezone.utc)
+                cutoff_trade_dt = datetime.fromtimestamp(round_info.get("trade_cutoff_ts") or round_info["price_start_ts"], tz=timezone.utc)
+                target = PredictionTarget(
+                    round_id=round_info["round_id"],
+                    target_start=start_dt,
+                    target_end=end_dt,
+                    lead_time_seconds=scan_lead_seconds,
+                    duration_seconds=(end_dt - start_dt).total_seconds(),
+                    scan_time=cutoff_dt,
+                    trade_cutoff=cutoff_trade_dt,
+                    seconds_until_cutoff=max(0.0, (cutoff_trade_dt - cutoff_dt).total_seconds()),
+                )
+                v1_features = build_features_v1(candles_now, list(snapshot.recent_ticks), target=target)
+                v1_score = score_features_v1(v1_features)
+                v1_decision = decide_v1(
+                    v1_score,
+                    min_score=settings.signal_min_score,
+                    min_margin=settings.signal_min_margin,
+                    target=target,
+                    features=v1_features,
+                    min_lead_range=settings.signal_min_lead_range_dollars,
+                )
+                is_v1_corr = None
+                if v1_decision.direction in (SignalDirection.UP, SignalDirection.DOWN):
+                    if outcome == SignalDirection.NO_TRADE:
+                        is_v1_corr = False
+                    else:
+                        is_v1_corr = (v1_decision.direction == outcome)
+
+                v1_pred = EnginePrediction(
+                    direction=v1_decision.direction,
+                    quality=v1_decision.quality,
+                    bull_score=v1_decision.bull_score,
+                    bear_score=v1_decision.bear_score,
+                    margin=v1_decision.margin,
+                    spread_bps=snapshot.book_ticker.spread_bps if snapshot.book_ticker else 0.0,
+                    atr_14_pct=v1_features.atr_14_pct,
+                    is_correct=is_v1_corr,
+                )
+            except Exception:
+                pass
+
         results.append(DeTradeRoundResult(
             round_id=round_info["round_id"],
             price_start_ts=round_info["price_start_ts"],
@@ -567,6 +671,7 @@ async def evaluate_actual_detrade_rounds(
             start_price=s_price,
             end_price=e_price,
             actual_outcome=outcome,
+            v1_pred=v1_pred,
             v2_pred=v2_pred,
         ))
 
@@ -776,6 +881,17 @@ async def async_main():
         if not detrade_results:
             print("STATUS: INCOMPLETE DeTrade round frames (missing startPrice/endPrice pairs).")
         else:
+            # V1 (Production Engine) metrics on actual DeTrade rounds
+            v1_actionable = [r for r in detrade_results if r.v1_pred and r.v1_pred.direction in (SignalDirection.UP, SignalDirection.DOWN)]
+            v1_correct = sum(1 for r in v1_actionable if r.v1_pred and r.v1_pred.is_correct is True)
+            v1_up = [r for r in v1_actionable if r.v1_pred and r.v1_pred.direction == SignalDirection.UP]
+            v1_down = [r for r in v1_actionable if r.v1_pred and r.v1_pred.direction == SignalDirection.DOWN]
+
+            v1_acc = (v1_correct / len(v1_actionable) * 100.0) if v1_actionable else 0.0
+            v1_acc_up = (sum(1 for r in v1_up if r.v1_pred and r.v1_pred.is_correct is True) / len(v1_up) * 100.0) if v1_up else 0.0
+            v1_acc_down = (sum(1 for r in v1_down if r.v1_pred and r.v1_pred.is_correct is True) / len(v1_down) * 100.0) if v1_down else 0.0
+
+            # V2 (Microstructure) metrics
             actionable_detrade = [r for r in detrade_results if r.v2_pred and r.v2_pred.direction in (SignalDirection.UP, SignalDirection.DOWN)]
             correct_detrade = sum(1 for r in actionable_detrade if r.v2_pred and r.v2_pred.is_correct is True)
             up_detrade = [r for r in actionable_detrade if r.v2_pred and r.v2_pred.direction == SignalDirection.UP]
@@ -786,10 +902,16 @@ async def async_main():
             acc_detrade_down = (sum(1 for r in down_detrade if r.v2_pred and r.v2_pred.is_correct is True) / len(down_detrade) * 100.0) if down_detrade else 0.0
 
             print(f"Total Authoritative Rounds Evaluated: {len(detrade_results)}")
-            print(f"V2 Actionable Round Signals:          {len(actionable_detrade)}")
-            print(f"V2 ACTUAL BC.GAME ACCURACY:           {acc_detrade:.2f}% ({correct_detrade}/{len(actionable_detrade)})")
-            print(f"  - UP Accuracy:                      {acc_detrade_up:.2f}% ({sum(1 for r in up_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(up_detrade)})")
-            print(f"  - DOWN Accuracy:                    {acc_detrade_down:.2f}% ({sum(1 for r in down_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(down_detrade)})")
+            print("---")
+            print(f"V1 (Production Confluence Engine) Actionable Signals: {len(v1_actionable)}")
+            print(f"V1 ACTUAL BC.GAME ACCURACY:                          {v1_acc:.2f}% ({v1_correct}/{len(v1_actionable)})")
+            print(f"  - UP Accuracy:                                     {v1_acc_up:.2f}% ({sum(1 for r in v1_up if r.v1_pred and r.v1_pred.is_correct is True)}/{len(v1_up)})")
+            print(f"  - DOWN Accuracy:                                   {v1_acc_down:.2f}% ({sum(1 for r in v1_down if r.v1_pred and r.v1_pred.is_correct is True)}/{len(v1_down)})")
+            print("---")
+            print(f"V2 (Microstructure Sidecar) Actionable Signals:       {len(actionable_detrade)}")
+            print(f"V2 ACTUAL BC.GAME ACCURACY:                          {acc_detrade:.2f}% ({correct_detrade}/{len(actionable_detrade)})")
+            print(f"  - UP Accuracy:                                     {acc_detrade_up:.2f}% ({sum(1 for r in up_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(up_detrade)})")
+            print(f"  - DOWN Accuracy:                                   {acc_detrade_down:.2f}% ({sum(1 for r in down_detrade if r.v2_pred and r.v2_pred.is_correct is True)}/{len(down_detrade)})")
 
     print("\n==================================================================")
     print("                     BENCHMARK EVALUATION COMPLETE                ")

@@ -74,6 +74,8 @@ def format_signal(signal: Signal) -> str:
         bear = decision.get('bear_score', 0)
         quality = decision.get('quality', '')
         lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
+        if lead_range is None:
+            lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
 
         if quality == 'LOW_SPEED' or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < settings.signal_min_lead_range_dollars):
             range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else 'Low'
@@ -102,6 +104,8 @@ def format_signal(signal: Signal) -> str:
     conf_tag = _format_confidence_tag(decision)
     entry_window = _entry_window_text(signal)
     lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
+    if lead_range is None:
+        lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
     action = (
         'Recorded for PAPER validation only.'

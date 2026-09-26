@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import get_settings
 from app.integrations.market_data.base import BookTicker, Candle, DepthLevel, DepthSnapshot, MarketDataProvider, MarketTick
 from app.integrations.market_data.binance_spot import BinanceSpotProvider
+from app.integrations.market_data.five_second_bar import FiveSecondBar, FiveSecondBarAggregator
 
 settings = get_settings()
 
@@ -270,6 +271,9 @@ class MicrostructureSnapshot:
     book_ticker_age_seconds: float | None
     depth_age_seconds: float | None
     is_fresh: bool
+    last_5s_bar: FiveSecondBar | None = None
+    bars_5s: tuple[FiveSecondBar, ...] = ()
+    bar_metrics_5s: dict[str, Any] | None = None
 
 
 class MicrostructureDataCache:
@@ -279,6 +283,7 @@ class MicrostructureDataCache:
         self._book_tickers: dict[str, deque[BookTicker]] = defaultdict(lambda: deque(maxlen=book_history_size))
         self._depth_snapshots: dict[str, deque[DepthSnapshot]] = defaultdict(lambda: deque(maxlen=depth_history_size))
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_history_size))
+        self._bar_aggregators: dict[str, FiveSecondBarAggregator] = defaultdict(lambda: FiveSecondBarAggregator(max_bars=240))
         self._lock = asyncio.Lock()
 
     async def add_book_ticker(self, ticker: BookTicker) -> None:
@@ -297,6 +302,13 @@ class MicrostructureDataCache:
         symbol = tick.symbol.upper()
         async with self._lock:
             self._trades[symbol].append(tick)
+            is_bm = bool(tick.is_buyer_maker) if tick.is_buyer_maker is not None else False
+            self._bar_aggregators[symbol].add_trade(
+                price=tick.price,
+                quantity=tick.quantity,
+                is_buyer_maker=is_bm,
+                event_time_ts=tick.event_time.timestamp(),
+            )
 
     async def clear(self, symbol: str) -> None:
         sym = symbol.upper()
@@ -304,6 +316,7 @@ class MicrostructureDataCache:
             self._book_tickers[sym].clear()
             self._depth_snapshots[sym].clear()
             self._trades[sym].clear()
+            self._bar_aggregators[sym].clear()
 
     async def get_snapshot(
         self,
@@ -319,6 +332,10 @@ class MicrostructureDataCache:
             books = [b for b in self._book_tickers.get(sym, ()) if b.event_time <= now]
             depths = [d for d in self._depth_snapshots.get(sym, ()) if d.event_time <= now]
             trades = [t for t in self._trades.get(sym, ()) if t.event_time <= now]
+            agg = self._bar_aggregators[sym]
+            bars_5s = tuple(agg.get_closed_bars(limit=60))
+            last_5s = agg.get_last_closed_bar()
+            metrics_5s = agg.get_metrics()
 
         latest_book = books[-1] if books else None
         latest_depth = depths[-1] if depths else None
@@ -344,7 +361,25 @@ class MicrostructureDataCache:
             book_ticker_age_seconds=book_age,
             depth_age_seconds=depth_age,
             is_fresh=fresh,
+            last_5s_bar=last_5s,
+            bars_5s=bars_5s,
+            bar_metrics_5s=metrics_5s,
         )
+
+    async def get_5s_bars(self, symbol: str, limit: int = 60) -> list[FiveSecondBar]:
+        sym = symbol.upper()
+        async with self._lock:
+            return self._bar_aggregators[sym].get_closed_bars(limit=limit)
+
+    async def get_last_5s_bar(self, symbol: str) -> FiveSecondBar | None:
+        sym = symbol.upper()
+        async with self._lock:
+            return self._bar_aggregators[sym].get_last_closed_bar()
+
+    async def get_5s_metrics(self, symbol: str) -> dict[str, Any]:
+        sym = symbol.upper()
+        async with self._lock:
+            return self._bar_aggregators[sym].get_metrics()
 
     async def get_book_history(
         self, symbol: str, lookback_seconds: float = 10.0, reference_time: datetime | None = None
