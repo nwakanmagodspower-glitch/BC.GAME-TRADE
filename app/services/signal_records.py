@@ -98,6 +98,15 @@ class SignalRecordService:
             'seconds_until_start': result.seconds_until_start,
             'contract_duration_seconds': result.contract_duration_seconds,
         }
+        pred_target = getattr(result, 'target', None)
+        if pred_target is not None:
+            feature_data['_prediction_target'] = pred_target.to_dict()
+            feature_data['_temporal_alignment'] = {
+                'aligned': getattr(result, 'temporal_alignment_valid', True),
+                'scan_stage': getattr(result, 'scan_stage', 'STAGE_B_FINAL'),
+                'target_interval': f'[{pred_target.target_start.isoformat()} -> {pred_target.target_end.isoformat()}]',
+                'lead_time_seconds': round(pred_target.lead_time_seconds, 3),
+            }
         if round_snapshot is not None:
             remaining_seconds = max(0.0, round_snapshot.seconds_until_order_close(recorded_at))
             feature_data['_bcgame_round'] = {

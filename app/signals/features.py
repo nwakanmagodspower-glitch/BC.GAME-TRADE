@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from statistics import mean
 
 from app.integrations.market_data.base import Candle, MarketTick
+from app.signals.contracts import PredictionTarget, ScanStage
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,12 @@ class FeatureSnapshot:
     distance_to_recent_low_pct: float
     trade_buy_ratio: float | None
     trade_count_recent: int
+    target_round_id: str | None = None
+    target_lead_time_seconds: float | None = None
+    target_duration_seconds: float | None = None
+    target_stage: str | None = None
+    impulse_exhaustion_risk: bool = False
+    trend_persistence_score: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -90,7 +97,12 @@ def _trade_buy_ratio(ticks: list[MarketTick]) -> float | None:
     return buy_qty / total if total > 0 else None
 
 
-def build_features(candles: list[Candle], recent_ticks: list[MarketTick]) -> FeatureSnapshot:
+def build_features(
+    candles: list[Candle],
+    recent_ticks: list[MarketTick],
+    *,
+    target: PredictionTarget | None = None,
+) -> FeatureSnapshot:
     closed = [candle for candle in candles if candle.closed]
     if len(closed) < 55:
         raise ValueError('at least 55 closed candles are required')
@@ -106,17 +118,65 @@ def build_features(candles: list[Candle], recent_ticks: list[MarketTick]) -> Fea
     taker_total = latest.volume or 0.0
     taker_ratio = latest.taker_buy_base_volume / taker_total if taker_total > 0 else 0.5
 
+    fast_ema = _ema(closes[-30:], 9)
+    slow_ema = _ema(closes[-55:], 21)
+    rsi_val = _rsi(closes, 14)
+    atr_val = _atr_pct(closed, 14)
+    mom_5 = ((price / closes[-6]) - 1.0) * 100.0 if closes[-6] else 0.0
+    struct_val = _structure(closed)
+    dist_high = ((recent_high - price) / price) * 100.0 if price else 0.0
+    dist_low = ((price - recent_low) / price) * 100.0 if price else 0.0
+    trade_ratio = _trade_buy_ratio(recent_ticks)
+
+    target_round_id = target.round_id if target else None
+    target_lead_time = target.lead_time_seconds if target else None
+    target_duration = target.duration_seconds if target else None
+    target_stage = target.scan_stage.value if target else None
+
+    exhaustion_risk = False
+    persistence_score = 0
+    if target is not None and target_lead_time is not None:
+        # Evaluate impulse exhaustion across the lead gap:
+        # If the contract start T1 is in the future (>3s), an extreme impulse at T0
+        # is prone to climax and retrace BEFORE or during [T1, T2].
+        if target_lead_time > 3.0:
+            if rsi_val >= 75.0 or (taker_ratio >= 0.75 and dist_high <= 0.02):
+                exhaustion_risk = True
+            elif rsi_val <= 25.0 or (taker_ratio <= 0.25 and dist_low <= 0.02):
+                exhaustion_risk = True
+
+        # Structural momentum persistence:
+        ema_bull = fast_ema > slow_ema
+        ema_bear = fast_ema < slow_ema
+        mom_bull = mom_5 >= 0.08
+        mom_bear = mom_5 <= -0.08
+
+        if struct_val == 'BULLISH' and ema_bull and mom_bull and not exhaustion_risk:
+            persistence_score = 2
+        elif struct_val == 'BEARISH' and ema_bear and mom_bear and not exhaustion_risk:
+            persistence_score = 2
+        elif exhaustion_risk:
+            persistence_score = -2
+        elif struct_val == 'RANGE' and target_lead_time > 6.0:
+            persistence_score = -1
+
     return FeatureSnapshot(
-        ema_fast=_ema(closes[-30:], 9),
-        ema_slow=_ema(closes[-55:], 21),
-        rsi_14=_rsi(closes, 14),
-        atr_14_pct=_atr_pct(closed, 14),
-        momentum_5_pct=((price / closes[-6]) - 1.0) * 100.0 if closes[-6] else 0.0,
+        ema_fast=fast_ema,
+        ema_slow=slow_ema,
+        rsi_14=rsi_val,
+        atr_14_pct=atr_val,
+        momentum_5_pct=mom_5,
         volume_ratio=latest.volume / volume_baseline,
         taker_buy_ratio=taker_ratio,
-        structure=_structure(closed),
-        distance_to_recent_high_pct=((recent_high - price) / price) * 100.0 if price else 0.0,
-        distance_to_recent_low_pct=((price - recent_low) / price) * 100.0 if price else 0.0,
-        trade_buy_ratio=_trade_buy_ratio(recent_ticks),
+        structure=struct_val,
+        distance_to_recent_high_pct=dist_high,
+        distance_to_recent_low_pct=dist_low,
+        trade_buy_ratio=trade_ratio,
         trade_count_recent=len(recent_ticks),
+        target_round_id=target_round_id,
+        target_lead_time_seconds=target_lead_time,
+        target_duration_seconds=target_duration,
+        target_stage=target_stage,
+        impulse_exhaustion_risk=exhaustion_risk,
+        trend_persistence_score=persistence_score,
     )

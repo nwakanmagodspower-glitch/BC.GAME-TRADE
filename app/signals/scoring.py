@@ -77,4 +77,27 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
         bear = max(0, bear - 2)
         reasons.append('extreme volatility reduces trade quality')
 
+    # Time-aligned horizon & lead-gap persistence evaluation:
+    # Distinguish movement before contract start [T0, T1] from movement during contract [T1, T2]
+    if features.target_lead_time_seconds is not None:
+        if features.impulse_exhaustion_risk:
+            if features.rsi_14 >= 74.0 or features.taker_buy_ratio >= 0.75:
+                bull = max(0, bull - 3)
+                reasons.append(
+                    f'bullish impulse risk of exhaustion across {features.target_lead_time_seconds:.1f}s '
+                    'lead gap before contract window [T1, T2]'
+                )
+            if features.rsi_14 <= 26.0 or features.taker_buy_ratio <= 0.25:
+                bear = max(0, bear - 3)
+                reasons.append(
+                    f'bearish impulse risk of exhaustion across {features.target_lead_time_seconds:.1f}s '
+                    'lead gap before contract window [T1, T2]'
+                )
+        elif features.trend_persistence_score == 2:
+            reasons.append('structural trend persistence confirmed across lead gap into contract window')
+        elif features.trend_persistence_score == -1:
+            bull = max(0, bull - 1)
+            bear = max(0, bear - 1)
+            reasons.append('range structure with lead gap reduces contract window persistence')
+
     return ScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
