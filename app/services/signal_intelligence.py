@@ -160,7 +160,7 @@ class SignalIntelligenceService:
                     temporal_alignment_valid=False,
                 )
 
-            if round_context.seconds_until_start <= 0:
+            if round_context.is_post_cutoff:
                 return IntelligenceResult(
                     market=market,
                     direction=SignalDirection.NO_TRADE,
@@ -169,7 +169,7 @@ class SignalIntelligenceService:
                     market_snapshot=None,
                     features=None,
                     decision=None,
-                    reason='Contract window has already started or elapsed; new entries closed.',
+                    reason=f'Authoritative trade cutoff for round {round_context.round_id} has elapsed.',
                     service_available=True,
                     seconds_until_start=0.0,
                     contract_duration_seconds=round_context.contract_duration_seconds,
@@ -200,7 +200,7 @@ class SignalIntelligenceService:
                     scan_stage=target.scan_stage.value,
                     temporal_alignment_valid=False,
                 )
-            if target.lead_time_seconds <= 0:
+            if target.is_authoritative_post_cutoff:
                 return IntelligenceResult(
                     market=market,
                     direction=SignalDirection.NO_TRADE,
@@ -209,7 +209,7 @@ class SignalIntelligenceService:
                     market_snapshot=None,
                     features=None,
                     decision=None,
-                    reason='Target contract start time has already passed.',
+                    reason=f'Authoritative trade cutoff for round {target.round_id} has elapsed.',
                     service_available=True,
                     target=target,
                     scan_stage=ScanStage.POST_CUTOFF.value,

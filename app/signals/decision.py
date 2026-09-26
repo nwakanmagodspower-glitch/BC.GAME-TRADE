@@ -35,7 +35,7 @@ def decide(
             bull_score=bull,
             bear_score=bear,
             margin=margin,
-            reason='Lead time is past execution cutoff for the contract window.',
+            reason=f'Authoritative trade cutoff for round {target.round_id} has elapsed.',
         )
 
     target_prefix = f'Target [{target.round_id} {target.lead_time_seconds:.1f}s lead]: ' if target else ''

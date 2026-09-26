@@ -93,71 +93,107 @@ def make_round_context(
     )
 
 
-# 1. 20 seconds before start -> Stage A Pre-scan (Preparing)
+# 1. Verification of Progression: 15s, 8s, 4s, and 2s before T1 all remain targeted to [T1, T2]
 @pytest.mark.asyncio
-async def test_twenty_seconds_before_start_stage_a_pre_scan():
-    service = SignalIntelligenceService()
-    ctx = make_round_context(seconds_until_start=20.0)
-    target = ctx.to_target()
-    assert target.scan_stage == ScanStage.STAGE_A_PREPARING
-
+async def test_exact_lead_time_progression_15s_8s_4s_2s_remain_targeted_to_t1_t2():
     candles = make_test_candles(1)
     ticks = make_test_ticks(True)
-    features = build_features(candles, ticks, target=target)
-    assert features.target_stage == ScanStage.STAGE_A_PREPARING.value
 
-    score = score_features(features)
-    decision = decide(score, min_score=3, min_margin=1, target=target)
-    # Stage A produces PREPARING quality rather than final execution commitment
-    assert decision.direction == SignalDirection.UP
-    assert decision.quality == 'PREPARING'
-    assert 'Target [ROUND-100 20.0s lead]' in decision.reason
+    # Fixed BC.Game contract start T1 and end T2
+    now = datetime.now(timezone.utc)
+    t1 = now + timedelta(seconds=20)
+    t2 = t1 + timedelta(seconds=5)
+    round_id = 'ROUND-TARGET-ALIGN'
+
+    # Test progression at 15s, 8s, 4s, and 2s before T1
+    for lead_seconds, expected_stage, expected_quality in [
+        (15.0, ScanStage.STAGE_A_PREPARING, 'PREPARING'),
+        (8.0, ScanStage.STAGE_B_FINAL, 'VALID'),
+        (4.0, ScanStage.STAGE_B_FINAL, 'VALID'),
+        (2.0, ScanStage.STAGE_B_FINAL, 'VALID'),
+    ]:
+        scan_time = t1 - timedelta(seconds=lead_seconds)
+        target = PredictionTarget(
+            round_id=round_id,
+            target_start=t1,
+            target_end=t2,
+            lead_time_seconds=lead_seconds,
+            duration_seconds=5.0,
+            scan_time=scan_time,
+            trade_cutoff=t1 - timedelta(milliseconds=100),
+            seconds_until_cutoff=lead_seconds - 0.1,
+        )
+
+        # 1. Target interval MUST strictly be [T1, T2] at every lead interval
+        assert target.target_start == t1
+        assert target.target_end == t2
+        assert target.duration_seconds == 5.0
+        assert target.lead_time_seconds == lead_seconds
+        assert target.scan_stage == expected_stage
+        assert target.is_authoritative_post_cutoff is False
+
+        # 2. Features and scoring maintain explicit temporal target
+        features = build_features(candles, ticks, target=target)
+        assert features.target_round_id == round_id
+        assert features.target_lead_time_seconds == lead_seconds
+        assert features.target_duration_seconds == 5.0
+
+        score = score_features(features)
+        decision = decide(score, min_score=3, min_margin=1, target=target)
+
+        # 3. Decision direction is UP and targets [T1, T2]
+        assert decision.direction == SignalDirection.UP
+        if expected_quality == 'PREPARING':
+            assert decision.quality == 'PREPARING'
+        else:
+            assert decision.quality in {'VALID', 'STRONG'}
+
+        assert f'Target [{round_id} {lead_seconds:.1f}s lead]' in decision.reason
+
+        # 4. Separation of prediction from execution authorization:
+        # At 15s, 4s, and 2s, delivery dispatch with an 8.0s safety margin is NOT authorized,
+        # but at 8.0s lead (with cutoff 7.9s), dispatch margin can be verified independently
+        if lead_seconds < 8.0:
+            assert target.execution_authorized(min_dispatch_margin_seconds=8.0) is False
+        assert target.execution_authorized(min_dispatch_margin_seconds=1.0) is True
 
 
-# 2. 10 seconds before start -> Transition boundary into Stage B
+# 2. Authoritative cutoff derived from observer's tradeCutoffTime, not an arbitrary 2s constant
 @pytest.mark.asyncio
-async def test_ten_seconds_before_start_stage_b_transition():
-    ctx = make_round_context(seconds_until_start=10.0)
-    target = ctx.to_target()
-    assert target.scan_stage == ScanStage.STAGE_B_FINAL
+async def test_authoritative_trade_cutoff_rejection():
+    # 2 seconds before T1 is NOT post-cutoff if tradeCutoffTime has not elapsed
+    target_active_at_2s = PredictionTarget(
+        round_id='ROUND-CUTOFF-TEST',
+        target_start=datetime.now(timezone.utc) + timedelta(seconds=2),
+        target_end=datetime.now(timezone.utc) + timedelta(seconds=7),
+        lead_time_seconds=2.0,
+        duration_seconds=5.0,
+        scan_time=datetime.now(timezone.utc),
+        trade_cutoff=datetime.now(timezone.utc) + timedelta(seconds=1.9),
+        seconds_until_cutoff=1.9,
+    )
+    assert target_active_at_2s.is_authoritative_post_cutoff is False
+    assert target_active_at_2s.scan_stage == ScanStage.STAGE_B_FINAL
 
-    candles = make_test_candles(1)
-    ticks = make_test_ticks(True)
-    features = build_features(candles, ticks, target=target)
-    score = score_features(features)
-    decision = decide(score, min_score=3, min_margin=1, target=target)
-    assert decision.direction == SignalDirection.UP
-    assert decision.quality in {'VALID', 'STRONG'}
+    # Now simulate when server time has genuinely reached or exceeded tradeCutoffTime
+    target_post_cutoff = PredictionTarget(
+        round_id='ROUND-CUTOFF-TEST',
+        target_start=datetime.now(timezone.utc),
+        target_end=datetime.now(timezone.utc) + timedelta(seconds=5),
+        lead_time_seconds=0.0,
+        duration_seconds=5.0,
+        scan_time=datetime.now(timezone.utc),
+        trade_cutoff=datetime.now(timezone.utc) - timedelta(milliseconds=100),
+        seconds_until_cutoff=-0.1,
+    )
+    assert target_post_cutoff.is_authoritative_post_cutoff is True
+    assert target_post_cutoff.scan_stage == ScanStage.POST_CUTOFF
 
-
-# 3. 5 seconds before start -> Active Stage B final prediction window
-@pytest.mark.asyncio
-async def test_five_seconds_before_start_stage_b_final_window():
-    ctx = make_round_context(seconds_until_start=5.0)
-    target = ctx.to_target()
-    assert target.scan_stage == ScanStage.STAGE_B_FINAL
-
-    candles = make_test_candles(1)
-    ticks = make_test_ticks(True)
-    features = build_features(candles, ticks, target=target)
-    score = score_features(features)
-    decision = decide(score, min_score=3, min_margin=1, target=target)
-    assert decision.direction == SignalDirection.UP
-    assert decision.quality in {'VALID', 'STRONG'}
-
-
-# 4. 1-2 seconds before start -> Post-cutoff / Too close to contract start
-@pytest.mark.asyncio
-async def test_one_to_two_seconds_before_start_post_cutoff():
-    ctx = make_round_context(seconds_until_start=1.5)
-    target = ctx.to_target()
-    assert target.scan_stage == ScanStage.POST_CUTOFF
-
-    score = score_features(build_features(make_test_candles(1), make_test_ticks(True), target=target))
-    decision = decide(score, min_score=3, min_margin=1, target=target)
+    score = score_features(build_features(make_test_candles(1), make_test_ticks(True), target=target_post_cutoff))
+    decision = decide(score, min_score=3, min_margin=1, target=target_post_cutoff)
     assert decision.direction == SignalDirection.NO_TRADE
     assert decision.quality == 'POST_CUTOFF'
-    assert 'past execution cutoff' in decision.reason
+    assert 'Authoritative trade cutoff' in decision.reason
 
 
 # 5. Round lifecycle phases: BETTING, TRADE_CUTOFF, PAY_OUT, FINISHED, CANCELLED
