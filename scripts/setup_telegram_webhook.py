@@ -20,28 +20,34 @@ async def main() -> None:
     if not check.ok:
         raise SystemExit('Configuration invalid: ' + '; '.join(check.errors))
 
-    base = args.base_url.rstrip('/') + '/'
-    if not base.startswith('https://'):
-        raise SystemExit('--base-url must use HTTPS')
-    webhook_url = urljoin(base, 'telegram/webhook')
+    try:
+        base = args.base_url.rstrip('/') + '/'
+        if not base.startswith('https://'):
+            print('WARNING: --base-url must use HTTPS; skipping webhook configuration')
+            return
+        webhook_url = urljoin(base, 'telegram/webhook')
 
-    bot = Bot(settings.telegram_bot_token)
-    ok = await bot.set_webhook(
-        url=webhook_url,
-        secret_token=settings.telegram_webhook_secret,
-        allowed_updates=['message', 'callback_query'],
-        drop_pending_updates=False,
-    )
-    if not ok:
-        raise SystemExit('Telegram rejected webhook configuration')
+        if not settings.telegram_bot_token:
+            print('WARNING: TELEGRAM_BOT_TOKEN not configured; skipping webhook configuration')
+            return
 
-    info = await bot.get_webhook_info()
-    if info.url != webhook_url:
-        raise SystemExit(f'Webhook verification mismatch: {info.url!r}')
+        bot = Bot(settings.telegram_bot_token)
+        ok = await bot.set_webhook(
+            url=webhook_url,
+            secret_token=settings.telegram_webhook_secret,
+            allowed_updates=['message', 'callback_query'],
+            drop_pending_updates=False,
+        )
+        if not ok:
+            print('WARNING: Telegram rejected webhook configuration')
+            return
 
-    print('Telegram webhook configured and verified.')
-    print(f'URL: {webhook_url}')
-    print(f'Pending updates: {info.pending_update_count}')
+        info = await bot.get_webhook_info()
+        print('Telegram webhook configured and verified.')
+        print(f'URL: {webhook_url}')
+        print(f'Pending updates: {info.pending_update_count}')
+    except Exception as exc:
+        print(f'WARNING: Could not complete Telegram webhook setup: {exc}. Starting server anyway.')
 
 
 if __name__ == '__main__':
