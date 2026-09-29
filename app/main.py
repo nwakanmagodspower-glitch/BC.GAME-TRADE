@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Any
 import asyncio
 import hmac
 import json

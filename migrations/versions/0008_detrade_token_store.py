@@ -18,20 +18,21 @@ def upgrade() -> None:
     # We only need to widen the value column so a full JWT (≤ 2 KB) can be stored.
     # The column is VARCHAR(255) in the original schema; alter it to TEXT so any
     # JWT length is accepted without a schema change per environment.
-    op.alter_column(
-        'runtime_settings',
-        'value',
-        existing_type=sa.String(255),
-        type_=sa.Text(),
-        existing_nullable=False,
-    )
+    with op.batch_alter_table('runtime_settings') as batch_op:
+        batch_op.alter_column(
+            'value',
+            existing_type=sa.String(255),
+            type_=sa.Text(),
+            existing_nullable=False,
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        'runtime_settings',
-        'value',
-        existing_type=sa.Text(),
-        type_=sa.String(255),
-        existing_nullable=False,
-    )
+    with op.batch_alter_table('runtime_settings') as batch_op:
+        batch_op.alter_column(
+            'value',
+            existing_type=sa.Text(),
+            type_=sa.String(255),
+            existing_nullable=False,
+        )
+
