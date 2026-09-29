@@ -51,30 +51,36 @@ async def lifespan(app: FastAPI):
         detrade_token_provider.set_db_token_getter(_db_token_getter)
 
     async def _route_detrade_tick(tick: dict[str, Any]) -> None:
-        p = tick.get('price')
-        t_ms = tick.get('timestamp_ms')
-        if p is not None and t_ms is not None:
-            await market_data_service.microstructure_cache.add_synthetic_tick(
-                price=p,
-                timestamp_ms=t_ms,
-                symbol=settings.analysis_pair,
-            )
-            await market_data_service.microstructure_cache.add_synthetic_tick(
-                price=p,
-                timestamp_ms=t_ms,
-                symbol=settings.game_market,
-            )
-            ts = (float(t_ms) / 1000.0) if t_ms > 1e11 else float(t_ms)
-            event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
-            synthetic_tick = MarketTick(
-                symbol=settings.analysis_pair,
-                price=p,
-                quantity=1.0,
-                event_time=event_time,
-                provider='DETRADE_SYNTHETIC',
-                is_buyer_maker=False,
-            )
-            await market_data_service.cache.set_tick(synthetic_tick)
+        try:
+            p = tick.get('price')
+            t_ms = tick.get('timestamp_ms')
+            if p is not None and t_ms is not None:
+                await market_data_service.microstructure_cache.add_synthetic_tick(
+                    price=p,
+                    timestamp_ms=t_ms,
+                    symbol=settings.analysis_pair,
+                )
+                await market_data_service.microstructure_cache.add_synthetic_tick(
+                    price=p,
+                    timestamp_ms=t_ms,
+                    symbol=settings.game_market,
+                )
+                ts = (float(t_ms) / 1000.0) if t_ms > 1e11 else float(t_ms)
+                now_utc = datetime.now(timezone.utc)
+                event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+                if event_time > now_utc:
+                    event_time = now_utc
+                synthetic_tick = MarketTick(
+                    symbol=settings.analysis_pair,
+                    price=p,
+                    quantity=1.0,
+                    event_time=event_time,
+                    provider='DETRADE_SYNTHETIC',
+                    is_buyer_maker=False,
+                )
+                await market_data_service.cache.set_tick(synthetic_tick)
+        except Exception:
+            pass
     detrade_observer.on_tick = _route_detrade_tick
 
     await detrade_observer.start()
@@ -182,7 +188,7 @@ async def health():
         },
         'detrade_timer': {
             'enabled': settings.detrade_ws_enabled,
-            'timing_only': False,
+            'timing_only': True,
             'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
@@ -190,12 +196,13 @@ async def health():
             'timer': observed.to_public_dict() if observed else None,
             'synthetic_feed': {
                 'enabled': settings.detrade_use_synthetic_feed,
-                'latest_price': detrade_observer.latest_tick['price'] if detrade_observer.latest_tick else None,
+                'latest_price': detrade_observer.latest_tick.get('price') if isinstance(detrade_observer.latest_tick, dict) else None,
                 'latest_tick_age_seconds': (
                     round(time.monotonic() - detrade_observer.latest_tick['received_monotonic'], 3)
-                    if detrade_observer.latest_tick else None
+                    if (detrade_observer.latest_tick and isinstance(detrade_observer.latest_tick, dict) and detrade_observer.latest_tick.get('received_monotonic') is not None)
+                    else None
                 ),
-                'closed_bars_count': len(detrade_observer.bar_aggregator.get_closed_bars()),
+                'closed_bars_count': len(detrade_observer.bar_aggregator.get_closed_bars()) if hasattr(detrade_observer, 'bar_aggregator') else 0,
             },
             'error_code': 'observer_error' if detrade_observer.last_error and not (observed and observed.fresh) else None,
         },
