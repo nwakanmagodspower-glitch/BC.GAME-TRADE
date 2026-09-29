@@ -201,6 +201,58 @@ def test_stale_observation_is_never_tradeable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_kline_synthetic_tick_ingestion():
+    observer = DeTradeObserver(FakeProvider())
+    received_ticks = []
+    observer.on_tick = lambda tick: received_ticks.append(tick)
+
+    frame = {
+        'resp': '/kline/BTC-USD/ticker',
+        'data': [
+            {'s': 'BTC-USD', 'p': '83320.12345', 't': 1790640510000, 'c': 0.1},
+            {'s': 'BTC-USD', 'p': '83325.67890', 't': 1790640515000, 'c': 0.5},
+        ]
+    }
+    handled = await observer._consume(frame)
+    assert observer.latest_tick is not None
+    assert observer.latest_tick['price'] == 83325.67890
+    assert observer.latest_tick['timestamp_ms'] == 1790640515000
+    assert len(received_ticks) == 2
+    assert len(observer.bar_aggregator.get_closed_bars()) >= 1
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_history_populates_bar_aggregator(monkeypatch):
+    observer = DeTradeObserver(FakeProvider())
+    mock_data = [
+        {'s': 'BTC-USD', 'p': '83000.00', 't': 1790640000000, 'c': 0.0},
+        {'s': 'BTC-USD', 'p': '83005.00', 't': 1790640005000, 'c': 5.0},
+        {'s': 'BTC-USD', 'p': '83010.00', 't': 1790640010000, 'c': 10.0},
+    ]
+
+    class FakeResponse:
+        status_code = 200
+        def json(self):
+            return {'code': 0, 'data': mock_data}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def get(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr('httpx.AsyncClient', lambda *args, **kwargs: FakeClient())
+
+    count = await observer.bootstrap_history(seconds=120)
+    assert count == 3
+    assert observer.latest_tick is not None
+    assert observer.latest_tick['price'] == 83010.00
+    assert len(observer.bar_aggregator.get_closed_bars()) >= 2
+
+
+@pytest.mark.asyncio
 async def test_background_probe_wakes_immediately_on_new_observation(monkeypatch):
     monkeypatch.setattr(detrade_module.settings, 'detrade_ws_enabled', True)
     observer = DeTradeObserver(FakeProvider())
@@ -224,3 +276,4 @@ async def test_background_probe_wakes_immediately_on_new_observation(monkeypatch
         observer._task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await observer._task
+

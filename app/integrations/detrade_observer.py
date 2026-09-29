@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import httpx
 import websockets
 
 from app.core.config import get_settings
@@ -19,6 +20,7 @@ from app.integrations.detrade_token_provider import (
     DeTradeTokenProvider,
     detrade_token_provider,
 )
+from app.integrations.market_data.five_second_bar import FiveSecondBar, FiveSecondBarAggregator
 
 settings = get_settings()
 AUTH_FAILURE_CODES = {603, 3100}
@@ -94,9 +96,9 @@ class DeTradeRoundObservation:
             and remaining > settings.detrade_latency_safety_margin_ms
         )
 
-    def to_public_dict(self) -> dict[str, Any]:
+    def to_public_dict(self, include_pricing: bool = False) -> dict[str, Any]:
         """Normalized non-secret timer state suitable for health/admin output."""
-        return {
+        data = {
             'roundId': self.round_id,
             'status': self.status,
             'phase': self.phase,
@@ -106,15 +108,28 @@ class DeTradeRoundObservation:
             'priceStartTime': self.price_start_time_ms,
             'priceEndTime': self.price_end_time_ms,
         }
+        if include_pricing:
+            data['startPrice'] = self.start_price
+            data['endPrice'] = self.end_price
+        return data
 
 
 class DeTradeObserver:
-    """Read-only authoritative BCGAME/DeTrade BTC/USD 5s round clock."""
+    """Read-only authoritative BCGAME/DeTrade BTC/USD 5s round clock & synthetic tick listener."""
 
-    def __init__(self, token_provider: DeTradeTokenProvider = detrade_token_provider, on_observation: Any = None) -> None:
+    def __init__(
+        self,
+        token_provider: DeTradeTokenProvider = detrade_token_provider,
+        on_observation: Any = None,
+        on_tick: Any = None,
+        bar_aggregator: FiveSecondBarAggregator | None = None,
+    ) -> None:
         self.token_provider = token_provider
         self.on_observation = on_observation
+        self.on_tick = on_tick
+        self.bar_aggregator = bar_aggregator or FiveSecondBarAggregator(max_bars=240)
         self.latest: DeTradeRoundObservation | None = None
+        self.latest_tick: dict[str, Any] | None = None
         self.last_error: str | None = None
         self.connected: bool = False
         self._task: asyncio.Task | None = None
@@ -122,16 +137,73 @@ class DeTradeObserver:
         self._probe_lock = asyncio.Lock()
         self._observation_event = asyncio.Event()
         self._force_credential_refresh = False
+        self._last_tick_price: float | None = None
 
     @staticmethod
     def _browser_cid() -> str:
         return base64.b64encode(settings.detrade_user_agent.encode('utf-8')).decode('ascii')
+
+    async def bootstrap_history(self, seconds: int = 120) -> int:
+        """Pre-warm the bar aggregator from DeTrade's public historical ticker REST API."""
+        url = f"{settings.detrade_kline_history_url}?symbol={settings.detrade_synthetic_symbol}&seconds={seconds}"
+        try:
+            async with httpx.AsyncClient(timeout=6.0, headers={'User-Agent': settings.detrade_user_agent}) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    return 0
+                payload = resp.json()
+                ticks = payload.get('data') or []
+                if not isinstance(ticks, list):
+                    return 0
+                ticks_sorted = sorted(ticks, key=lambda x: int(x.get('t', 0)))
+                count = 0
+                for item in ticks_sorted:
+                    try:
+                        p = float(item['p'])
+                        t = int(item['t'])
+                        self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
+                        self._last_tick_price = p
+                        count += 1
+                        if self.on_tick is not None:
+                            try:
+                                res = self.on_tick({
+                                    'price': p,
+                                    'timestamp_ms': t,
+                                    'symbol': str(item.get('s', settings.detrade_synthetic_symbol)),
+                                    'change': float(item['c']) if 'c' in item and item['c'] is not None else None,
+                                    'source': 'REST_BOOTSTRAP',
+                                })
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            except Exception:
+                                pass
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                if ticks_sorted and count > 0:
+                    last_item = ticks_sorted[-1]
+                    try:
+                        self.latest_tick = {
+                            'price': float(last_item['p']),
+                            'timestamp_ms': int(last_item['t']),
+                            'symbol': str(last_item.get('s', settings.detrade_synthetic_symbol)),
+                            'change': float(last_item['c']) if 'c' in last_item and last_item['c'] is not None else None,
+                            'received_monotonic': time.monotonic(),
+                            'received_at': datetime.now(timezone.utc),
+                            'source': 'REST_BOOTSTRAP',
+                        }
+                    except (KeyError, ValueError, TypeError):
+                        pass
+                return count
+        except Exception:
+            return 0
 
     async def start(self) -> None:
         if not settings.detrade_ws_enabled:
             return
         if self._task and not self._task.done():
             return
+        if settings.detrade_use_synthetic_feed:
+            asyncio.create_task(self.bootstrap_history(120))
         self._stop.clear()
         self._task = asyncio.create_task(self._run(), name='detrade-round-observer')
 
@@ -248,6 +320,40 @@ class DeTradeObserver:
         except (TypeError, ValueError):
             return None
 
+    @classmethod
+    def _find_kline_payload(cls, value: Any, depth: int = 0) -> list[dict[str, Any]] | None:
+        if depth > 8:
+            return None
+        if isinstance(value, dict):
+            route = str(value.get('cmd', '')) or str(value.get('resp', ''))
+            if '/kline/' in route:
+                payload = value.get('data') if value.get('data') is not None else value.get('resp')
+                if payload is None:
+                    payload = value.get('payload')
+                if isinstance(payload, dict) and 'p' in payload and 't' in payload:
+                    return [payload]
+                if isinstance(payload, list):
+                    valid = [x for x in payload if isinstance(x, dict) and 'p' in x and 't' in x]
+                    if valid:
+                        return valid
+            if {'s', 't', 'p'} <= set(value):
+                return [value]
+            for key, nested in value.items():
+                if any(secret in str(key).lower() for secret in ('token', 'cookie', 'authorization', 'session', 'jwt', 'accesscode')):
+                    continue
+                found = cls._find_kline_payload(nested, depth + 1)
+                if found is not None:
+                    return found
+        elif isinstance(value, list):
+            items = [x for x in value if isinstance(x, dict) and 'p' in x and 't' in x]
+            if items:
+                return items
+            for nested in value:
+                found = cls._find_kline_payload(nested, depth + 1)
+                if found is not None:
+                    return found
+        return None
+
     async def _consume(self, decoded: Any) -> bool:
         if self._contains_auth_failure(decoded):
             await self.token_provider.invalidate()
@@ -256,6 +362,38 @@ class DeTradeObserver:
             self.last_error = 'DeTrade authorization expired or requires refresh.'
             self._observation_event.set()
             return False
+
+        # 1. Check for synthetic kline ticker updates
+        kline_data = self._find_kline_payload(decoded)
+        if kline_data is not None:
+            for item in kline_data:
+                try:
+                    p = float(item['p'])
+                    t = int(item['t'])
+                    sym = str(item.get('s', settings.detrade_synthetic_symbol))
+                    c = float(item['c']) if 'c' in item and item['c'] is not None else None
+                    self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
+                    self.latest_tick = {
+                        'price': p,
+                        'timestamp_ms': t,
+                        'symbol': sym,
+                        'change': c,
+                        'received_monotonic': time.monotonic(),
+                        'received_at': datetime.now(timezone.utc),
+                        'source': 'WS_STREAM',
+                    }
+                    self._last_tick_price = p
+                    if self.on_tick is not None:
+                        try:
+                            res = self.on_tick(self.latest_tick)
+                            if asyncio.iscoroutine(res):
+                                await res
+                        except Exception:
+                            pass
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+        # 2. Check for authoritative round observation
         payload = self._find_round_payload(decoded)
         if payload is None:
             return False
@@ -303,6 +441,10 @@ class DeTradeObserver:
                 await ws.send(self._encode_message(
                     self._authenticated_message(credentials, settings.detrade_subscription_cmd)
                 ))
+                if settings.detrade_use_synthetic_feed:
+                    await ws.send(self._encode_message(
+                        self._authenticated_message(credentials, settings.detrade_kline_subscription_cmd)
+                    ))
                 heartbeat = asyncio.create_task(self._heartbeat(ws, credentials))
                 try:
                     while not self._stop.is_set():

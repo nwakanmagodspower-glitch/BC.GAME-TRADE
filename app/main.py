@@ -16,7 +16,7 @@ from app.integrations.detrade_observer import detrade_observer
 from app.integrations.detrade_token_provider import detrade_token_provider, usable_detrade_token
 from app.services.detrade_token_service import DETRADE_TOKEN_KEY
 from app.services.background_coordinator import background_job_coordinator
-from app.services.market_data import market_data_service
+from app.services.market_data import MarketTick, market_data_service
 from app.services.retention_cleanup import retention_cleanup_service
 from app.services.signal_intelligence import ENGINE_NAME, signal_intelligence_service
 from app.services.signal_worker import signal_lifecycle_worker
@@ -47,6 +47,34 @@ async def lifespan(app: FastAPI):
             except Exception:
                 return None
         detrade_token_provider.set_db_token_getter(_db_token_getter)
+
+    async def _route_detrade_tick(tick: dict[str, Any]) -> None:
+        p = tick.get('price')
+        t_ms = tick.get('timestamp_ms')
+        if p is not None and t_ms is not None:
+            await market_data_service.microstructure_cache.add_synthetic_tick(
+                price=p,
+                timestamp_ms=t_ms,
+                symbol=settings.analysis_pair,
+            )
+            await market_data_service.microstructure_cache.add_synthetic_tick(
+                price=p,
+                timestamp_ms=t_ms,
+                symbol=settings.game_market,
+            )
+            ts = (float(t_ms) / 1000.0) if t_ms > 1e11 else float(t_ms)
+            event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+            synthetic_tick = MarketTick(
+                symbol=settings.analysis_pair,
+                price=p,
+                quantity=1.0,
+                event_time=event_time,
+                provider='DETRADE_SYNTHETIC',
+                is_buyer_maker=False,
+            )
+            await market_data_service.cache.set_tick(synthetic_tick)
+    detrade_observer.on_tick = _route_detrade_tick
+
     await detrade_observer.start()
     if settings.run_background_jobs:
         await background_job_coordinator.start()
@@ -152,12 +180,21 @@ async def health():
         },
         'detrade_timer': {
             'enabled': settings.detrade_ws_enabled,
-            'timing_only': True,
+            'timing_only': False,
             'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
             'authorization_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
             'timer': observed.to_public_dict() if observed else None,
+            'synthetic_feed': {
+                'enabled': settings.detrade_use_synthetic_feed,
+                'latest_price': detrade_observer.latest_tick['price'] if detrade_observer.latest_tick else None,
+                'latest_tick_age_seconds': (
+                    round(time.monotonic() - detrade_observer.latest_tick['received_monotonic'], 3)
+                    if detrade_observer.latest_tick else None
+                ),
+                'closed_bars_count': len(detrade_observer.bar_aggregator.get_closed_bars()),
+            },
             'error_code': 'observer_error' if detrade_observer.last_error and not (observed and observed.fresh) else None,
         },
         'market_data': {

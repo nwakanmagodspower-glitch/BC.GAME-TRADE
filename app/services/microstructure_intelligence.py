@@ -196,8 +196,8 @@ class MicrostructureIntelligenceService:
             min_l5_volume=settings.microstructure_min_l5_volume,
             min_score=settings.microstructure_min_score,
             min_margin=settings.microstructure_min_margin,
-            min_5s_range=settings.signal_min_lead_range_dollars,
-            max_5s_range=12.0,
+            min_5s_range=settings.detrade_min_5s_range_dollars if settings.detrade_use_synthetic_feed else settings.signal_min_lead_range_dollars,
+            max_5s_range=settings.detrade_max_5s_range_dollars if settings.detrade_use_synthetic_feed else 12.0,
         )
 
         details = {

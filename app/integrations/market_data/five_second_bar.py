@@ -169,6 +169,29 @@ class FiveSecondBarAggregator:
 
         return closed_bar
 
+    def add_synthetic_tick(
+        self,
+        price: float,
+        timestamp_ms: int | float,
+        volume: float = 1.0,
+        is_buyer: bool | None = None,
+    ) -> FiveSecondBar | None:
+        """Incorporate an incoming synthetic tick (e.g. from DeTrade's internal /kline/ ticker)."""
+        ts = (float(timestamp_ms) / 1000.0) if timestamp_ms > 1e11 else float(timestamp_ms)
+        if is_buyer is None:
+            if self._current_bar is not None:
+                is_buyer = price >= self._current_bar['close']
+            elif self._closed_bars:
+                is_buyer = price >= self._closed_bars[-1].close
+            else:
+                is_buyer = True
+        return self.add_trade(
+            price=price,
+            quantity=volume,
+            is_buyer_maker=not is_buyer,
+            event_time_ts=ts,
+        )
+
     def get_closed_bars(self, limit: int | None = None) -> list[FiveSecondBar]:
         bars = list(self._closed_bars)
         if limit is not None and limit > 0:

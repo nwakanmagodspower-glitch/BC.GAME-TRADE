@@ -25,14 +25,22 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
     return InlineKeyboardMarkup(rows)
 
 
+def _room_label() -> str:
+    room = getattr(settings, 'detrade_stake_room', None) or getattr(settings, 'default_stake_band', '1-50')
+    if not room.startswith('$'):
+        room = f'${room}'
+    return room
+
+
 def format_scan_context() -> str:
+    room = _room_label()
     return (
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
         '🎯 CORRECT MARKET\n'
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
-        f'Range: ${settings.default_stake_band}\n\n'
-        '1️⃣ Open BCGAME Up/Down and set your amount. Do not choose UP or DOWN yet.\n\n'
+        f'Recommended Room: {room}\n\n'
+        f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin.\n\n'
         '3️⃣ Tap ⚡ Scan Market. The bot checks timing and market quality before returning a decision.\n\n'
         '🟢 UP — qualified upward setup\n'
@@ -68,6 +76,7 @@ def format_signal(signal: Signal) -> str:
     mode = settings.signal_mode.upper()
     paper = '\n\n🧪 PAPER VALIDATION' if mode == 'PAPER' else ''
     decision = (signal.features_snapshot or {}).get('_decision') or {}
+    room = _room_label()
 
     if signal.direction == SignalDirection.NO_TRADE or signal.status == SignalStatus.NO_TRADE:
         bull = decision.get('bull_score', 0)
@@ -77,10 +86,11 @@ def format_signal(signal: Signal) -> str:
         if lead_range is None:
             lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
 
-        if quality == 'LOW_SPEED' or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < settings.signal_min_lead_range_dollars):
+        min_range = getattr(settings, 'detrade_min_5s_range_dollars', settings.signal_min_lead_range_dollars)
+        if quality == 'LOW_SPEED' or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
             range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else 'Low'
             return (
-                '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
+                f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Low Market Speed\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
                 '💡 Why skip? BCGAME 5-second rounds result in tie-losses when BTC does not move. '
@@ -91,7 +101,7 @@ def format_signal(signal: Signal) -> str:
 
         score_line = f'\n📊 Momentum Scan: Bull {bull}/10 • Bear {bear}/10 (Flat)\n' if (bull or bear) else ''
         return (
-            '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
+            f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n'
             + score_line +
             '\nNo qualified setup right now (momentum is neutral or choppy).\n'
@@ -113,7 +123,7 @@ def format_signal(signal: Signal) -> str:
         else f'🚀 Direction: {signal.direction.value}. Use it only if the BCGAME entry window is still open.'
     )
     return (
-        '⚡ BCGAME BTC/USD — 5s • $1–$50\n\n'
+        f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
         f'{icon} {signal.direction.value} SIGNAL\n\n'
         f'🔥 Strength: {quality} • {conf_tag}\n'
         + speed_line

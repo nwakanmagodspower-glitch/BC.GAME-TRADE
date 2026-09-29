@@ -49,6 +49,18 @@ class MarketDataCache:
             raise ValueError('market tick event_time is too far in the future')
         symbol = tick.symbol.upper()
         async with self._lock:
+            current_latest = self._latest.get(symbol)
+            if (
+                settings.detrade_use_synthetic_feed
+                and current_latest is not None
+                and current_latest.provider == 'DETRADE_SYNTHETIC'
+                and tick.provider != 'DETRADE_SYNTHETIC'
+            ):
+                age = (datetime.now(timezone.utc) - current_latest.event_time).total_seconds()
+                if 0 <= age <= settings.market_data_max_age_seconds:
+                    if tick.quantity > 0:
+                        self._trades[symbol].append(tick)
+                    return
             self._latest[symbol] = tick
             if tick.quantity > 0:
                 self._trades[symbol].append(tick)
@@ -309,6 +321,39 @@ class MicrostructureDataCache:
                 is_buyer_maker=is_bm,
                 event_time_ts=tick.event_time.timestamp(),
             )
+
+    async def add_synthetic_tick(
+        self,
+        price: float,
+        timestamp_ms: int | float,
+        symbol: str = 'BTCUSDT',
+        change: float | None = None,
+    ) -> None:
+        """Incorporate an incoming synthetic tick into the cache and 5s bar aggregator."""
+        ts = (float(timestamp_ms) / 1000.0) if timestamp_ms > 1e11 else float(timestamp_ms)
+        event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+        sym = symbol.upper()
+        tick = MarketTick(
+            symbol=sym,
+            price=price,
+            quantity=1.0,
+            event_time=event_time,
+            provider='DETRADE_SYNTHETIC',
+            is_buyer_maker=False,
+        )
+        book = BookTicker(
+            symbol=sym,
+            best_bid_price=price,
+            best_bid_qty=10.0,
+            best_ask_price=price,
+            best_ask_qty=10.0,
+            event_time=event_time,
+            provider='DETRADE_SYNTHETIC',
+        )
+        async with self._lock:
+            self._trades[sym].append(tick)
+            self._book_tickers[sym].append(book)
+            self._bar_aggregators[sym].add_synthetic_tick(price=price, timestamp_ms=timestamp_ms)
 
     async def clear(self, symbol: str) -> None:
         sym = symbol.upper()

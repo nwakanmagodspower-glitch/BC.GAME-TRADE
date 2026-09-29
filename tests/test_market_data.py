@@ -92,7 +92,7 @@ def test_market_data_cache_rejects_future_ticks_and_uses_latest_candle_boundary(
 
         stale_candle = Candle(
             symbol='BTCUSDT', interval='1m', open_time=now - timedelta(minutes=2),
-            close_time=now - timedelta(minutes=1), open=1, high=2, low=1, close=2,
+            close_time=now - timedelta(seconds=65), open=1, high=2, low=1, close=2,
             volume=1, quote_volume=1, trade_count=1, taker_buy_base_volume=1,
             taker_buy_quote_volume=1, closed=True, provider='TEST',
         )

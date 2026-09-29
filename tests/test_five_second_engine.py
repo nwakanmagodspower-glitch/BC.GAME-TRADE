@@ -156,3 +156,63 @@ def test_5s_range_gates():
     decision_exhaust = decide_microstructure(score_exhaust, exhaust_features, max_5s_range=12.0)
     assert decision_exhaust.direction == SignalDirection.NO_TRADE
     assert "overextended" in decision_exhaust.reason
+
+
+def test_add_synthetic_tick_aggregation():
+    agg = FiveSecondBarAggregator(max_bars=60)
+    base_ms = 1700000000000
+
+    # 1. First tick establishes baseline
+    agg.add_synthetic_tick(price=83000.0, timestamp_ms=base_ms + 100)
+    # 2. Second tick in same 5s bar with upward movement (inferred buyer)
+    agg.add_synthetic_tick(price=83005.0, timestamp_ms=base_ms + 2500)
+    # 3. Third tick rolls into the next 5s bar
+    closed = agg.add_synthetic_tick(price=83012.0, timestamp_ms=base_ms + 5200)
+
+    assert closed is not None
+    assert closed.open == 83000.0
+    assert closed.close == 83005.0
+    assert closed.high == 83005.0
+    assert closed.low == 83000.0
+    assert closed.range == 5.0
+    assert closed.return_usd == 5.0
+    assert closed.taker_ratio == 1.0  # Inferred buyer because price rose
+
+
+@pytest.mark.asyncio
+async def test_microstructure_cache_add_synthetic_tick():
+    cache = MicrostructureDataCache()
+    base_ms = 1700000000000
+
+    await cache.add_synthetic_tick(price=83100.0, timestamp_ms=base_ms, symbol="BTCUSDT")
+    await cache.add_synthetic_tick(price=83110.0, timestamp_ms=base_ms + 2000, symbol="BTCUSDT")
+    await cache.add_synthetic_tick(price=83120.0, timestamp_ms=base_ms + 6000, symbol="BTCUSDT")
+
+    bars = await cache.get_5s_bars("BTCUSDT")
+    assert len(bars) == 1
+    assert bars[0].open == 83100.0
+    assert bars[0].close == 83110.0
+
+
+def test_detrade_stake_room_range_calibration():
+    # In $50-$100 room: min_5s_range is $2.50 and max_5s_range is $45.00
+    # A $15.00 move should be accepted (not vetoed) when score is strong
+    active_features = MicrostructureFeatureSnapshot(
+        ema_fast=90020.0, ema_slow=90000.0, rsi_14=60.0, atr_14_pct=0.01,
+        momentum_5m_pct=0.05, structure="BULLISH", mid_price=90020.0, spread=0.5,
+        spread_bps=0.5, obi_top=0.7, obi_l5=0.8, microprice=90021.0, microprice_dev_bps=1.0,
+        tfi_1s=0.8, tfi_5s=0.75, trade_count_1s=15, trade_count_5s=40, volume_5s=15.0,
+        return_250ms_bps=2.0, return_500ms_bps=3.0, return_1s_bps=5.0, return_2s_bps=8.0,
+        return_5s_bps=15.0, velocity_1s_bps=5.0, acceleration_1s_bps=2.0,
+        bid_depth_l5_qty=10.0, ask_depth_l5_qty=3.0, liquidity_delta_l5_pct=0.3,
+        bar_5s_return=12.0, bar_5s_range=15.0, bar_5s_taker_ratio=0.85,
+    )
+    score = score_microstructure_features(active_features)
+    # Under default 12.0 max, this was vetoed as overextended
+    dec_old = decide_microstructure(score, active_features, max_5s_range=12.0)
+    assert dec_old.direction == SignalDirection.NO_TRADE
+
+    # Under $50-$100 calibrated range (max 45.0), this is qualified UP!
+    dec_new = decide_microstructure(score, active_features, min_5s_range=2.50, max_5s_range=45.0)
+    assert dec_new.direction == SignalDirection.UP
+
