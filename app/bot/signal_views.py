@@ -39,15 +39,18 @@ def format_scan_context() -> str:
         '🎯 CORRECT MARKET\n'
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
-        f'Recommended Room: {room}\n\n'
+        f'Recommended Room: {room} (Conservative Bankroll Protection)\n\n'
+        '🛡️ BANKROLL SAFETY RULE:\n'
+        '• Stake 1% – 2% maximum per trade ($1 – $2 for accounts under $500).\n'
+        '• Never use Martingale or oversized stakes on 5s rounds.\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin.\n\n'
-        '3️⃣ Tap ⚡ Scan Market. The bot checks timing and market quality before returning a decision.\n\n'
-        '🟢 UP — qualified upward setup\n'
+        '3️⃣ Tap ⚡ Scan Market. The bot checks timing, synthetic momentum, and exhaustion risk before returning a decision.\n\n'
+        '🟢 UP — qualified upward setup (exhaustion filtered)\n'
         '🔴 DOWN — qualified downward setup\n'
-        '⚪ NO TRADE — no qualified setup\n'
+        '⚪ NO TRADE — no qualified setup (flat chop or parabolic exhaustion)\n'
         '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-        'If the round is already late, skip it rather than forcing an entry.'
+        'If the round is already late or exhausted, skip it rather than forcing an entry.'
     )
 
 
@@ -77,6 +80,7 @@ def format_signal(signal: Signal) -> str:
     paper = '\n\n🧪 PAPER VALIDATION' if mode == 'PAPER' else ''
     decision = (signal.features_snapshot or {}).get('_decision') or {}
     room = _room_label()
+    reason_str = signal.status_reason or decision.get('reason', '')
 
     if signal.direction == SignalDirection.NO_TRADE or signal.status == SignalStatus.NO_TRADE:
         bull = decision.get('bull_score', 0)
@@ -86,14 +90,24 @@ def format_signal(signal: Signal) -> str:
         if lead_range is None:
             lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
 
+        if 'exhaustion' in reason_str.lower() or 'overextended' in reason_str.lower():
+            return (
+                f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
+                '⚪ NO TRADE — Parabolic Exhaustion\n\n'
+                f'📊 Warning: Pre-start impulse is overextended\n'
+                '💡 Why skip? BTC surged aggressively during the countdown. Buying at the peak risks an immediate 5-second mean-reversion loss.\n'
+                'Skipping preserves your balance until a stable continuation setup appears.'
+                + paper
+            )
+
         min_range = getattr(settings, 'detrade_min_5s_range_dollars', settings.signal_min_lead_range_dollars)
-        if quality == 'LOW_SPEED' or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
+        if quality == 'LOW_SPEED' or 'too narrow' in reason_str.lower() or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
             range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else 'Low'
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Low Market Speed\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
-                '💡 Why skip? BCGAME 5-second rounds result in tie-losses when BTC does not move. '
+                '💡 Why skip? Under BCGAME rules, ties (End <= Start) award the round to DOWN. In flat chop, UP has negative expected value.\n'
                 'Skipping preserves your balance until clean momentum returns.\n\n'
                 'Wait for a fresh round with active movement before scanning again.'
                 + paper
@@ -104,7 +118,7 @@ def format_signal(signal: Signal) -> str:
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n'
             + score_line +
-            '\nNo qualified setup right now (momentum is neutral or choppy).\n'
+            '\nNo qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
             'Skip this round rather than forcing an entry, and wait for a clear directional setup.'
             + paper
         )
@@ -117,6 +131,8 @@ def format_signal(signal: Signal) -> str:
     if lead_range is None:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
+    tie_note = '💡 Tie rule: Qualified expansion confirmed.\n' if signal.direction == SignalDirection.UP else '💡 Tie advantage: DOWN wins on flat ties.\n'
+    risk_note = '🛡️ Bankroll rule: Stake max 1%–2% of balance only.\n'
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
@@ -128,6 +144,8 @@ def format_signal(signal: Signal) -> str:
         f'🔥 Strength: {quality} • {conf_tag}\n'
         + speed_line
         + entry_window
+        + tie_note
+        + risk_note
         + '\n'
         + action
         + paper

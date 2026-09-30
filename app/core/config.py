@@ -59,9 +59,11 @@ class Settings(BaseSettings):
     detrade_kline_history_url: str = 'https://api.detrade.com/api/data/kline/history/ticker/latest'
     detrade_synthetic_symbol: str = 'BTC-USD'
     detrade_use_synthetic_feed: bool = True
-    detrade_stake_room: str = '$50-$100'
-    detrade_min_5s_range_dollars: float = 2.50
-    detrade_max_5s_range_dollars: float = 45.00
+    detrade_stake_room: str = '$1-$50'
+    detrade_min_5s_range_dollars: float = 2.00
+    detrade_max_5s_range_dollars: float = 25.00
+    detrade_max_lead_impulse: float = 16.00
+    detrade_up_min_margin: int = 5
     detrade_latency_safety_margin_ms: int = 10_000
     detrade_dispatch_min_remaining_ms: int = 8_000
     detrade_stale_after_ms: int = 1500

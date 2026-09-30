@@ -216,3 +216,91 @@ def test_detrade_stake_room_range_calibration():
     dec_new = decide_microstructure(score, active_features, min_5s_range=2.50, max_5s_range=45.0)
     assert dec_new.direction == SignalDirection.UP
 
+
+def test_detrade_pure_synthetic_scoring_decoupled_from_binance():
+    # Binance OBI is neutral/empty (0.0) and Binance trades are absent (None)
+    # DeTrade synthetic bar and velocity provide 100% of the directional evidence
+    synth_features = MicrostructureFeatureSnapshot(
+        ema_fast=90020.0, ema_slow=90000.0, rsi_14=55.0, atr_14_pct=0.01,
+        momentum_5m_pct=0.05, structure="BULLISH", mid_price=90020.0, spread=0.0,
+        spread_bps=0.0, obi_top=0.0, obi_l5=0.0, microprice=90020.0, microprice_dev_bps=0.0,
+        tfi_1s=None, tfi_5s=None, trade_count_1s=0, trade_count_5s=0, volume_5s=0.0,
+        return_250ms_bps=2.0, return_500ms_bps=2.5, return_1s_bps=3.0, return_2s_bps=5.0,
+        return_5s_bps=8.0, velocity_1s_bps=3.0, acceleration_1s_bps=1.0,
+        bid_depth_l5_qty=0.0, ask_depth_l5_qty=0.0, liquidity_delta_l5_pct=0.0,
+        bar_5s_return=3.50, bar_5s_range=5.00, bar_5s_taker_ratio=0.75,
+        bar_5s_ema_fast=90025.0, bar_5s_ema_slow=90010.0, bar_5s_rsi_14=58.0,
+        bar_5s_momentum_3bar=4.00,
+    )
+    score = score_microstructure_features(synth_features, is_synthetic=True)
+    # Pure synthetic scoring awards points for bar impulse, momentum, trend, and velocity
+    assert score.bull_score >= 8
+    assert score.bear_score == 0
+
+    # Decision succeeds without Binance order book spread or depth checks
+    dec = decide_microstructure(
+        score, synth_features, is_synthetic=True, min_score=7, min_margin=4, min_5s_range=2.0, max_5s_range=25.0
+    )
+    assert dec.direction == SignalDirection.UP
+    assert dec.quality in ("VALID", "STRONG")
+
+
+def test_detrade_parabolic_spike_exhaustion_veto():
+    # Pre-start countdown experiences an excessive parabolic surge ($18.00 return, RSI 75)
+    # Buying at this top sets the contract Start Price at the peak, risking an instant retracement loss
+    spike_features = MicrostructureFeatureSnapshot(
+        ema_fast=90050.0, ema_slow=90000.0, rsi_14=70.0, atr_14_pct=0.01,
+        momentum_5m_pct=0.15, structure="BULLISH", mid_price=90050.0, spread=0.0,
+        spread_bps=0.0, obi_top=0.0, obi_l5=0.0, microprice=90050.0, microprice_dev_bps=0.0,
+        tfi_1s=None, tfi_5s=None, trade_count_1s=0, trade_count_5s=0, volume_5s=0.0,
+        return_250ms_bps=5.0, return_500ms_bps=8.0, return_1s_bps=12.0, return_2s_bps=15.0,
+        return_5s_bps=20.0, velocity_1s_bps=12.0, acceleration_1s_bps=3.0,
+        bid_depth_l5_qty=0.0, ask_depth_l5_qty=0.0, liquidity_delta_l5_pct=0.0,
+        bar_5s_return=18.00, bar_5s_range=20.00, bar_5s_taker_ratio=0.90,
+        bar_5s_ema_fast=90045.0, bar_5s_ema_slow=90010.0, bar_5s_rsi_14=75.0,
+        bar_5s_momentum_3bar=12.00,
+    )
+    score = score_microstructure_features(spike_features, is_synthetic=True)
+    dec = decide_microstructure(
+        score, spike_features, is_synthetic=True, min_score=7, min_margin=4,
+        min_5s_range=2.0, max_5s_range=25.0, max_lead_impulse=16.0
+    )
+    assert dec.direction == SignalDirection.NO_TRADE
+    assert "exhaustion" in dec.reason.lower() or "overextended" in dec.reason.lower()
+
+
+def test_detrade_asymmetric_tie_margin_protection():
+    # Score has margin = 4 (bull 7, bear 3)
+    # Under DeTrade asymmetric rules, End <= Start awards ties to DOWN
+    # UP requires up_min_margin = 5 to overcome this house edge
+    features = MicrostructureFeatureSnapshot(
+        ema_fast=90020.0, ema_slow=90000.0, rsi_14=55.0, atr_14_pct=0.01,
+        momentum_5m_pct=0.05, structure="BULLISH", mid_price=90020.0, spread=0.0,
+        spread_bps=0.0, obi_top=0.0, obi_l5=0.0, microprice=90020.0, microprice_dev_bps=0.0,
+        tfi_1s=None, tfi_5s=None, trade_count_1s=0, trade_count_5s=0, volume_5s=0.0,
+        return_250ms_bps=1.0, return_500ms_bps=1.5, return_1s_bps=2.0, return_2s_bps=3.0,
+        return_5s_bps=4.0, velocity_1s_bps=2.0, acceleration_1s_bps=0.5,
+        bid_depth_l5_qty=0.0, ask_depth_l5_qty=0.0, liquidity_delta_l5_pct=0.0,
+        bar_5s_return=2.50, bar_5s_range=4.00, bar_5s_taker_ratio=0.65,
+        bar_5s_ema_fast=90022.0, bar_5s_ema_slow=90015.0, bar_5s_rsi_14=55.0,
+        bar_5s_momentum_3bar=3.00,
+    )
+    from app.signals.microstructure.scoring import MicrostructureScoreResult
+    marginal_score = MicrostructureScoreResult(bull_score=7, bear_score=3, reasons=['bullish edge'])
+
+    # With up_min_margin = 5, margin of 4 is rejected as insufficient
+    dec_rejected = decide_microstructure(
+        marginal_score, features, is_synthetic=True, min_score=7, min_margin=4,
+        up_min_margin=5, min_5s_range=2.0, max_5s_range=25.0
+    )
+    assert dec_rejected.direction == SignalDirection.NO_TRADE
+
+    # With bull_score = 8 (margin = 5), UP is approved
+    stronger_score = MicrostructureScoreResult(bull_score=8, bear_score=3, reasons=['strong bullish edge'])
+    dec_approved = decide_microstructure(
+        stronger_score, features, is_synthetic=True, min_score=7, min_margin=4,
+        up_min_margin=5, min_5s_range=2.0, max_5s_range=25.0
+    )
+    assert dec_approved.direction == SignalDirection.UP
+
+
