@@ -126,7 +126,22 @@ class MicrostructureIntelligenceService:
             reference_time=now_dt,
         )
 
-        if ms_snapshot.book_ticker is None:
+        book_ticker = ms_snapshot.book_ticker
+        is_fresh = ms_snapshot.is_fresh
+        if book_ticker is None and ms_snapshot.recent_ticks:
+            last_tick = ms_snapshot.recent_ticks[-1]
+            book_ticker = BookTicker(
+                symbol=market,
+                best_bid_price=last_tick.price,
+                best_bid_qty=10.0,
+                best_ask_price=last_tick.price,
+                best_ask_qty=10.0,
+                event_time=last_tick.event_time,
+                provider='DETRADE_SYNTHETIC',
+            )
+            is_fresh = True
+
+        if book_ticker is None:
             return MicrostructureIntelligenceResult(
                 market=market,
                 direction=SignalDirection.NO_TRADE,
@@ -141,12 +156,12 @@ class MicrostructureIntelligenceService:
                 contract_duration_seconds=contract_duration_seconds,
             )
 
-        if not ms_snapshot.is_fresh:
+        if not is_fresh:
             return MicrostructureIntelligenceResult(
                 market=market,
                 direction=SignalDirection.NO_TRADE,
                 quality='UNAVAILABLE',
-                reference_price=ms_snapshot.book_ticker.mid_price,
+                reference_price=book_ticker.mid_price,
                 snapshot=ms_snapshot,
                 features=None,
                 decision=None,
@@ -163,7 +178,7 @@ class MicrostructureIntelligenceService:
         try:
             features = build_microstructure_features(
                 candles=candles,
-                latest_book=ms_snapshot.book_ticker,
+                latest_book=book_ticker,
                 book_history=book_history,
                 depth=ms_snapshot.depth,
                 depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0, reference_time=now_dt),
@@ -177,7 +192,7 @@ class MicrostructureIntelligenceService:
                 market=market,
                 direction=SignalDirection.NO_TRADE,
                 quality='UNAVAILABLE',
-                reference_price=ms_snapshot.book_ticker.mid_price,
+                reference_price=book_ticker.mid_price,
                 snapshot=ms_snapshot,
                 features=None,
                 decision=None,
@@ -192,7 +207,7 @@ class MicrostructureIntelligenceService:
         decision = decide_microstructure(
             score=score,
             features=features,
-            is_fresh=ms_snapshot.is_fresh,
+            is_fresh=is_fresh,
             max_spread_bps=settings.microstructure_max_spread_bps,
             min_l5_volume=settings.microstructure_min_l5_volume,
             min_score=settings.microstructure_min_score,
@@ -202,6 +217,7 @@ class MicrostructureIntelligenceService:
             is_synthetic=is_synth,
             up_min_margin=getattr(settings, 'detrade_up_min_margin', 5) if is_synth else None,
             max_lead_impulse=getattr(settings, 'detrade_max_lead_impulse', 16.0),
+            seconds_until_start=seconds_until_start,
         )
 
         details = {
@@ -219,13 +235,15 @@ class MicrostructureIntelligenceService:
             'bar_5s_range': features.bar_5s_range,
             'lead_range_dollars': features.lead_range_dollars,
             'bar_5s_taker_ratio': features.bar_5s_taker_ratio,
+            'stake_tier': decision.stake_tier,
+            'stake_recommendation': decision.stake_recommendation,
         }
 
         return MicrostructureIntelligenceResult(
             market=market,
             direction=decision.direction,
             quality=decision.quality,
-            reference_price=ms_snapshot.book_ticker.mid_price,
+            reference_price=book_ticker.mid_price,
             snapshot=ms_snapshot,
             features=features,
             decision=decision,

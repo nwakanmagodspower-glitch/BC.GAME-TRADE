@@ -15,6 +15,8 @@ class MicrostructureDecision:
     bear_score: int
     margin: int
     reason: str
+    stake_tier: str = 'DEFENSIVE'
+    stake_recommendation: str = '🛡️ PRESERVE CAPITAL (Skip round — wait for Prime)'
 
 
 def decide_microstructure(
@@ -31,65 +33,82 @@ def decide_microstructure(
     is_synthetic: bool = False,
     up_min_margin: int | None = None,
     max_lead_impulse: float = 16.0,
+    seconds_until_start: float | None = None,
 ) -> MicrostructureDecision:
     bull = score.bull_score
     bear = score.bear_score
     margin = abs(bull - bear)
 
-    # Hard Vetoes
-    if not is_fresh:
+    def _make(dir_val: SignalDirection, qual_val: str, reason_val: str) -> MicrostructureDecision:
+        if dir_val != SignalDirection.NO_TRADE:
+            peak = max(bull, bear)
+            if qual_val == 'STRONG' or (peak >= 8 and margin >= 5):
+                tier = 'PRIME'
+                rec = '🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)'
+            else:
+                tier = 'STANDARD'
+                rec = '⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)'
+        else:
+            tier = 'DEFENSIVE'
+            rec = '🛡️ PRESERVE CAPITAL (Skip round — wait for Prime)'
         return MicrostructureDecision(
-            direction=SignalDirection.NO_TRADE,
-            quality='UNAVAILABLE',
+            direction=dir_val,
+            quality=qual_val,
             bull_score=bull,
             bear_score=bear,
             margin=margin,
-            reason='Microstructure data stream is stale or missing.',
+            reason=reason_val,
+            stake_tier=tier,
+            stake_recommendation=rec,
+        )
+
+    # Execution countdown gate: never dispatch directional entries if window is < 8.0s
+    if seconds_until_start is not None and 0.0 <= seconds_until_start < 8.0:
+        return _make(
+            SignalDirection.NO_TRADE,
+            'NO_TRADE',
+            f'Entry window too short ({seconds_until_start:.1f}s < 8.0s remaining). Wait for the next fresh round to enter smoothly.',
+        )
+
+    # Hard Vetoes
+    if not is_fresh:
+        return _make(
+            SignalDirection.NO_TRADE,
+            'UNAVAILABLE',
+            'Microstructure data stream is stale or missing.',
         )
 
     # Order book checks only apply when evaluating external limit order books (not synthetic OTC feeds)
     if not is_synthetic:
         if features.spread_bps > max_spread_bps:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'Spread too wide ({features.spread_bps:.2f} bps > {max_spread_bps:.2f} bps).',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'Spread too wide ({features.spread_bps:.2f} bps > {max_spread_bps:.2f} bps).',
             )
 
         total_l5_depth = features.bid_depth_l5_qty + features.ask_depth_l5_qty
         if total_l5_depth < min_l5_volume:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'Order book depth too thin ({total_l5_depth:.4f} BTC < {min_l5_volume:.4f} BTC).',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'Order book depth too thin ({total_l5_depth:.4f} BTC < {min_l5_volume:.4f} BTC).',
             )
 
     # 5-Second Range Filters:
     # If trades are active (bar_5s_range > 0), filter flat chop and parabolic exhaustion traps
     if features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); high tie/noise risk (DeTrade awards ties to DOWN).',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); high tie/noise risk (DeTrade awards ties to DOWN).',
             )
         if features.bar_5s_range > max_5s_range:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'5-second bar range is overextended (${features.bar_5s_range:.2f} > ${max_5s_range:.2f}); high retracement risk.',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'5-second bar range is overextended (${features.bar_5s_range:.2f} > ${max_5s_range:.2f}); high retracement risk.',
             )
 
     # Parabolic Pre-Start Impulse / Exhaustion Gate (Synthetic OTC Defense)
@@ -97,22 +116,16 @@ def decide_microstructure(
     # sets the Start Price at the peak of the impulse, creating extreme mean-reversion loss risk.
     if is_synthetic:
         if features.bar_5s_return > max_lead_impulse or (features.bar_5s_return >= 8.0 and features.bar_5s_rsi_14 > 70.0):
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'Pre-start bullish impulse (+${features.bar_5s_return:.2f}) is overextended (exhaustion top). Buying UP risks an immediate 5-second retracement loss.',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'Pre-start bullish impulse (+${features.bar_5s_return:.2f}) is overextended (exhaustion top). Buying UP risks an immediate 5-second retracement loss.',
             )
         if features.bar_5s_return < -max_lead_impulse or (features.bar_5s_return <= -8.0 and features.bar_5s_rsi_14 < 30.0):
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason=f'Pre-start bearish impulse (${features.bar_5s_return:.2f}) is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'Pre-start bearish impulse (${features.bar_5s_return:.2f}) is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
             )
 
     # Fast / Slow Conflict Veto (applies if slow regime or 5s micro-trend strongly conflicts)
@@ -121,68 +134,54 @@ def decide_microstructure(
     has_bearish_conflict = features.momentum_5m_pct < -0.10 or features.bar_5s_momentum_3bar < -2.0
     has_bullish_conflict = features.momentum_5m_pct > 0.10 or features.bar_5s_momentum_3bar > 2.0
 
+    # 1-Minute Trend Harmony Gate (Regime Context)
+    trend_strongly_bearish = (features.ema_fast < features.ema_slow and features.rsi_14 < 44.0) or features.momentum_5m_pct < -0.08
+    trend_strongly_bullish = (features.ema_fast > features.ema_slow and features.rsi_14 > 56.0) or features.momentum_5m_pct > 0.08
+
     # Asymmetric Margin Requirement (DeTrade Tie-Rule Defense)
     # Under DeTrade rules, End <= Start awards the round to DOWN. UP has an inherent mathematical disadvantage.
     effective_up_margin = up_min_margin if up_min_margin is not None else (min_margin + 1 if is_synthetic else min_margin)
 
     # Decision logic
     if bull >= min_score and bull - bear >= effective_up_margin:
-        if slow_bearish and has_bearish_conflict:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason='Bullish fast microstructure conflicts strongly with bearish slow regime.',
+        if (slow_bearish and has_bearish_conflict) or trend_strongly_bearish:
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
             )
 
         if is_synthetic and features.bar_5s_return < 1.0:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason='Bullish return is insufficient to overcome the house tie-loss edge.',
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                'Bullish return is insufficient to overcome the house tie-loss edge.',
             )
 
         quality = 'STRONG' if bull >= 9 and margin >= 5 else 'VALID'
-        return MicrostructureDecision(
-            direction=SignalDirection.UP,
-            quality=quality,
-            bull_score=bull,
-            bear_score=bear,
-            margin=margin,
-            reason='; '.join(score.reasons),
+        return _make(
+            SignalDirection.UP,
+            quality,
+            '; '.join(score.reasons),
         )
 
     if bear >= min_score and bear - bull >= min_margin:
-        if slow_bullish and has_bullish_conflict:
-            return MicrostructureDecision(
-                direction=SignalDirection.NO_TRADE,
-                quality='NO_TRADE',
-                bull_score=bull,
-                bear_score=bear,
-                margin=margin,
-                reason='Bearish fast microstructure conflicts strongly with bullish slow regime.',
+        if (slow_bullish and has_bullish_conflict) or trend_strongly_bullish:
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
             )
 
         quality = 'STRONG' if bear >= 9 and margin >= 5 else 'VALID'
-        return MicrostructureDecision(
-            direction=SignalDirection.DOWN,
-            quality=quality,
-            bull_score=bull,
-            bear_score=bear,
-            margin=margin,
-            reason='; '.join(score.reasons),
+        return _make(
+            SignalDirection.DOWN,
+            quality,
+            '; '.join(score.reasons),
         )
 
-    return MicrostructureDecision(
-        direction=SignalDirection.NO_TRADE,
-        quality='NO_TRADE',
-        bull_score=bull,
-        bear_score=bear,
-        margin=margin,
-        reason='Microstructure directional evidence or margin is insufficient.',
+    return _make(
+        SignalDirection.NO_TRADE,
+        'NO_TRADE',
+        'Microstructure directional evidence or margin is insufficient.',
     )

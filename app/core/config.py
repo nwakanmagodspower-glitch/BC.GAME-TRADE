@@ -104,8 +104,8 @@ class Settings(BaseSettings):
 
     # BTC_MICROSTRUCTURE_V2 experimental settings
     microstructure_enabled: bool = False
-    microstructure_book_max_age_seconds: float = 1.0
-    microstructure_trade_max_age_seconds: float = 1.0
+    microstructure_book_max_age_seconds: float = 2.5
+    microstructure_trade_max_age_seconds: float = 2.5
     microstructure_max_spread_bps: float = 3.0
     microstructure_min_l5_volume: float = 0.05
     microstructure_min_score: int = 7

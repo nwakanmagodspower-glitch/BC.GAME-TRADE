@@ -118,7 +118,8 @@ def format_signal(signal: Signal) -> str:
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n'
             + score_line +
-            '\nNo qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
+            '\n🎯 Stake Guidance: 🛡️ CAPITAL DEFENSE (Skip round — wait for Prime)\n'
+            'No qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
             'Skip this round rather than forcing an entry, and wait for a clear directional setup.'
             + paper
         )
@@ -132,7 +133,17 @@ def format_signal(signal: Signal) -> str:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
     tie_note = '💡 Tie rule: Qualified expansion confirmed.\n' if signal.direction == SignalDirection.UP else '💡 Tie advantage: DOWN wins on flat ties.\n'
-    risk_note = '🛡️ Bankroll rule: Stake max 1%–2% of balance only.\n'
+    stake_rec = decision.get('stake_recommendation')
+    if not stake_rec:
+        bull = decision.get('bull_score', 0)
+        bear = decision.get('bear_score', 0)
+        peak = max(bull, bear)
+        margin = decision.get('margin', abs(bull - bear))
+        if peak >= 7 or (peak >= 5 and margin >= 4):
+            stake_rec = '🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)'
+        else:
+            stake_rec = '⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)'
+    stake_line = f'🎯 Stake Guidance: {stake_rec}\n'
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
@@ -145,7 +156,7 @@ def format_signal(signal: Signal) -> str:
         + speed_line
         + entry_window
         + tie_note
-        + risk_note
+        + stake_line
         + '\n'
         + action
         + paper

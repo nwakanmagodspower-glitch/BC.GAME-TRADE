@@ -302,5 +302,43 @@ def test_detrade_asymmetric_tie_margin_protection():
         up_min_margin=5, min_5s_range=2.0, max_5s_range=25.0
     )
     assert dec_approved.direction == SignalDirection.UP
+    assert dec_approved.stake_tier == 'PRIME'
+    assert 'PRIME SETUP' in dec_approved.stake_recommendation
+
+
+def test_countdown_execution_window_gate():
+    features = MicrostructureFeatureSnapshot(
+        ema_fast=90020.0, ema_slow=90000.0, rsi_14=55.0, atr_14_pct=0.01,
+        momentum_5m_pct=0.05, structure="BULLISH", mid_price=90020.0, spread=0.0,
+        spread_bps=0.0, obi_top=0.0, obi_l5=0.0, microprice=90020.0, microprice_dev_bps=0.0,
+        tfi_1s=None, tfi_5s=None, trade_count_1s=0, trade_count_5s=0, volume_5s=0.0,
+        return_250ms_bps=1.0, return_500ms_bps=1.5, return_1s_bps=2.0, return_2s_bps=3.0,
+        return_5s_bps=4.0, velocity_1s_bps=2.0, acceleration_1s_bps=0.5,
+        bid_depth_l5_qty=0.0, ask_depth_l5_qty=0.0, liquidity_delta_l5_pct=0.0,
+        bar_5s_return=2.50, bar_5s_range=4.00, bar_5s_taker_ratio=0.65,
+        bar_5s_ema_fast=90022.0, bar_5s_ema_slow=90015.0, bar_5s_rsi_14=55.0,
+        bar_5s_momentum_3bar=3.00,
+    )
+    from app.signals.microstructure.scoring import MicrostructureScoreResult
+    strong_score = MicrostructureScoreResult(bull_score=8, bear_score=2, reasons=['strong bullish edge'])
+
+    # When 5.0 seconds remain (< 8.0s minimum execution window), signal is vetoed to avoid hurried entries
+    dec_too_late = decide_microstructure(
+        strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
+        seconds_until_start=5.0
+    )
+    assert dec_too_late.direction == SignalDirection.NO_TRADE
+    assert 'Entry window too short' in dec_too_late.reason
+    assert dec_too_late.stake_tier == 'DEFENSIVE'
+
+    # When 12.0 seconds remain, signal is approved with Prime stake guidance
+    dec_in_time = decide_microstructure(
+        strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
+        seconds_until_start=12.0
+    )
+    assert dec_in_time.direction == SignalDirection.UP
+    assert dec_in_time.stake_tier == 'PRIME'
+    assert 'PRIME SETUP' in dec_in_time.stake_recommendation
+
 
 
