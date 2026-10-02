@@ -164,10 +164,15 @@ class UserSignalService:
                 datetime.now(timezone.utc)
             )
             if remaining_after_scan * 1000 <= settings.detrade_dispatch_min_remaining_ms:
+                reason = (
+                    'This round already started while scanning. Tap Scan for the new fresh round.'
+                    if settings.detrade_dispatch_min_remaining_ms <= 0
+                    else 'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.'
+                )
                 return UserSignalResult(
                     None,
                     False,
-                    'This round moved too close to the cutoff while scanning. Skip it and use the next fresh round.',
+                    reason,
                 )
 
         # Final atomic persistence gate. This is the only place a row lock is held,

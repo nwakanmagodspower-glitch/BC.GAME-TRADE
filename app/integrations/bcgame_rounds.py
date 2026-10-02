@@ -261,10 +261,11 @@ class BCGameRoundService:
             or remaining_ms <= settings.detrade_latency_safety_margin_ms
         ):
             cutoff_s = settings.detrade_latency_safety_margin_ms / 1000.0
-            self.last_error = (
-                f'⏱️ This BCGAME round is already too close to the cutoff (<{cutoff_s:.1f}s remaining). '
-                'Wait for the next fresh round to ensure safe entry.'
-            )
+            if cutoff_s > 0:
+                msg = f'⏱️ This BCGAME round is already too close to the cutoff (<{cutoff_s:.1f}s remaining). Wait for the next fresh round to ensure safe entry.'
+            else:
+                msg = '⏱️ This BCGAME round has already started or closed. Wait for the fresh round countdown on BC.GAME, then tap Scan.'
+            self.last_error = msg
             return BCGameRoundDecision(
                 True, False, None, self.last_error, **decision_base
             )

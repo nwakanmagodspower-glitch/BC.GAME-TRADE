@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     detrade_max_5s_range_dollars: float = 25.00
     detrade_max_lead_impulse: float = 16.00
     detrade_up_min_margin: int = 5
-    detrade_latency_safety_margin_ms: int = 4_500
-    detrade_dispatch_min_remaining_ms: int = 3_500
+    detrade_latency_safety_margin_ms: int = 0
+    detrade_dispatch_min_remaining_ms: int = 0
     detrade_stale_after_ms: int = 1500
     detrade_probe_timeout_seconds: float = 2.5
     # User scans should not spend most of a short entry window waiting for a

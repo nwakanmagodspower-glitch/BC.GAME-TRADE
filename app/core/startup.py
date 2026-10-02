@@ -154,7 +154,7 @@ def validate_settings(settings: Settings) -> StartupCheck:
             errors.append('DETRADE_LATENCY_SAFETY_MARGIN_MS cannot be negative')
         if settings.detrade_dispatch_min_remaining_ms < 0:
             errors.append('DETRADE_DISPATCH_MIN_REMAINING_MS cannot be negative')
-        if settings.detrade_dispatch_min_remaining_ms >= settings.detrade_latency_safety_margin_ms:
+        if settings.detrade_dispatch_min_remaining_ms > settings.detrade_latency_safety_margin_ms:
             warnings.append('DETRADE_DISPATCH_MIN_REMAINING_MS should normally be lower than the initial timer safety margin.')
         if settings.detrade_stale_after_ms <= 0:
             errors.append('DETRADE_STALE_AFTER_MS must be greater than zero')

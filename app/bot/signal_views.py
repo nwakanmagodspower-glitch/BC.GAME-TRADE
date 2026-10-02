@@ -43,15 +43,14 @@ def format_scan_context() -> str:
         '🎯 STAKE GUIDANCE:\n'
         '• Strong Setup: Stake High\n'
         '• Standard Setup: Stake Low\n'
-        '• Flat / Choppy / Late: Skip Round\n\n'
+        '• Chop / Reversal: Skip Round\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
-        '3️⃣ Tap ⚡ Scan Market around 6s–8s remaining for maximum prediction accuracy and fresh micro-momentum.\n\n'
+        '3️⃣ Tap ⚡ Scan Market anytime during the countdown (from 15s down to 1s). The closer to start, the sharper the micro-momentum.\n\n'
         '🟢 UP — qualified upward setup (exhaustion filtered)\n'
         '🔴 DOWN — qualified downward setup\n'
-        '⚪ NO TRADE — no qualified setup (flat chop, late window, or counter-trend)\n'
-        '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-        'If under 4 seconds remain, the bot advises skipping to prevent latency slippage.'
+        '⚪ NO TRADE — no qualified setup (flat chop or counter-trend)\n'
+        '⚠️ UNAVAILABLE — round already started or data syncing'
     )
 
 
@@ -91,14 +90,13 @@ def format_signal(signal: Signal) -> str:
         if lead_range is None:
             lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
 
-        if 'entry window too short' in reason_str.lower() or 'too short' in reason_str.lower():
+        if 'already started' in reason_str.lower():
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
-                '⚪ NO TRADE — Late Entry Window\n\n'
-                '⏱️ Window: Less than 4.0s remaining before round starts\n'
-                '🎯 Stake: 🛡️ Skip Round (Wait for fresh round)\n\n'
-                '💡 Why skip? With under 4 seconds remaining, there is not enough time to switch apps and execute cleanly on BC.GAME without latency slippage.\n'
-                'Wait for the next round and scan around 6s–8s remaining for the sharpest prediction.'
+                '⚪ NO TRADE — Round Already Started\n\n'
+                '⏱️ Window: The round countdown has already reached 0:00\n'
+                '🎯 Stake: 🛡️ Skip Round\n\n'
+                '💡 Wait for the next round countdown and tap Scan to get your signal.'
                 + paper
             )
 

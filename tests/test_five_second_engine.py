@@ -322,19 +322,19 @@ def test_countdown_execution_window_gate():
     from app.signals.microstructure.scoring import MicrostructureScoreResult
     strong_score = MicrostructureScoreResult(bull_score=8, bear_score=2, reasons=['strong bullish edge'])
 
-    # When 5.0 seconds remain (< 8.0s minimum execution window), signal is vetoed to avoid hurried entries
+    # When 0.0s remain (round has started), signal is vetoed
     dec_too_late = decide_microstructure(
         strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
-        seconds_until_start=3.0
+        seconds_until_start=0.0
     )
     assert dec_too_late.direction == SignalDirection.NO_TRADE
-    assert 'Entry window too short' in dec_too_late.reason
+    assert 'already started' in dec_too_late.reason
     assert dec_too_late.stake_tier == 'DEFENSIVE'
 
-    # When 12.0 seconds remain, signal is approved with Prime stake guidance
+    # When 1.5 seconds remain (even close to start), signal is approved with Prime stake guidance
     dec_in_time = decide_microstructure(
         strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
-        seconds_until_start=6.0
+        seconds_until_start=1.5
     )
     assert dec_in_time.direction == SignalDirection.UP
     assert dec_in_time.stake_tier == 'PRIME'

@@ -98,19 +98,19 @@ def test_paper_direction_is_explicitly_non_actionable(monkeypatch):
     assert 'Recorded for PAPER validation only.' in text
     assert 'Open BCGAME and place' not in text
 
-def test_no_trade_late_entry_window():
+def test_no_trade_round_already_started():
     signal = Signal(
         direction=SignalDirection.NO_TRADE,
         status=SignalStatus.NO_TRADE,
-        status_reason='Entry window too short (< 8s remaining: 5.2s). Skip round to avoid late entry risk.',
+        status_reason='This round has already started. Wait for the new countdown and tap Scan.',
         strategy_version='BTC_ORIGINAL_INTELLIGENCE_TIMER_V1',
         market='BTC/USD',
         product='BC_UPDOWN_5S',
     )
     text = signal_views.format_signal(signal)
-    assert '⚪ NO TRADE — Late Entry Window' in text
-    assert 'Less than 4.0s remaining before round starts' in text
-    assert 'Wait for the next round' in text
+    assert '⚪ NO TRADE — Round Already Started' in text
+    assert 'The round countdown has already reached 0:00' in text
+    assert 'Wait for the next round countdown' in text
 
 
 def test_no_trade_macro_trend_conflict():
