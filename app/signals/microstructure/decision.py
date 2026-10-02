@@ -62,12 +62,12 @@ def decide_microstructure(
             stake_recommendation=rec,
         )
 
-    # Execution countdown gate: never dispatch directional entries if window is < 8.0s
-    if seconds_until_start is not None and 0.0 <= seconds_until_start < 8.0:
+    # Execution countdown gate: never dispatch directional entries if window is < 4.0s
+    if seconds_until_start is not None and 0.0 <= seconds_until_start < 4.0:
         return _make(
             SignalDirection.NO_TRADE,
             'NO_TRADE',
-            f'Entry window too short ({seconds_until_start:.1f}s < 8.0s remaining). Wait for the next fresh round to enter smoothly.',
+            f'Entry window too short ({seconds_until_start:.1f}s < 4.0s remaining). Wait for the next fresh round to enter smoothly.',
         )
 
     # Hard Vetoes

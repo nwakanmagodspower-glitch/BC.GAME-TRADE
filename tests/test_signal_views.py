@@ -109,7 +109,7 @@ def test_no_trade_late_entry_window():
     )
     text = signal_views.format_signal(signal)
     assert '⚪ NO TRADE — Late Entry Window' in text
-    assert 'Less than 8.0s remaining before round starts' in text
+    assert 'Less than 4.0s remaining before round starts' in text
     assert 'Wait for the next round' in text
 
 

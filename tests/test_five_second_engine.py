@@ -325,7 +325,7 @@ def test_countdown_execution_window_gate():
     # When 5.0 seconds remain (< 8.0s minimum execution window), signal is vetoed to avoid hurried entries
     dec_too_late = decide_microstructure(
         strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
-        seconds_until_start=5.0
+        seconds_until_start=3.0
     )
     assert dec_too_late.direction == SignalDirection.NO_TRADE
     assert 'Entry window too short' in dec_too_late.reason
@@ -334,7 +334,7 @@ def test_countdown_execution_window_gate():
     # When 12.0 seconds remain, signal is approved with Prime stake guidance
     dec_in_time = decide_microstructure(
         strong_score, features, is_synthetic=True, min_score=7, min_margin=4,
-        seconds_until_start=12.0
+        seconds_until_start=6.0
     )
     assert dec_in_time.direction == SignalDirection.UP
     assert dec_in_time.stake_tier == 'PRIME'

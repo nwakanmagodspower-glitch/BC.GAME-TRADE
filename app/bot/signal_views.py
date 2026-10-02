@@ -45,13 +45,13 @@ def format_scan_context() -> str:
         '• Standard Setup: Stake Low\n'
         '• Flat / Choppy / Late: Skip Round\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
-        '2️⃣ Wait for a fresh round to begin (~15–20s countdown).\n\n'
-        '3️⃣ Tap ⚡ Scan Market immediately. The bot checks timing, synthetic momentum, and exhaustion risk before returning a decision.\n\n'
+        '2️⃣ Watch the round timer on BC.GAME.\n\n'
+        '3️⃣ Tap ⚡ Scan Market around 6s–8s remaining for maximum prediction accuracy and fresh micro-momentum.\n\n'
         '🟢 UP — qualified upward setup (exhaustion filtered)\n'
         '🔴 DOWN — qualified downward setup\n'
         '⚪ NO TRADE — no qualified setup (flat chop, late window, or counter-trend)\n'
         '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-        'If under 8 seconds remain, the bot advises skipping to prevent latency slippage.'
+        'If under 4 seconds remain, the bot advises skipping to prevent latency slippage.'
     )
 
 
@@ -95,10 +95,10 @@ def format_signal(signal: Signal) -> str:
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Late Entry Window\n\n'
-                '⏱️ Window: Less than 8.0s remaining before round starts\n'
+                '⏱️ Window: Less than 4.0s remaining before round starts\n'
                 '🎯 Stake: 🛡️ Skip Round (Wait for fresh round)\n\n'
-                '💡 Why skip? With under 8 seconds remaining, there is not enough time to switch apps and execute cleanly on BC.GAME without latency slippage.\n'
-                'Wait for the next round (~15–20s countdown) and scan as soon as it begins.'
+                '💡 Why skip? With under 4 seconds remaining, there is not enough time to switch apps and execute cleanly on BC.GAME without latency slippage.\n'
+                'Wait for the next round and scan around 6s–8s remaining for the sharpest prediction.'
                 + paper
             )
 
