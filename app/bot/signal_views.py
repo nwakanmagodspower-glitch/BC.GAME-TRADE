@@ -40,17 +40,18 @@ def format_scan_context() -> str:
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
         f'Recommended Room: {room} (Conservative Bankroll Protection)\n\n'
-        '🛡️ BANKROLL SAFETY RULE:\n'
-        '• Stake 1% – 2% maximum per trade ($1 – $2 for accounts under $500).\n'
-        '• Never use Martingale or oversized stakes on 5s rounds.\n\n'
+        '🛡️ DYNAMIC STAKE SIZING:\n'
+        '• ⚡ Standard Setup: Stake 1% – 1.5% of bankroll.\n'
+        '• 🔥 Prime Setup: Stake 2% – 3% of bankroll when high conviction is confirmed.\n'
+        '• 🛡️ No Trade: Skip round — never force trades or use Martingale.\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
-        '2️⃣ Wait for a fresh round to begin.\n\n'
-        '3️⃣ Tap ⚡ Scan Market. The bot checks timing, synthetic momentum, and exhaustion risk before returning a decision.\n\n'
+        '2️⃣ Wait for a fresh round to begin (~15–20s countdown).\n\n'
+        '3️⃣ Tap ⚡ Scan Market immediately. The bot checks timing, synthetic momentum, and exhaustion risk before returning a decision.\n\n'
         '🟢 UP — qualified upward setup (exhaustion filtered)\n'
         '🔴 DOWN — qualified downward setup\n'
-        '⚪ NO TRADE — no qualified setup (flat chop or parabolic exhaustion)\n'
+        '⚪ NO TRADE — no qualified setup (flat chop, late window, or counter-trend)\n'
         '⚠️ UNAVAILABLE — timing or market data is not safe enough\n\n'
-        'If the round is already late or exhausted, skip it rather than forcing an entry.'
+        'If under 8 seconds remain, the bot advises skipping to prevent latency slippage.'
     )
 
 
@@ -89,6 +90,28 @@ def format_signal(signal: Signal) -> str:
         lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
         if lead_range is None:
             lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
+
+        if 'entry window too short' in reason_str.lower() or 'too short' in reason_str.lower():
+            return (
+                f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
+                '⚪ NO TRADE — Late Entry Window\n\n'
+                '⏱️ Window: Less than 8.0s remaining before round starts\n'
+                '🎯 Stake Guidance: 🛡️ PRESERVE CAPITAL (Wait for fresh round)\n\n'
+                '💡 Why skip? With under 8 seconds remaining, there is not enough time to switch apps and execute cleanly on BC.GAME without latency slippage.\n'
+                'Wait for the next round (~15–20s countdown) and scan as soon as it begins.'
+                + paper
+            )
+
+        if 'trend conflict' in reason_str.lower() or 'macro' in reason_str.lower():
+            return (
+                f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
+                '⚪ NO TRADE — Trend Conflict\n\n'
+                '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
+                '🎯 Stake Guidance: 🛡️ PRESERVE CAPITAL (Wait for trend alignment)\n\n'
+                '💡 Why skip? The 5-second impulse contradicts the broader market trend. Counter-trend 5s trades carry low win rates.\n'
+                'Preserve capital and wait for momentum that aligns with the macro trend.'
+                + paper
+            )
 
         if 'exhaustion' in reason_str.lower() or 'overextended' in reason_str.lower():
             return (
