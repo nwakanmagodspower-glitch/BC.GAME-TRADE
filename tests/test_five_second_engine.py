@@ -303,7 +303,7 @@ def test_detrade_asymmetric_tie_margin_protection():
     )
     assert dec_approved.direction == SignalDirection.UP
     assert dec_approved.stake_tier == 'PRIME'
-    assert 'PRIME SETUP' in dec_approved.stake_recommendation
+    assert 'Stake High' in dec_approved.stake_recommendation
 
 
 def test_countdown_execution_window_gate():
@@ -338,7 +338,7 @@ def test_countdown_execution_window_gate():
     )
     assert dec_in_time.direction == SignalDirection.UP
     assert dec_in_time.stake_tier == 'PRIME'
-    assert 'PRIME SETUP' in dec_in_time.stake_recommendation
+    assert 'Stake High' in dec_in_time.stake_recommendation
 
 
 

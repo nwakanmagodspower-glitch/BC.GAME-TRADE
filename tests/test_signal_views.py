@@ -144,13 +144,13 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
                 'quality': 'STRONG',
                 'bull_score': 8,
                 'bear_score': 0,
-                'stake_recommendation': '🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)',
+                'stake_recommendation': '🔥 Stake High',
             },
             'lead_range_dollars': 12.5,
         },
     )
     text_prime = signal_views.format_signal(signal_prime)
-    assert '🎯 Stake Guidance: 🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)' in text_prime
+    assert '🎯 Stake: 🔥 Stake High' in text_prime
 
     signal_std = Signal(
         direction=SignalDirection.DOWN,
@@ -165,11 +165,11 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
                 'quality': 'CONFIRMED',
                 'bull_score': 1,
                 'bear_score': 5,
-                'stake_recommendation': '⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)',
+                'stake_recommendation': '⚡ Stake Low',
             },
             'lead_range_dollars': 5.0,
         },
     )
     text_std = signal_views.format_signal(signal_std)
-    assert '🎯 Stake Guidance: ⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)' in text_std
+    assert '🎯 Stake: ⚡ Stake Low' in text_std
 

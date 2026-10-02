@@ -44,13 +44,13 @@ def decide_microstructure(
             peak = max(bull, bear)
             if qual_val == 'STRONG' or (peak >= 8 and margin >= 5):
                 tier = 'PRIME'
-                rec = '🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)'
+                rec = '🔥 Stake High'
             else:
                 tier = 'STANDARD'
-                rec = '⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)'
+                rec = '⚡ Stake Low'
         else:
             tier = 'DEFENSIVE'
-            rec = '🛡️ PRESERVE CAPITAL (Skip round — wait for Prime)'
+            rec = '🛡️ Skip Round'
         return MicrostructureDecision(
             direction=dir_val,
             quality=qual_val,

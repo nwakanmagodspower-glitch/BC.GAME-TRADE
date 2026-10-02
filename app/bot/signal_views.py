@@ -39,11 +39,11 @@ def format_scan_context() -> str:
         '🎯 CORRECT MARKET\n'
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
-        f'Recommended Room: {room} (Conservative Bankroll Protection)\n\n'
-        '🛡️ DYNAMIC STAKE SIZING:\n'
-        '• ⚡ Standard Setup: Stake 1% – 1.5% of bankroll.\n'
-        '• 🔥 Prime Setup: Stake 2% – 3% of bankroll when high conviction is confirmed.\n'
-        '• 🛡️ No Trade: Skip round — never force trades or use Martingale.\n\n'
+        f'Room: {room}\n\n'
+        '🎯 STAKE GUIDANCE:\n'
+        '• Strong Setup: Stake High\n'
+        '• Standard Setup: Stake Low\n'
+        '• Flat / Choppy / Late: Skip Round\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Wait for a fresh round to begin (~15–20s countdown).\n\n'
         '3️⃣ Tap ⚡ Scan Market immediately. The bot checks timing, synthetic momentum, and exhaustion risk before returning a decision.\n\n'
@@ -96,7 +96,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Late Entry Window\n\n'
                 '⏱️ Window: Less than 8.0s remaining before round starts\n'
-                '🎯 Stake Guidance: 🛡️ PRESERVE CAPITAL (Wait for fresh round)\n\n'
+                '🎯 Stake: 🛡️ Skip Round (Wait for fresh round)\n\n'
                 '💡 Why skip? With under 8 seconds remaining, there is not enough time to switch apps and execute cleanly on BC.GAME without latency slippage.\n'
                 'Wait for the next round (~15–20s countdown) and scan as soon as it begins.'
                 + paper
@@ -107,7 +107,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Trend Conflict\n\n'
                 '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
-                '🎯 Stake Guidance: 🛡️ PRESERVE CAPITAL (Wait for trend alignment)\n\n'
+                '🎯 Stake: 🛡️ Skip Round (Wait for trend alignment)\n\n'
                 '💡 Why skip? The 5-second impulse contradicts the broader market trend. Counter-trend 5s trades carry low win rates.\n'
                 'Preserve capital and wait for momentum that aligns with the macro trend.'
                 + paper
@@ -118,6 +118,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Parabolic Exhaustion\n\n'
                 f'📊 Warning: Pre-start impulse is overextended\n'
+                '🎯 Stake: 🛡️ Skip Round\n\n'
                 '💡 Why skip? BTC surged aggressively during the countdown. Buying at the peak risks an immediate 5-second mean-reversion loss.\n'
                 'Skipping preserves your balance until a stable continuation setup appears.'
                 + paper
@@ -130,6 +131,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Low Market Speed\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
+                '🎯 Stake: 🛡️ Skip Round\n\n'
                 '💡 Why skip? Under BCGAME rules, ties (End <= Start) award the round to DOWN. In flat chop, UP has negative expected value.\n'
                 'Skipping preserves your balance until clean momentum returns.\n\n'
                 'Wait for a fresh round with active movement before scanning again.'
@@ -141,7 +143,7 @@ def format_signal(signal: Signal) -> str:
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n'
             + score_line +
-            '\n🎯 Stake Guidance: 🛡️ CAPITAL DEFENSE (Skip round — wait for Prime)\n'
+            '\n🎯 Stake: 🛡️ Skip Round\n'
             'No qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
             'Skip this round rather than forcing an entry, and wait for a clear directional setup.'
             + paper
@@ -157,16 +159,16 @@ def format_signal(signal: Signal) -> str:
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
     tie_note = '💡 Tie rule: Qualified expansion confirmed.\n' if signal.direction == SignalDirection.UP else '💡 Tie advantage: DOWN wins on flat ties.\n'
     stake_rec = decision.get('stake_recommendation')
-    if not stake_rec:
+    if not stake_rec or 'allocation' in stake_rec.lower() or 'setup' in stake_rec.lower():
         bull = decision.get('bull_score', 0)
         bear = decision.get('bear_score', 0)
         peak = max(bull, bear)
         margin = decision.get('margin', abs(bull - bear))
-        if peak >= 7 or (peak >= 5 and margin >= 4):
-            stake_rec = '🔥 PRIME SETUP (Full allocation: 2%–3% of bankroll)'
+        if peak >= 8 or (peak >= 6 and margin >= 4):
+            stake_rec = '🔥 Stake High'
         else:
-            stake_rec = '⚡ STANDARD SETUP (Base allocation: 1%–1.5% of bankroll)'
-    stake_line = f'🎯 Stake Guidance: {stake_rec}\n'
+            stake_rec = '⚡ Stake Low'
+    stake_line = f'🎯 Stake: {stake_rec}\n'
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
