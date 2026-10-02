@@ -8,7 +8,7 @@ services:
     region: frankfurt
     healthCheckPath: /health
     maxShutdownDelaySeconds: 60
-    preDeployCommand: alembic upgrade head
+    preDeployCommand: python -m scripts.run_migrations
     envVars:
       - key: APP_ENV
         value: production
