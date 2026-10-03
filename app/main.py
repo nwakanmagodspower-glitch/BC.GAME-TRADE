@@ -53,7 +53,10 @@ async def lifespan(app: FastAPI):
                 return None
         detrade_token_provider.set_db_token_getter(_db_token_getter)
 
+    _last_detrade_p: float | None = None
+
     async def _route_detrade_tick(tick: dict[str, Any]) -> None:
+        nonlocal _last_detrade_p
         try:
             p = tick.get('price')
             t_ms = tick.get('timestamp_ms')
@@ -73,13 +76,20 @@ async def lifespan(app: FastAPI):
                 event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
                 if event_time > now_utc:
                     event_time = now_utc
+                is_bm: bool | None = None
+                if _last_detrade_p is not None:
+                    if p > _last_detrade_p:
+                        is_bm = False  # buyer taker (uptick)
+                    elif p < _last_detrade_p:
+                        is_bm = True   # seller taker (downtick)
+                _last_detrade_p = p
                 synthetic_tick = MarketTick(
                     symbol=settings.analysis_pair,
                     price=p,
                     quantity=1.0,
                     event_time=event_time,
                     provider='DETRADE_SYNTHETIC',
-                    is_buyer_maker=False,
+                    is_buyer_maker=is_bm,
                 )
                 await market_data_service.cache.set_tick(synthetic_tick)
         except Exception:

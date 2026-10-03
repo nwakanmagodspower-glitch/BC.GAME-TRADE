@@ -297,6 +297,7 @@ class MicrostructureDataCache:
         self._depth_snapshots: dict[str, deque[DepthSnapshot]] = defaultdict(lambda: deque(maxlen=depth_history_size))
         self._trades: dict[str, deque[MarketTick]] = defaultdict(lambda: deque(maxlen=trade_history_size))
         self._bar_aggregators: dict[str, FiveSecondBarAggregator] = defaultdict(lambda: FiveSecondBarAggregator(max_bars=240))
+        self._last_synthetic_prices: dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     async def add_book_ticker(self, ticker: BookTicker) -> None:
@@ -334,13 +335,21 @@ class MicrostructureDataCache:
         ts = (float(timestamp_ms) / 1000.0) if timestamp_ms > 1e11 else float(timestamp_ms)
         event_time = datetime.fromtimestamp(ts, tz=timezone.utc)
         sym = symbol.upper()
+        prev_price = self._last_synthetic_prices.get(sym)
+        self._last_synthetic_prices[sym] = price
+        is_bm: bool | None = None
+        if prev_price is not None:
+            if price > prev_price:
+                is_bm = False  # buyer taker (uptick)
+            elif price < prev_price:
+                is_bm = True   # seller taker (downtick)
         tick = MarketTick(
             symbol=sym,
             price=price,
             quantity=1.0,
             event_time=event_time,
             provider='DETRADE_SYNTHETIC',
-            is_buyer_maker=False,
+            is_buyer_maker=is_bm,
         )
         book = BookTicker(
             symbol=sym,
