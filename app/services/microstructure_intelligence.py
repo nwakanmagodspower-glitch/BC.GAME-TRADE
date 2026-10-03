@@ -175,6 +175,11 @@ class MicrostructureIntelligenceService:
 
         book_history = await self.cache.get_book_history(market, lookback_seconds=10.0, reference_time=now_dt)
 
+        is_synth = bool(settings.detrade_use_synthetic_feed and (
+            (ms_snapshot.bars_5s and len(ms_snapshot.bars_5s) > 0)
+            or (ms_snapshot.recent_ticks and len(ms_snapshot.recent_ticks) > 0)
+        ))
+
         try:
             features = build_microstructure_features(
                 candles=candles,
@@ -186,6 +191,7 @@ class MicrostructureIntelligenceService:
                 now=now_dt,
                 bars_5s=ms_snapshot.bars_5s,
                 bar_metrics_5s=ms_snapshot.bar_metrics_5s,
+                is_synthetic=is_synth,
             )
         except Exception as exc:
             return MicrostructureIntelligenceResult(
@@ -202,7 +208,6 @@ class MicrostructureIntelligenceService:
                 contract_duration_seconds=contract_duration_seconds,
             )
 
-        is_synth = bool(settings.detrade_use_synthetic_feed and features.bar_5s_range > 0)
         score = score_microstructure_features(features, is_synthetic=is_synth)
         decision = decide_microstructure(
             score=score,
@@ -210,12 +215,12 @@ class MicrostructureIntelligenceService:
             is_fresh=is_fresh,
             max_spread_bps=settings.microstructure_max_spread_bps,
             min_l5_volume=settings.microstructure_min_l5_volume,
-            min_score=settings.microstructure_min_score,
-            min_margin=settings.microstructure_min_margin,
+            min_score=settings.detrade_min_score if is_synth else settings.microstructure_min_score,
+            min_margin=settings.detrade_min_margin if is_synth else settings.microstructure_min_margin,
             min_5s_range=settings.detrade_min_5s_range_dollars if is_synth else settings.signal_min_lead_range_dollars,
             max_5s_range=settings.detrade_max_5s_range_dollars if is_synth else 12.0,
             is_synthetic=is_synth,
-            up_min_margin=getattr(settings, 'detrade_up_min_margin', 5) if is_synth else None,
+            up_min_margin=settings.detrade_up_min_margin if is_synth else None,
             max_lead_impulse=getattr(settings, 'detrade_max_lead_impulse', 16.0),
             seconds_until_start=seconds_until_start,
         )

@@ -356,6 +356,18 @@ class SignalIntelligenceService:
             market,
             max_age_seconds=settings.market_data_max_age_seconds,
         )
+        if (snapshot is None or not snapshot.fresh) and settings.detrade_use_synthetic_feed:
+            from app.integrations.detrade_observer import detrade_observer
+            if detrade_observer.latest_tick and detrade_observer.latest_tick.get('price'):
+                p = float(detrade_observer.latest_tick['price'])
+                snapshot = MarketSnapshot(
+                    symbol=market,
+                    price=p,
+                    event_time=detrade_observer.latest_tick.get('received_at', datetime.now(timezone.utc)),
+                    source='DETRADE_SYNTHETIC',
+                    fresh=True,
+                )
+
         if snapshot is None:
             return IntelligenceResult(
                 market=market,

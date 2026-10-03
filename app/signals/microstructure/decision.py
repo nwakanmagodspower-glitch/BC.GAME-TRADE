@@ -151,14 +151,14 @@ def decide_microstructure(
                 'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
             )
 
-        if is_synthetic and features.bar_5s_return < 1.0:
+        if is_synthetic and features.bar_5s_return < 0.40:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
                 'Bullish return is insufficient to overcome the house tie-loss edge.',
             )
 
-        quality = 'STRONG' if bull >= 9 and margin >= 5 else 'VALID'
+        quality = 'STRONG' if (bull >= 8 and margin >= 4) or features.bar_5s_return >= 1.50 else 'VALID'
         return _make(
             SignalDirection.UP,
             quality,
@@ -173,7 +173,7 @@ def decide_microstructure(
                 'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
             )
 
-        quality = 'STRONG' if bear >= 9 and margin >= 5 else 'VALID'
+        quality = 'STRONG' if (bear >= 8 and margin >= 4) or features.bar_5s_return <= -1.50 else 'VALID'
         return _make(
             SignalDirection.DOWN,
             quality,

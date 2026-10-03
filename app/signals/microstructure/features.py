@@ -128,6 +128,8 @@ def build_microstructure_features(
     now: datetime | None = None,
     bars_5s: Sequence[FiveSecondBar] | None = None,
     bar_metrics_5s: dict[str, Any] | None = None,
+    *,
+    is_synthetic: bool = False,
 ) -> MicrostructureFeatureSnapshot:
     if latest_book is None:
         raise ValueError('latest_book is required for microstructure features')
@@ -161,9 +163,9 @@ def build_microstructure_features(
     bar_5s_rsi_14 = float(b_metrics.get('rsi_14') or 50.0)
     bar_5s_momentum_3bar = float(b_metrics.get('momentum_3bar_usd') or bar_5s_return)
 
-    # 2. Slow Regime Context (1m candles if available, else 5s micro-regime)
+    # 2. Slow Regime Context (1m candles if available and not pure synthetic, else 5s micro-regime)
     closed = [c for c in (candles or ()) if c.closed]
-    if len(closed) >= 55:
+    if not is_synthetic and len(closed) >= 55:
         closes = [c.close for c in closed]
         price = closes[-1]
         ema_fast = _ema(closes[-30:], 9)
