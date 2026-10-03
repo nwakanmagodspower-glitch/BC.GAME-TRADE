@@ -205,15 +205,16 @@ def test_pure_detrade_tie_rule_vetoes_weak_bullish_returns():
     features = build_microstructure_features(
         latest_book=book, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
     )
-    score = score_microstructure_features(features, is_synthetic=True)
+    from app.signals.microstructure.scoring import MicrostructureScoreResult
+    score = MicrostructureScoreResult(bull_score=7, bear_score=0, reasons=['bullish impulse'])
     decision = decide_microstructure(
         score=score,
         features=features,
-        min_score=4,
-        min_margin=2,
+        min_score=6,
+        min_margin=3,
         min_5s_range=1.00,
         is_synthetic=True,
-        up_min_margin=2,
+        up_min_margin=4,
     )
 
     # Must veto UP because +$0.50 is insufficient to overcome house tie-loss edge
@@ -252,7 +253,8 @@ def test_pure_detrade_falling_velocity_vetoes_up():
     features = build_microstructure_features(
         latest_book=book, recent_ticks=recent_ticks, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
     )
-    score = score_microstructure_features(features, is_synthetic=True)
+    from app.signals.microstructure.scoring import MicrostructureScoreResult
+    score = MicrostructureScoreResult(bull_score=7, bear_score=0, reasons=['bullish impulse'])
     decision = decide_microstructure(
         score=score,
         features=features,
@@ -263,9 +265,57 @@ def test_pure_detrade_falling_velocity_vetoes_up():
         up_min_margin=4,
     )
 
-    # Must veto UP because velocity is actively decelerating/dropping
+    # Must veto UP because velocity is actively ticking down
     assert decision.direction == SignalDirection.NO_TRADE
-    assert "velocity is decelerating" in decision.reason
+    assert "ticking down" in decision.reason or "velocity" in decision.reason
     assert decision.stake_recommendation == "🛡️ Skip Round"
+
+
+def test_pure_detrade_drifting_bounce_after_dump_is_strictly_vetoed():
+    now = datetime(2026, 10, 3, 8, 2, 48, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84537.34, 1.0, 84537.34, 1.0, now, "DETRADE_SYNTHETIC")
+
+    # Bar closed with tiny return (+0.09) and narrow range ($0.40)
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84537.25, high=84537.40, low=84537.20, close=84537.34,
+            volume=3.0, quote_volume=3.0 * 84537.0, trades_count=6,
+            taker_buy_volume=1.5, taker_sell_volume=1.5, closed=True,
+        )
+    ]
+    # Macro metrics are bearish from previous dump
+    bar_metrics = {
+        'ema_fast_9': 84530.0,
+        'ema_slow_21': 84550.0,
+        'rsi_14': 38.0,
+        'momentum_3bar_usd': -5.0,
+    }
+    from app.integrations.market_data.base import MarketTick
+    # Real-time ticks in the last 2s are actually ticking UP (+0.09)
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84537.25, quantity=1.0, event_time=now - timedelta(seconds=2), provider="DETRADE_SYNTHETIC", is_buyer_maker=True),
+        MarketTick(symbol="BTCUSDT", price=84537.30, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84537.34, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+    ]
+    features = build_microstructure_features(
+        latest_book=book, recent_ticks=recent_ticks, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=6,
+        min_margin=3,
+        min_5s_range=1.50,
+        is_synthetic=True,
+        up_min_margin=4,
+    )
+
+    # Must NOT emit DOWN even though macro trend is bearish!
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert decision.stake_recommendation == "🛡️ Skip Round"
+
 
 

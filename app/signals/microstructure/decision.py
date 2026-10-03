@@ -96,8 +96,22 @@ def decide_microstructure(
             )
 
     # 5-Second Range Filters:
-    # If trades are active (bar_5s_range > 0), filter flat chop and parabolic exhaustion traps
-    if features.bar_5s_range > 0:
+    # Filter flat chop and parabolic exhaustion traps
+    if is_synthetic:
+        eff_range = max(features.lead_range_dollars, features.bar_5s_range)
+        if eff_range < min_5s_range:
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'5-second bar range is too narrow (${eff_range:.2f} < ${min_5s_range:.2f}); market is in dead micro-noise. Preserving capital.',
+            )
+        if eff_range > max_5s_range:
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'5-second bar range is overextended (${eff_range:.2f} > ${max_5s_range:.2f}); high retracement risk.',
+            )
+    elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
             return _make(
                 SignalDirection.NO_TRADE,
@@ -152,20 +166,20 @@ def decide_microstructure(
             )
 
         if is_synthetic:
-            if features.bar_5s_return < 1.00:
+            if features.bar_5s_return < 1.20:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
                 )
-            if features.velocity_1s_bps < -0.15:
+            if features.delta_1s_usd < 0.0 or features.delta_2s_usd < 0.0 or features.velocity_1s_bps < 0.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    'Price velocity is decelerating or falling; entering UP risks immediate adverse movement.',
+                    'Price is actively ticking down; entering UP risks immediate adverse movement.',
                 )
 
-        quality = 'STRONG' if (bull >= 8 and margin >= 4) or features.bar_5s_return >= 1.50 else 'VALID'
+        quality = 'STRONG' if (bull >= 8 and margin >= 4) or features.bar_5s_return >= 2.00 else 'VALID'
         return _make(
             SignalDirection.UP,
             quality,
@@ -181,14 +195,20 @@ def decide_microstructure(
             )
 
         if is_synthetic:
-            if features.bar_5s_return > 0.40 or features.velocity_1s_bps > 0.15:
+            if features.bar_5s_return > -1.00:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    'Microstructure shows upward momentum; entering DOWN risks adverse upward breakout.',
+                    f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
+                )
+            if features.delta_1s_usd > 0.0 or features.delta_2s_usd > 0.0 or features.velocity_1s_bps > 0.0:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
                 )
 
-        quality = 'STRONG' if (bear >= 8 and margin >= 4) or features.bar_5s_return <= -1.50 else 'VALID'
+        quality = 'STRONG' if (bear >= 8 and margin >= 4) or features.bar_5s_return <= -2.00 else 'VALID'
         return _make(
             SignalDirection.DOWN,
             quality,

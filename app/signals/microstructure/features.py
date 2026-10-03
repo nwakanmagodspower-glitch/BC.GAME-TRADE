@@ -58,6 +58,9 @@ class MicrostructureFeatureSnapshot:
     bar_5s_rsi_14: float = 50.0
     bar_5s_momentum_3bar: float = 0.0
     lead_range_dollars: float = 0.0
+    delta_1s_usd: float = 0.0
+    delta_2s_usd: float = 0.0
+    delta_5s_usd: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -233,6 +236,9 @@ def build_microstructure_features(
     ret_5s_bps = ((p_now - p_5s) / p_5s * 10000.0) if p_5s > 0 else 0.0
 
     velocity_1s_bps = ret_1s_bps  # bps per 1s
+    delta_1s_usd = round(p_now - p_1s, 4)
+    delta_2s_usd = round(p_now - p_2s, 4)
+    delta_5s_usd = round(p_now - p_5s, 4)
 
     # Velocity 500ms ago
     p_1s_500ms_ago = _find_historical_price(book_history, recent_ticks, now_ts - 1.50) or p_500ms
@@ -297,4 +303,7 @@ def build_microstructure_features(
         bid_depth_l5_qty=bid_depth_l5,
         ask_depth_l5_qty=ask_depth_l5,
         liquidity_delta_l5_pct=liquidity_delta_l5_pct,
+        delta_1s_usd=delta_1s_usd,
+        delta_2s_usd=delta_2s_usd,
+        delta_5s_usd=delta_5s_usd,
     )

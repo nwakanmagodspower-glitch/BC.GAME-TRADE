@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     detrade_synthetic_symbol: str = 'BTC-USD'
     detrade_use_synthetic_feed: bool = True
     detrade_stake_room: str = '$1-$50'
-    detrade_min_5s_range_dollars: float = 1.00
+    detrade_min_5s_range_dollars: float = 1.50
     detrade_max_5s_range_dollars: float = 25.00
     detrade_max_lead_impulse: float = 16.00
     detrade_min_score: int = 6
