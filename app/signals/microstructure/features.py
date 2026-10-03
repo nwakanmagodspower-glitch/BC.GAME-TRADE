@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from math import floor
 from typing import Sequence
 
 from app.integrations.market_data.base import BookTicker, Candle, DepthSnapshot, MarketTick
@@ -61,6 +62,24 @@ class MicrostructureFeatureSnapshot:
     delta_1s_usd: float = 0.0
     delta_2s_usd: float = 0.0
     delta_5s_usd: float = 0.0
+
+    # Synthetic Station & Sequence Analysis
+    internal_velocity_usd: float = 0.0      # v_t = (P_t - P_{t-1}) / dt in USD/sec
+    internal_acceleration_usd: float = 0.0  # a_t = v_t - v_{t-1} in USD/sec^2
+    station_barrier_lower: float = 0.0      # Lower station boundary ($)
+    station_barrier_upper: float = 0.0      # Upper station boundary ($)
+    station_barrier_dist_upper: float = 0.0 # Distance to upper barrier ($)
+    station_barrier_dist_lower: float = 0.0 # Distance to lower barrier ($)
+    station_nearest_barrier_dist: float = 0.0 # Distance to nearest barrier ($)
+    station_nearest_barrier_type: str = "NONE" # "UPPER" or "LOWER"
+    station_travel_time_seconds: float | None = None # Estimated seconds to barrier (dist / |v|)
+    station_channel_progress: float = 0.5   # 0.0 to 1.0 position within station channel
+    round_phase: str = "UNKNOWN"            # "BETTING", "PRICE_LOCK", etc.
+    round_elapsed_seconds: float = 0.0      # Elapsed seconds into round
+    round_remaining_seconds: float = 5.0    # Remaining seconds
+    round_progress_pct: float = 0.0         # Fraction of round elapsed
+    phase_aligned: bool = False             # Whether synchronized with DeTrade round clock
+    regime_classification: str = "NEUTRAL"  # "SURGE_BREAKOUT", "BOUNDED_BOUNCE", "NEUTRAL_CHOP"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -155,6 +174,7 @@ def build_microstructure_features(
     bar_metrics_5s: dict[str, Any] | None = None,
     *,
     is_synthetic: bool = False,
+    round_context: Any = None,
 ) -> MicrostructureFeatureSnapshot:
     if latest_book is None:
         raise ValueError('latest_book is required for microstructure features')
@@ -208,12 +228,21 @@ def build_microstructure_features(
         structure = 'BULLISH' if bar_5s_return > 0 else ('BEARISH' if bar_5s_return < 0 else 'FLAT')
 
     # 3. Fast Microstructure Top-of-Book & Depth
-    spread = latest_book.spread
-    spread_bps = latest_book.spread_bps
-    obi_top = calculate_obi_top(latest_book)
-    obi_l5 = calculate_obi_l5(depth, latest_book)
-    microprice = calculate_microprice(latest_book)
-    microprice_dev_bps = ((microprice - mid) / mid * 10000.0) if mid > 0 else 0.0
+    if is_synthetic:
+        # Decouple spot-only assumptions in pure synthetic mode
+        spread = 0.0
+        spread_bps = 0.0
+        obi_top = 0.0
+        obi_l5 = 0.0
+        microprice = mid
+        microprice_dev_bps = 0.0
+    else:
+        spread = latest_book.spread
+        spread_bps = latest_book.spread_bps
+        obi_top = calculate_obi_top(latest_book)
+        obi_l5 = calculate_obi_l5(depth, latest_book)
+        microprice = calculate_microprice(latest_book)
+        microprice_dev_bps = ((microprice - mid) / mid * 10000.0) if mid > 0 else 0.0
 
     # 4. Fast Trade Flow
     tfi_1s, count_1s, _ = calculate_tfi(recent_ticks, now, lookback_seconds=1.0)
@@ -245,26 +274,106 @@ def build_microstructure_features(
     prev_velocity_1s_bps = ((p_500ms - p_1s_500ms_ago) / p_1s_500ms_ago * 10000.0) if p_1s_500ms_ago > 0 else 0.0
     acceleration_1s_bps = velocity_1s_bps - prev_velocity_1s_bps
 
-    # 6. Liquidity Dynamics
-    if depth and depth.bids and depth.asks:
-        bid_depth_l5 = sum(b.quantity for b in depth.bids[:5])
-        ask_depth_l5 = sum(a.quantity for a in depth.asks[:5])
+    # Internal tick-by-tick velocity and acceleration in USD/second
+    if recent_ticks and len(recent_ticks) >= 2:
+        t0 = recent_ticks[-1]
+        t1 = recent_ticks[-2]
+        dt0 = max(0.05, t0.event_time.timestamp() - t1.event_time.timestamp())
+        v0 = (t0.price - t1.price) / dt0
+        internal_velocity_usd = round(v0, 4)
+        if len(recent_ticks) >= 3:
+            t2 = recent_ticks[-3]
+            dt1 = max(0.05, t1.event_time.timestamp() - t2.event_time.timestamp())
+            v1 = (t1.price - t2.price) / dt1
+            internal_acceleration_usd = round(v0 - v1, 4)
+        else:
+            internal_acceleration_usd = 0.0
     else:
-        bid_depth_l5 = latest_book.best_bid_qty
-        ask_depth_l5 = latest_book.best_ask_qty
+        internal_velocity_usd = round(delta_1s_usd, 4)
+        internal_acceleration_usd = round(delta_1s_usd - (delta_2s_usd - delta_1s_usd), 4)
 
-    total_l5_now = bid_depth_l5 + ask_depth_l5
+    # 6. Station Barrier Proximity ($1–$50, $50–$100, $100–$200 boundaries)
+    station_width = 50.0
+    station_barrier_lower = round(floor(mid / station_width) * station_width, 2)
+    station_barrier_upper = round(station_barrier_lower + station_width, 2)
+    station_barrier_dist_upper = round(station_barrier_upper - mid, 4)
+    station_barrier_dist_lower = round(mid - station_barrier_lower, 4)
+    station_nearest_barrier_dist = min(station_barrier_dist_upper, station_barrier_dist_lower)
+    station_nearest_barrier_type = 'UPPER' if station_barrier_dist_upper <= station_barrier_dist_lower else 'LOWER'
+    station_channel_progress = round((mid - station_barrier_lower) / station_width, 4)
 
-    # Historical depth 1s ago
-    past_depths = [d for d in depth_history if d.event_time.timestamp() <= now_ts - 1.0]
-    if past_depths:
-        old_d = max(past_depths, key=lambda d: d.event_time.timestamp())
-        old_bids = sum(b.quantity for b in old_d.bids[:5])
-        old_asks = sum(a.quantity for a in old_d.asks[:5])
-        old_total = old_bids + old_asks
-        liquidity_delta_l5_pct = ((total_l5_now - old_total) / old_total * 100.0) if old_total > 0 else 0.0
+    abs_v = abs(internal_velocity_usd) if abs(internal_velocity_usd) > 0.05 else abs(delta_1s_usd)
+    if abs_v > 0.1:
+        station_travel_time_seconds = round(station_nearest_barrier_dist / abs_v, 2)
     else:
+        station_travel_time_seconds = None
+
+    # 7. Phase Alignment (Synchronize with round elapsed time T_0 to T_resolve)
+    round_phase = 'UNKNOWN'
+    round_elapsed_seconds = 0.0
+    round_remaining_seconds = 5.0
+    round_progress_pct = 0.0
+    phase_aligned = False
+    if round_context is not None:
+        try:
+            round_phase = getattr(round_context, 'phase', 'UNKNOWN') or 'UNKNOWN'
+            round_remaining_seconds = max(0.0, float(getattr(round_context, 'seconds_until_start', 5.0) or 5.0))
+            duration = max(1.0, float(getattr(round_context, 'contract_duration_seconds', 5.0) or 5.0))
+            round_elapsed_seconds = max(0.0, duration - round_remaining_seconds)
+            round_progress_pct = min(1.0, max(0.0, round_elapsed_seconds / duration))
+            phase_aligned = bool(getattr(round_context, 'is_fresh', False))
+        except Exception:
+            pass
+
+    # 8. Mean-Reversion vs. Surge Breakout Detection
+    regime_classification = 'NEUTRAL'
+    eff_range = max(bar_5s_range, abs(delta_2s_usd))
+    if is_synthetic:
+        is_near_barrier = station_nearest_barrier_dist <= 1.20
+        barrier_reversal = (
+            (station_nearest_barrier_type == 'UPPER' and internal_velocity_usd < -0.15)
+            or (station_nearest_barrier_type == 'LOWER' and internal_velocity_usd > 0.15)
+        )
+        barrier_deceleration = (internal_acceleration_usd * internal_velocity_usd < -0.5)
+
+        if is_near_barrier and (barrier_reversal or barrier_deceleration):
+            regime_classification = 'BOUNDED_BOUNCE'
+        elif eff_range < 1.50 or abs(delta_2s_usd) < 0.50:
+            regime_classification = 'NEUTRAL_CHOP'
+        elif abs(delta_2s_usd) >= 1.50 and (
+            (delta_2s_usd > 0 and internal_velocity_usd > 0 and velocity_1s_bps > 0)
+            or (delta_2s_usd < 0 and internal_velocity_usd < 0 and velocity_1s_bps < 0)
+        ):
+            if (delta_2s_usd > 0 and station_barrier_dist_upper >= 0.50) or (delta_2s_usd < 0 and station_barrier_dist_lower >= 0.50):
+                regime_classification = 'SURGE_BREAKOUT'
+            else:
+                regime_classification = 'BOUNDED_BOUNCE'
+        else:
+            regime_classification = 'NEUTRAL'
+
+    # 9. Liquidity Dynamics (Order Book spot only)
+    if is_synthetic:
+        bid_depth_l5 = 0.0
+        ask_depth_l5 = 0.0
         liquidity_delta_l5_pct = 0.0
+    else:
+        if depth and depth.bids and depth.asks:
+            bid_depth_l5 = sum(b.quantity for b in depth.bids[:5])
+            ask_depth_l5 = sum(a.quantity for a in depth.asks[:5])
+        else:
+            bid_depth_l5 = latest_book.best_bid_qty
+            ask_depth_l5 = latest_book.best_ask_qty
+
+        total_l5_now = bid_depth_l5 + ask_depth_l5
+        past_depths = [d for d in depth_history if d.event_time.timestamp() <= now_ts - 1.0]
+        if past_depths:
+            old_d = max(past_depths, key=lambda d: d.event_time.timestamp())
+            old_bids = sum(b.quantity for b in old_d.bids[:5])
+            old_asks = sum(a.quantity for a in old_d.asks[:5])
+            old_total = old_bids + old_asks
+            liquidity_delta_l5_pct = ((total_l5_now - old_total) / old_total * 100.0) if old_total > 0 else 0.0
+        else:
+            liquidity_delta_l5_pct = 0.0
 
     return MicrostructureFeatureSnapshot(
         bar_5s_return=bar_5s_return,
@@ -306,4 +415,20 @@ def build_microstructure_features(
         delta_1s_usd=delta_1s_usd,
         delta_2s_usd=delta_2s_usd,
         delta_5s_usd=delta_5s_usd,
+        internal_velocity_usd=internal_velocity_usd,
+        internal_acceleration_usd=internal_acceleration_usd,
+        station_barrier_lower=station_barrier_lower,
+        station_barrier_upper=station_barrier_upper,
+        station_barrier_dist_upper=station_barrier_dist_upper,
+        station_barrier_dist_lower=station_barrier_dist_lower,
+        station_nearest_barrier_dist=station_nearest_barrier_dist,
+        station_nearest_barrier_type=station_nearest_barrier_type,
+        station_travel_time_seconds=station_travel_time_seconds,
+        station_channel_progress=station_channel_progress,
+        round_phase=round_phase,
+        round_elapsed_seconds=round_elapsed_seconds,
+        round_remaining_seconds=round_remaining_seconds,
+        round_progress_pct=round_progress_pct,
+        phase_aligned=phase_aligned,
+        regime_classification=regime_classification,
     )

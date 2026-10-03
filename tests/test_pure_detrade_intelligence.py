@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from app.integrations.market_data.base import BookTicker
+from app.integrations.market_data.base import BookTicker, MarketTick
 from app.integrations.market_data.five_second_bar import FiveSecondBar
 from app.models.entities import SignalDirection
 from app.signals.microstructure.features import build_microstructure_features
@@ -316,6 +316,146 @@ def test_pure_detrade_drifting_bounce_after_dump_is_strictly_vetoed():
     # Must NOT emit DOWN even though macro trend is bearish!
     assert decision.direction == SignalDirection.NO_TRADE
     assert decision.stake_recommendation == "🛡️ Skip Round"
+
+
+def test_pure_detrade_station_barrier_proximity_and_velocity():
+    now = datetime(2026, 10, 3, 8, 30, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84548.00, 1.0, 84548.00, 1.0, now, "DETRADE_SYNTHETIC")
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84545.0, quantity=1.0, event_time=now - timedelta(seconds=2), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84546.5, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84548.0, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+    ]
+    features = build_microstructure_features(
+        latest_book=book,
+        recent_ticks=recent_ticks,
+        now=now,
+        is_synthetic=True,
+    )
+
+    # Station boundaries for 84,548.00 in $50 band: [84,500 - 84,550]
+    assert features.station_barrier_lower == 84500.0
+    assert features.station_barrier_upper == 84550.0
+    assert features.station_barrier_dist_upper == 2.0
+    assert features.station_barrier_dist_lower == 48.0
+    assert features.station_nearest_barrier_dist == 2.0
+    assert features.station_nearest_barrier_type == "UPPER"
+    assert features.station_channel_progress == pytest.approx(0.96, abs=0.01)
+
+    # Internal velocity and acceleration in USD/sec
+    assert features.internal_velocity_usd == pytest.approx(1.50, abs=0.1)
+    assert features.internal_acceleration_usd == pytest.approx(0.0, abs=0.2)
+    assert features.station_travel_time_seconds is not None
+    assert features.station_travel_time_seconds <= 2.0
+
+
+def test_pure_detrade_bounded_bounce_vetoes_breakout():
+    now = datetime(2026, 10, 3, 8, 35, 0, tzinfo=timezone.utc)
+    book = BookTicker("BTCUSDT", 84549.60, 1.0, 84549.60, 1.0, now, "DETRADE_SYNTHETIC")
+    # Ticks approach upper barrier 84,550.00 and decelerate / reverse downward (-0.40 in last tick)
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84548.0, quantity=1.0, event_time=now - timedelta(seconds=2), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84550.0, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84549.60, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=True),
+    ]
+    features = build_microstructure_features(
+        latest_book=book,
+        recent_ticks=recent_ticks,
+        now=now,
+        is_synthetic=True,
+    )
+    assert features.regime_classification == "BOUNDED_BOUNCE"
+
+    from app.signals.microstructure.scoring import MicrostructureScoreResult
+    score = MicrostructureScoreResult(
+        bull_score=7,
+        bear_score=0,
+        reasons=['Bullish impulse toward upper station barrier'],
+    )
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        min_5s_range=1.00,
+        is_synthetic=True,
+    )
+    # Must veto UP due to ceiling rejection
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "barrier" in decision.reason.lower() or "bounce" in decision.reason.lower()
+
+
+def test_pure_detrade_station_surge_breakout_confirmed():
+    now = datetime(2026, 10, 3, 8, 40, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84525.00, 1.0, 84525.00, 1.0, now, "DETRADE_SYNTHETIC")
+    # Massive surge in middle of channel ($84,500 - $84,550), moving +$3.00 with accelerating velocity
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84521.0, quantity=1.0, event_time=now - timedelta(seconds=2), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84522.5, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84525.0, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+    ]
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84520.0, high=84526.0, low=84520.0, close=84525.0,
+            volume=5.0, quote_volume=5.0 * 84525.0, trades_count=8,
+            taker_buy_volume=4.0, taker_sell_volume=1.0, closed=True,
+        )
+    ]
+    features = build_microstructure_features(
+        latest_book=book,
+        recent_ticks=recent_ticks,
+        bars_5s=bars_5s,
+        now=now,
+        is_synthetic=True,
+    )
+    assert features.regime_classification == "SURGE_BREAKOUT"
+
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        min_5s_range=1.00,
+        is_synthetic=True,
+    )
+    assert decision.direction == SignalDirection.UP
+    assert decision.quality == "STRONG"
+
+
+def test_pure_detrade_phase_alignment_synchronization():
+    from app.signals.contracts import RoundPredictionContext
+    now = datetime(2026, 10, 3, 8, 45, 0, tzinfo=timezone.utc)
+    book = BookTicker("BTCUSDT", 84500.0, 1.0, 84500.0, 1.0, now, "DETRADE_SYNTHETIC")
+    context = RoundPredictionContext(
+        round_id="147399999",
+        current_server_time_ms=int(now.timestamp() * 1000),
+        price_start_time_ms=int((now.timestamp() + 2.0) * 1000),
+        price_end_time_ms=int((now.timestamp() + 7.0) * 1000),
+        trade_cutoff_time_ms=int((now.timestamp() + 1.8) * 1000),
+        seconds_until_start=2.0,
+        contract_duration_seconds=5.0,
+        status=1001,
+        phase="BETTING",
+        is_fresh=True,
+        observed_at=now,
+        feed_age_ms=120,
+    )
+    features = build_microstructure_features(
+        latest_book=book,
+        now=now,
+        is_synthetic=True,
+        round_context=context,
+    )
+    assert features.phase_aligned is True
+    assert features.round_phase == "BETTING"
+    assert features.round_remaining_seconds == 2.0
+    assert features.round_elapsed_seconds == 3.0
+    assert features.round_progress_pct == 0.60
+
 
 
 

@@ -220,9 +220,22 @@ async def record_stream(
             await queue.put(payload)
             counts['detrade_round'] += 1
 
-        detrade_observer = DeTradeObserver(on_observation=on_detrade_observation)
+        async def on_detrade_tick(tick: dict[str, Any]) -> None:
+            local_ts = datetime.now(timezone.utc).timestamp()
+            t_ms = tick.get('timestamp_ms', 0)
+            event_ts = (float(t_ms) / 1000.0) if t_ms > 1e11 else float(t_ms)
+            payload = {
+                'type': 'detrade_synthetic_tick',
+                'event_ts': event_ts,
+                'local_ts': local_ts,
+                'data': tick,
+            }
+            await queue.put(payload)
+            counts['detrade_tick'] = counts.get('detrade_tick', 0) + 1
+
+        detrade_observer = DeTradeObserver(on_observation=on_detrade_observation, on_tick=on_detrade_tick)
         await detrade_observer.start()
-        print("DeTrade round observer connected for actual settlement recording.")
+        print("DeTrade synthetic observer connected for real-time tick & settlement recording.")
     else:
         print("DeTrade round recording disabled or token not configured. (Recording Binance streams only)")
 
@@ -262,6 +275,7 @@ async def record_stream(
     print(f"  - depth5:            {counts['depth']}")
     print(f"  - trades:            {counts['trade']}")
     print(f"  - detrade rounds:    {counts['detrade_round']}")
+    print(f"  - detrade ticks:     {counts.get('detrade_tick', 0)}")
     print(f"  - candle context:    {counts['candle']}")
     print("==================================================================")
 

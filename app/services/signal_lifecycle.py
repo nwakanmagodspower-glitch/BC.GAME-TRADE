@@ -36,13 +36,28 @@ class SignalLifecycleService:
                 'External Start Rate reference window was missed; the delivered signal direction remains unchanged.',
             )
 
-        # Once a directional signal has been delivered to Telegram, its direction
-        # is immutable. A user may already have acted on it in BCGAME. Lifecycle
-        # work after dispatch is reference/result bookkeeping only.
-        snapshot = await market_data_service.cache.get_snapshot(
-            settings.analysis_pair,
-            settings.market_data_max_age_seconds,
-        )
+        snapshot = None
+        if settings.detrade_use_synthetic_feed:
+            try:
+                from app.integrations.detrade_observer import detrade_observer
+                synth = detrade_observer.get_synthetic_snapshot(settings.analysis_pair, max_age_seconds=settings.market_data_max_age_seconds)
+                if synth and synth.book_ticker:
+                    from app.services.market_data import MarketSnapshot
+                    snapshot = MarketSnapshot(
+                        symbol=settings.analysis_pair,
+                        price=synth.book_ticker.mid_price,
+                        event_time=synth.book_ticker.event_time,
+                        source='DETRADE_SYNTHETIC',
+                        fresh=True,
+                    )
+            except Exception:
+                pass
+
+        if snapshot is None:
+            snapshot = await market_data_service.cache.get_snapshot(
+                settings.analysis_pair,
+                settings.market_data_max_age_seconds,
+            )
         if snapshot is None or not snapshot.fresh:
             return self._expire(
                 signal,
@@ -79,10 +94,28 @@ class SignalLifecycleService:
             return signal
 
         deadline = signal.expiry_at + timedelta(seconds=settings.signal_settlement_window_seconds)
-        snapshot = await market_data_service.cache.get_snapshot(
-            settings.analysis_pair,
-            max_age_seconds=settings.market_data_max_age_seconds,
-        )
+        snapshot = None
+        if settings.detrade_use_synthetic_feed:
+            try:
+                from app.integrations.detrade_observer import detrade_observer
+                synth = detrade_observer.get_synthetic_snapshot(settings.analysis_pair, max_age_seconds=settings.market_data_max_age_seconds)
+                if synth and synth.book_ticker:
+                    from app.services.market_data import MarketSnapshot
+                    snapshot = MarketSnapshot(
+                        symbol=settings.analysis_pair,
+                        price=synth.book_ticker.mid_price,
+                        event_time=synth.book_ticker.event_time,
+                        source='DETRADE_SYNTHETIC',
+                        fresh=True,
+                    )
+            except Exception:
+                pass
+
+        if snapshot is None:
+            snapshot = await market_data_service.cache.get_snapshot(
+                settings.analysis_pair,
+                max_age_seconds=settings.market_data_max_age_seconds,
+            )
         if snapshot is None or not snapshot.fresh or snapshot.event_time < signal.expiry_at:
             if current <= deadline:
                 return signal

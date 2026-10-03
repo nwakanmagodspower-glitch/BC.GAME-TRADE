@@ -446,6 +446,7 @@ class SignalIntelligenceService:
                 seconds_until_start=seconds_until_start,
                 contract_duration_seconds=contract_duration_seconds,
                 now=now_dt,
+                round_context=context,
             )
             if ms_result.service_available and ms_result.decision is not None and ms_result.features is not None:
                 details = {
@@ -460,6 +461,13 @@ class SignalIntelligenceService:
                     'spread_bps': ms_result.features.spread_bps,
                     'obi_l5': ms_result.features.obi_l5,
                     'microprice_dev_bps': ms_result.features.microprice_dev_bps,
+                    'internal_velocity_usd': ms_result.features.internal_velocity_usd,
+                    'internal_acceleration_usd': ms_result.features.internal_acceleration_usd,
+                    'station_nearest_barrier_dist': ms_result.features.station_nearest_barrier_dist,
+                    'station_nearest_barrier_type': ms_result.features.station_nearest_barrier_type,
+                    'station_travel_time_seconds': ms_result.features.station_travel_time_seconds,
+                    'regime_classification': ms_result.features.regime_classification,
+                    'round_progress_pct': ms_result.features.round_progress_pct,
                     'round_id': target.round_id if target else None,
                     'target_start': target.target_start.isoformat() if target else None,
                     'target_end': target.target_end.isoformat() if target else None,

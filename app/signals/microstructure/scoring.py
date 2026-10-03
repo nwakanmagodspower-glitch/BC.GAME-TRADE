@@ -94,6 +94,22 @@ def score_microstructure_features(
             bear = max(0, bear - 1)
             reasons.append('low volatility reduces directional momentum potential')
 
+        # 6. Station Barrier & Surge Dynamics
+        if features.regime_classification == 'SURGE_BREAKOUT':
+            if features.delta_2s_usd > 0:
+                bull += 2
+                reasons.append(f'station breakout surge confirmed (+${features.delta_2s_usd:.2f} toward ${features.station_barrier_upper:.0f})')
+            elif features.delta_2s_usd < 0:
+                bear += 2
+                reasons.append(f'station breakdown surge confirmed (${features.delta_2s_usd:.2f} toward ${features.station_barrier_lower:.0f})')
+        elif features.regime_classification == 'BOUNDED_BOUNCE':
+            if features.station_nearest_barrier_type == 'UPPER':
+                bull = max(0, bull - 3)
+                reasons.append(f'bounded bounce off upper station barrier (${features.station_barrier_upper:.0f})')
+            elif features.station_nearest_barrier_type == 'LOWER':
+                bear = max(0, bear - 3)
+                reasons.append(f'bounded bounce off lower station barrier (${features.station_barrier_lower:.0f})')
+
         return MicrostructureScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
 
     # 1. 5-Second Bar Micro-Momentum & Taker Flow (up to +3 points)

@@ -26,11 +26,16 @@ def _critical_worker_health() -> dict[str, bool]:
         ).total_seconds() <= settings.worker_heartbeat_max_age_seconds
     elif signal_lifecycle_worker._task is not None and not signal_lifecycle_worker._task.done() and signal_lifecycle_worker.last_error is None:
         signal_cycle_fresh = True
+    if settings.detrade_use_synthetic_feed:
+        from app.integrations.detrade_observer import detrade_observer
+        market_stream_ok = detrade_observer.connected and detrade_observer.last_error is None
+    else:
+        market_stream_ok = market_data_service.connected and market_data_service.last_error is None
     return {
         'coordinator_leader': background_job_coordinator.is_leader,
         'coordinator_ok': background_job_coordinator.last_error is None,
         'signal_lifecycle_ok': signal_lifecycle_worker.last_error is None and signal_cycle_fresh,
-        'market_stream_ok': market_data_service.connected and market_data_service.last_error is None,
+        'market_stream_ok': market_stream_ok,
     }
 
 

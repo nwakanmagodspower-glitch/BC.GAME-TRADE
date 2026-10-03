@@ -141,6 +141,7 @@ class DeTradeObserver:
         self._observation_event = asyncio.Event()
         self._force_credential_refresh = False
         self._last_tick_price: float | None = None
+        self._tick_counter: int = 0
 
     @staticmethod
     def _browser_cid() -> str:
@@ -165,6 +166,10 @@ class DeTradeObserver:
                     try:
                         p = float(item['p'])
                         t = int(item['t'])
+                        self._tick_counter += 1
+                        tick_idx = int(item['tickIndex']) if 'tickIndex' in item else (int(item['tick_index']) if 'tick_index' in item else self._tick_counter)
+                        rid = str(item['roundId']) if 'roundId' in item else (str(item['round_id']) if 'round_id' in item else (self.latest.round_id if self.latest else None))
+                        sid = str(item['stationId']) if 'stationId' in item else (str(item['station_id']) if 'station_id' in item else f"{int(p // 50) * 50}-{int(p // 50) * 50 + 50}")
                         is_bm: bool | None = None
                         if prev_p is not None:
                             if p > prev_p:
@@ -188,6 +193,10 @@ class DeTradeObserver:
                                 event_time=ev_time,
                                 provider='DETRADE_SYNTHETIC',
                                 is_buyer_maker=is_bm,
+                                round_id=rid,
+                                station_id=sid,
+                                tick_index=tick_idx,
+                                server_timestamp=t,
                             )
                         )
                         count += 1
@@ -196,8 +205,12 @@ class DeTradeObserver:
                                 res = self.on_tick({
                                     'price': p,
                                     'timestamp_ms': t,
+                                    'server_timestamp': t,
                                     'symbol': str(item.get('s', settings.detrade_synthetic_symbol)),
                                     'change': float(item['c']) if 'c' in item and item['c'] is not None else None,
+                                    'round_id': rid,
+                                    'station_id': sid,
+                                    'tick_index': tick_idx,
                                     'source': 'REST_BOOTSTRAP',
                                 })
                                 if asyncio.iscoroutine(res):
@@ -209,11 +222,20 @@ class DeTradeObserver:
                 if ticks_sorted and count > 0:
                     last_item = ticks_sorted[-1]
                     try:
+                        lp = float(last_item['p'])
+                        lt = int(last_item['t'])
+                        l_rid = str(last_item['roundId']) if 'roundId' in last_item else (str(last_item['round_id']) if 'round_id' in last_item else (self.latest.round_id if self.latest else None))
+                        l_sid = str(last_item['stationId']) if 'stationId' in last_item else (str(last_item['station_id']) if 'station_id' in last_item else f"{int(lp // 50) * 50}-{int(lp // 50) * 50 + 50}")
+                        l_idx = int(last_item['tickIndex']) if 'tickIndex' in last_item else (int(last_item['tick_index']) if 'tick_index' in last_item else self._tick_counter)
                         self.latest_tick = {
-                            'price': float(last_item['p']),
-                            'timestamp_ms': int(last_item['t']),
+                            'price': lp,
+                            'timestamp_ms': lt,
+                            'server_timestamp': lt,
                             'symbol': str(last_item.get('s', settings.detrade_synthetic_symbol)),
                             'change': float(last_item['c']) if 'c' in last_item and last_item['c'] is not None else None,
+                            'round_id': l_rid,
+                            'station_id': l_sid,
+                            'tick_index': l_idx,
                             'received_monotonic': time.monotonic(),
                             'received_at': datetime.now(timezone.utc),
                             'source': 'REST_BOOTSTRAP',
@@ -428,6 +450,7 @@ class DeTradeObserver:
             return False
 
         # 1. Check for synthetic kline ticker updates
+        kline_handled = False
         kline_data = self._find_kline_payload(decoded)
         if kline_data is not None:
             for item in kline_data:
@@ -436,6 +459,10 @@ class DeTradeObserver:
                     t = int(item['t'])
                     sym = str(item.get('s', settings.detrade_synthetic_symbol))
                     c = float(item['c']) if 'c' in item and item['c'] is not None else None
+                    self._tick_counter += 1
+                    tick_idx = int(item['tickIndex']) if 'tickIndex' in item else (int(item['tick_index']) if 'tick_index' in item else self._tick_counter)
+                    rid = str(item['roundId']) if 'roundId' in item else (str(item['round_id']) if 'round_id' in item else (self.latest.round_id if self.latest else None))
+                    sid = str(item['stationId']) if 'stationId' in item else (str(item['station_id']) if 'station_id' in item else f"{int(p // 50) * 50}-{int(p // 50) * 50 + 50}")
                     is_bm: bool | None = None
                     if self._last_tick_price is not None:
                         if p > self._last_tick_price:
@@ -458,18 +485,27 @@ class DeTradeObserver:
                             event_time=ev_time,
                             provider='DETRADE_SYNTHETIC',
                             is_buyer_maker=is_bm,
+                            round_id=rid,
+                            station_id=sid,
+                            tick_index=tick_idx,
+                            server_timestamp=t,
                         )
                     )
                     self.latest_tick = {
                         'price': p,
                         'timestamp_ms': t,
+                        'server_timestamp': t,
                         'symbol': sym,
                         'change': c,
+                        'round_id': rid,
+                        'station_id': sid,
+                        'tick_index': tick_idx,
                         'received_monotonic': time.monotonic(),
                         'received_at': now_utc,
                         'source': 'WS_STREAM',
                     }
                     self._last_tick_price = p
+                    kline_handled = True
                     if self.on_tick is not None:
                         try:
                             res = self.on_tick(self.latest_tick)
@@ -483,7 +519,7 @@ class DeTradeObserver:
         # 2. Check for authoritative round observation
         payload = self._find_round_payload(decoded)
         if payload is None:
-            return False
+            return kline_handled
         self.latest = DeTradeRoundObservation(
             round_id=str(payload.get('id')) if payload.get('id') is not None else None,
             status=self._as_int(payload.get('status')),

@@ -13,6 +13,10 @@ class MarketTick:
     event_time: datetime
     provider: str
     is_buyer_maker: bool | None = None
+    round_id: str | None = None
+    station_id: str | None = None
+    tick_index: int | None = None
+    server_timestamp: int | None = None
 
 
 @dataclass(frozen=True)

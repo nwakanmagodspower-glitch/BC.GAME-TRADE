@@ -84,6 +84,7 @@ class MicrostructureIntelligenceService:
         seconds_until_start: float | None = None,
         contract_duration_seconds: float | None = None,
         now: datetime | None = None,
+        round_context: Any = None,
     ) -> MicrostructureIntelligenceResult:
         market = (symbol or settings.analysis_pair).upper()
         if market != settings.analysis_pair.upper():
@@ -103,7 +104,7 @@ class MicrostructureIntelligenceService:
 
         async with self._scan_lock:
             started = time.monotonic()
-            result = await self._compute(market, seconds_until_start, contract_duration_seconds, now=now)
+            result = await self._compute(market, seconds_until_start, contract_duration_seconds, now=now, round_context=round_context)
             self._last_compute_duration_ms = max(0, int((time.monotonic() - started) * 1000))
             self._compute_count += 1
             self._last_result = result
@@ -116,10 +117,34 @@ class MicrostructureIntelligenceService:
         seconds_until_start: float | None,
         contract_duration_seconds: float | None,
         now: datetime | None = None,
+        round_context: Any = None,
     ) -> MicrostructureIntelligenceResult:
         now_dt = now or datetime.now(timezone.utc)
         ms_snapshot: MicrostructureSnapshot | None = None
         is_synth = False
+
+        if round_context is None and settings.detrade_use_synthetic_feed:
+            try:
+                from app.integrations.detrade_observer import detrade_observer
+                if detrade_observer.latest:
+                    from app.signals.contracts import RoundPredictionContext
+                    obs = detrade_observer.latest
+                    round_context = RoundPredictionContext(
+                        round_id=obs.round_id or '0',
+                        current_server_time_ms=obs.current_time_ms or int(now_dt.timestamp() * 1000),
+                        price_start_time_ms=obs.price_start_time_ms or int(now_dt.timestamp() * 1000),
+                        price_end_time_ms=obs.price_end_time_ms or int((now_dt.timestamp() + 5.0) * 1000),
+                        trade_cutoff_time_ms=obs.trade_cutoff_time_ms,
+                        seconds_until_start=seconds_until_start or (obs.remaining_ms / 1000.0 if obs.remaining_ms else 5.0),
+                        contract_duration_seconds=contract_duration_seconds or 5.0,
+                        status=obs.status or 1001,
+                        phase=obs.phase,
+                        is_fresh=obs.fresh,
+                        observed_at=obs.received_at,
+                        feed_age_ms=obs.data_age_ms,
+                    )
+            except Exception:
+                pass
 
         if settings.detrade_use_synthetic_feed:
             try:
@@ -205,6 +230,7 @@ class MicrostructureIntelligenceService:
                 bars_5s=ms_snapshot.bars_5s,
                 bar_metrics_5s=ms_snapshot.bar_metrics_5s,
                 is_synthetic=is_synth,
+                round_context=round_context,
             )
         except Exception as exc:
             return MicrostructureIntelligenceResult(

@@ -217,8 +217,75 @@ async def test_kline_synthetic_tick_ingestion():
     assert observer.latest_tick is not None
     assert observer.latest_tick['price'] == 83325.67890
     assert observer.latest_tick['timestamp_ms'] == 1790640515000
+    assert observer.latest_tick['server_timestamp'] == 1790640515000
+    assert observer.latest_tick['station_id'] == "83300-83350"
+    assert observer.latest_tick['tick_index'] == 2
     assert len(received_ticks) == 2
     assert len(observer.bar_aggregator.get_closed_bars()) >= 1
+
+
+@pytest.mark.asyncio
+async def test_detrade_observer_extracts_explicit_station_and_sequence_payload():
+    observer = DeTradeObserver(FakeProvider())
+    frame = {
+        'resp': '/kline/BTC-USD/ticker',
+        'data': [
+            {
+                's': 'BTC-USD',
+                'p': '84562.50',
+                't': 1790640520000,
+                'c': 1.25,
+                'roundId': '147399999',
+                'stationId': '84550-84600',
+                'tickIndex': 42,
+            }
+        ]
+    }
+    handled = await observer._consume(frame)
+    assert handled is None or handled is True
+    assert observer.latest_tick is not None
+    assert observer.latest_tick['price'] == 84562.50
+    assert observer.latest_tick['round_id'] == '147399999'
+    assert observer.latest_tick['station_id'] == '84550-84600'
+    assert observer.latest_tick['tick_index'] == 42
+    assert observer.latest_tick['server_timestamp'] == 1790640520000
+
+    last_tick = observer._recent_ticks[-1]
+    assert last_tick.price == 84562.50
+    assert last_tick.round_id == '147399999'
+    assert last_tick.station_id == '84550-84600'
+    assert last_tick.tick_index == 42
+    assert last_tick.server_timestamp == 1790640520000
+
+
+@pytest.mark.asyncio
+async def test_detrade_observer_reconnect_recovers_after_token_refresh():
+    provider = FakeProvider(token='initial-token')
+    observer = DeTradeObserver(provider)
+
+    # Initial frame succeeds
+    assert await observer._consume({'resp': round_payload()}) is True
+    assert observer.latest is not None
+
+    # Auth failure 3100 triggers invalidation and flags credential refresh
+    assert await observer._consume({'code': 3100, 'message': 'token expired'}) is False
+    assert provider.invalidated is True
+    assert observer._force_credential_refresh is True
+    assert observer.latest is None
+
+    # Simulate /set_token supplying new valid credential
+    provider.credentials = DeTradeCredentials(token='refreshed-new-token', account_type=1)
+    provider.invalidated = False
+
+    creds = await provider.get_credentials(force_refresh=True)
+    assert creds is not None
+    assert creds.token == 'refreshed-new-token'
+
+    # New frame ingested smoothly without dropped state
+    assert await observer._consume({'resp': round_payload()}) is True
+    assert observer.latest is not None
+    assert observer.latest.round_id == '1352602872069133'
+    assert observer.last_error is None
 
 
 @pytest.mark.asyncio
