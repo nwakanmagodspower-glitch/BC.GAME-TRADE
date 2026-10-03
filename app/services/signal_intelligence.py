@@ -353,6 +353,18 @@ class SignalIntelligenceService:
         context: RoundPredictionContext | None = None,
         temporal_alignment_valid: bool = False,
     ) -> IntelligenceResult:
+        now_dt = datetime.now(timezone.utc)
+        seconds_until_start = (
+            context.seconds_until_start
+            if context is not None
+            else (target.lead_time_seconds if target is not None else None)
+        )
+        contract_duration_seconds = (
+            context.contract_duration_seconds
+            if context is not None
+            else (target.duration_seconds if target is not None else 5.0)
+        )
+
         snapshot = None
         if settings.detrade_use_synthetic_feed:
             try:
@@ -365,9 +377,12 @@ class SignalIntelligenceService:
                         snapshot = MarketSnapshot(
                             symbol=market,
                             price=p,
-                            event_time=detrade_observer.latest_tick.get('received_at', datetime.now(timezone.utc)),
-                            source='DETRADE_SYNTHETIC',
+                            event_time=detrade_observer.latest_tick.get('received_at', now_dt),
+                            provider='DETRADE_SYNTHETIC',
+                            age_seconds=round(max(0.0, age), 3),
                             fresh=True,
+                            last_quantity=1.0,
+                            is_buyer_maker=None,
                         )
             except Exception:
                 pass

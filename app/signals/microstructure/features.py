@@ -269,6 +269,18 @@ def build_microstructure_features(
     delta_2s_usd = round(p_now - p_2s, 4)
     delta_5s_usd = round(p_now - p_5s, 4)
 
+    # Compute live lead range over the last 5 seconds from ticks
+    recent_5s_ticks = [t for t in recent_ticks if t.event_time.timestamp() >= now_ts - 5.0] if recent_ticks else []
+    if recent_5s_ticks:
+        live_lead_range = max(t.price for t in recent_5s_ticks) - min(t.price for t in recent_5s_ticks)
+    else:
+        live_lead_range = abs(delta_5s_usd)
+    lead_range_dollars = round(max(bar_5s_range, live_lead_range), 4)
+    if bar_5s_range <= 0.0:
+        bar_5s_range = lead_range_dollars
+    if bar_5s_return == 0.0 and abs(delta_5s_usd) > 0.0:
+        bar_5s_return = delta_5s_usd
+
     # Velocity 500ms ago
     p_1s_500ms_ago = _find_historical_price(book_history, recent_ticks, now_ts - 1.50) or p_500ms
     prev_velocity_1s_bps = ((p_500ms - p_1s_500ms_ago) / p_1s_500ms_ago * 10000.0) if p_1s_500ms_ago > 0 else 0.0
