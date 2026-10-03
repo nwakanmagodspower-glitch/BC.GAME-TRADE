@@ -27,60 +27,63 @@ def score_microstructure_features(
         # Operates purely on DeTrade synthetic bar impulse, multi-bar persistence, and tick kinematics.
 
         # 1. 5-Second Bar Micro-Impulse (up to +3 points)
-        if features.bar_5s_return >= 0.50:
+        # Note: BC.Game Up/Down awards flat ties to DOWN.
+        # UP requires decisive upward expansion (+>= $1.00) to reliably clear spread/noise.
+        if features.bar_5s_return >= 1.00:
             bull += 2
             reasons.append(f'5s bar bullish impulse (+${features.bar_5s_return:.2f})')
-            if features.bar_5s_return >= 1.50:
+            if features.bar_5s_return >= 2.00:
                 bull += 1
                 reasons.append(f'strong 5s bullish expansion (+${features.bar_5s_return:.2f})')
-        elif features.bar_5s_return <= -0.50:
+        elif features.bar_5s_return <= -0.60:
             bear += 2
             reasons.append(f'5s bar bearish impulse (${features.bar_5s_return:.2f})')
             if features.bar_5s_return <= -1.50:
                 bear += 1
                 reasons.append(f'strong 5s downward expansion (${features.bar_5s_return:.2f})')
 
-        # Delta bonus if buyer/seller delta aligned
-        if features.bar_5s_taker_ratio >= 0.52:
+        # Delta bonus if buyer/seller delta aligned (neutral baseline is 0.50)
+        if features.bar_5s_taker_ratio >= 0.56:
             bull += 1
             reasons.append(f'buyer delta confirmed ({features.bar_5s_taker_ratio*100:.0f}%)')
-        elif features.bar_5s_taker_ratio <= 0.48:
+        elif features.bar_5s_taker_ratio <= 0.44:
             bear += 1
             reasons.append(f'seller delta confirmed ({features.bar_5s_taker_ratio*100:.0f}%)')
 
         # 2. Multi-bar Persistence (up to +2 points)
-        if features.bar_5s_momentum_3bar >= 0.8:
+        if features.bar_5s_momentum_3bar >= 1.2:
             bull += 2
             reasons.append(f'3-bar synthetic momentum confirms upward continuation (+${features.bar_5s_momentum_3bar:.2f})')
-        elif features.bar_5s_momentum_3bar <= -0.8:
+        elif features.bar_5s_momentum_3bar <= -1.0:
             bear += 2
             reasons.append(f'3-bar synthetic momentum confirms downward continuation (${features.bar_5s_momentum_3bar:.2f})')
 
         # 3. 5s Micro-Trend Alignment (9 vs 21 EMA on 5s bars)
-        if features.bar_5s_ema_fast > features.bar_5s_ema_slow and 40 <= features.bar_5s_rsi_14 <= 70:
+        # Lag defense: only award trend alignment points if current price action does NOT contradict the trend
+        if features.bar_5s_ema_fast > features.bar_5s_ema_slow and features.bar_5s_return >= 0.10 and 40 <= features.bar_5s_rsi_14 <= 70:
             bull += 2
-            reasons.append('5s micro-trend (EMA9 > EMA21) favors bullish continuation')
-        elif features.bar_5s_ema_fast < features.bar_5s_ema_slow and 30 <= features.bar_5s_rsi_14 <= 60:
+            reasons.append('5s micro-trend (EMA9 > EMA21) and positive flow favor bullish continuation')
+        elif features.bar_5s_ema_fast < features.bar_5s_ema_slow and features.bar_5s_return <= -0.10 and 30 <= features.bar_5s_rsi_14 <= 60:
             bear += 2
-            reasons.append('5s micro-trend (EMA9 < EMA21) favors bearish continuation')
-        elif features.ema_fast > features.ema_slow and features.rsi_14 >= 45:
+            reasons.append('5s micro-trend (EMA9 < EMA21) and negative flow favor bearish continuation')
+        elif features.ema_fast > features.ema_slow and features.rsi_14 >= 45 and features.bar_5s_return >= 0.0:
             bull += 1
             reasons.append('regime trend favors bullish continuation')
-        elif features.ema_fast < features.ema_slow and features.rsi_14 <= 55:
+        elif features.ema_fast < features.ema_slow and features.rsi_14 <= 55 and features.bar_5s_return <= 0.0:
             bear += 1
             reasons.append('regime trend favors bearish continuation')
 
         # 4. Real-time Tick Kinematics (up to +3 points)
-        if features.return_500ms_bps >= 0.8 and features.velocity_1s_bps >= 1.0:
+        if features.return_500ms_bps >= 0.5 and features.velocity_1s_bps >= 0.6:
             bull += 2
             reasons.append('strong positive synthetic tick velocity')
-            if features.acceleration_1s_bps > 0.3:
+            if features.acceleration_1s_bps > 0.2:
                 bull += 1
                 reasons.append('positive tick acceleration')
-        elif features.return_500ms_bps <= -0.8 and features.velocity_1s_bps <= -1.0:
+        elif features.return_500ms_bps <= -0.5 and features.velocity_1s_bps <= -0.6:
             bear += 2
             reasons.append('strong negative synthetic tick velocity')
-            if features.acceleration_1s_bps < -0.3:
+            if features.acceleration_1s_bps < -0.2:
                 bear += 1
                 reasons.append('negative tick acceleration')
 

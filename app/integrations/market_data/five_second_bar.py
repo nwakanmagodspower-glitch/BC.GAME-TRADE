@@ -82,7 +82,7 @@ class FiveSecondBarAggregator:
         self,
         price: float,
         quantity: float,
-        is_buyer_maker: bool,
+        is_buyer_maker: bool | None,
         event_time_ts: float,
     ) -> FiveSecondBar | None:
         """Incorporate an incoming trade tick into 5-second bars.
@@ -138,6 +138,16 @@ class FiveSecondBarAggregator:
 
             self._current_bar = None
 
+        if is_buyer_maker is None:
+            buy_vol = quantity * 0.5
+            sell_vol = quantity * 0.5
+        elif is_buyer_maker:
+            buy_vol = 0.0
+            sell_vol = quantity
+        else:
+            buy_vol = quantity
+            sell_vol = 0.0
+
         if self._current_bar is None:
             self._current_bar = {
                 'bucket_ts': bucket,
@@ -148,8 +158,8 @@ class FiveSecondBarAggregator:
                 'volume': quantity,
                 'quote_volume': price * quantity,
                 'trades_count': 1,
-                'taker_buy_volume': 0.0 if is_buyer_maker else quantity,
-                'taker_sell_volume': quantity if is_buyer_maker else 0.0,
+                'taker_buy_volume': buy_vol,
+                'taker_sell_volume': sell_vol,
             }
         else:
             # Update currently forming bar
@@ -162,7 +172,10 @@ class FiveSecondBarAggregator:
             c['volume'] += quantity
             c['quote_volume'] += price * quantity
             c['trades_count'] += 1
-            if is_buyer_maker:
+            if is_buyer_maker is None:
+                c['taker_buy_volume'] += quantity * 0.5
+                c['taker_sell_volume'] += quantity * 0.5
+            elif is_buyer_maker:
                 c['taker_sell_volume'] += quantity
             else:
                 c['taker_buy_volume'] += quantity
@@ -180,15 +193,31 @@ class FiveSecondBarAggregator:
         ts = (float(timestamp_ms) / 1000.0) if timestamp_ms > 1e11 else float(timestamp_ms)
         if is_buyer is None:
             if self._current_bar is not None:
-                is_buyer = price >= self._current_bar['close']
+                prev_price = self._current_bar['close']
+                if price > prev_price:
+                    is_buyer_maker = False  # buyer taker (uptick)
+                elif price < prev_price:
+                    is_buyer_maker = True   # seller taker (downtick)
+                else:
+                    is_buyer_maker = None   # flat tick: neutral 50/50
             elif self._closed_bars:
-                is_buyer = price >= self._closed_bars[-1].close
+                prev_price = self._closed_bars[-1].close
+                if price > prev_price:
+                    is_buyer_maker = False
+                elif price < prev_price:
+                    is_buyer_maker = True
+                else:
+                    is_buyer_maker = None
             else:
-                is_buyer = True
+                # Initial tick opening brand new aggregator has no prior price comparison
+                is_buyer_maker = None
+        else:
+            is_buyer_maker = not is_buyer
+
         return self.add_trade(
             price=price,
             quantity=volume,
-            is_buyer_maker=not is_buyer,
+            is_buyer_maker=is_buyer_maker,
             event_time_ts=ts,
         )
 

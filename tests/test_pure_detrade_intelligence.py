@@ -161,3 +161,111 @@ async def test_pure_detrade_end_to_end_decoupling():
         detrade_observer.latest_tick = None
         detrade_observer.bar_aggregator.clear()
 
+
+def test_pure_detrade_flat_ticks_produce_neutral_taker_ratio():
+    from app.integrations.market_data.five_second_bar import FiveSecondBarAggregator
+    agg = FiveSecondBarAggregator(max_bars=60)
+    base_ms = 1700000000000
+
+    # Feed 4 identical ticks in the same bar
+    agg.add_synthetic_tick(price=84605.00, timestamp_ms=base_ms + 100)
+    agg.add_synthetic_tick(price=84605.00, timestamp_ms=base_ms + 1000)
+    agg.add_synthetic_tick(price=84605.00, timestamp_ms=base_ms + 2000)
+    agg.add_synthetic_tick(price=84605.00, timestamp_ms=base_ms + 3000)
+
+    # Next bar closes previous bar
+    closed = agg.add_synthetic_tick(price=84605.00, timestamp_ms=base_ms + 5100)
+    assert closed is not None
+    assert closed.trades_count == 4
+    # All flat ticks must be split 50/50, not 100% buyer!
+    assert closed.taker_ratio == 0.50
+    assert closed.taker_buy_volume == closed.taker_sell_volume
+
+
+def test_pure_detrade_tie_rule_vetoes_weak_bullish_returns():
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84500.5, 1.0, 84500.5, 1.0, now, "DETRADE_SYNTHETIC")
+    
+    # 5s bar with weak return (+0.50), below the +1.00 tie hurdle
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84500.0, high=84502.0, low=84500.0, close=84500.5,
+            volume=5.0, quote_volume=5.0 * 84500.0, trades_count=10,
+            taker_buy_volume=3.5, taker_sell_volume=1.5, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 84501.0,
+        'ema_slow_21': 84499.0,
+        'rsi_14': 55.0,
+        'momentum_3bar_usd': 1.5,
+    }
+    features = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=4,
+        min_margin=2,
+        min_5s_range=1.00,
+        is_synthetic=True,
+        up_min_margin=2,
+    )
+
+    # Must veto UP because +$0.50 is insufficient to overcome house tie-loss edge
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "tie-loss house edge" in decision.reason
+    assert decision.stake_recommendation == "🛡️ Skip Round"
+
+
+def test_pure_detrade_falling_velocity_vetoes_up():
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84501.5, 1.0, 84501.5, 1.0, now, "DETRADE_SYNTHETIC")
+    
+    # Bar closed with +$1.50 return, but live ticks in the last 1s fell from 84504 to 84501.5
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84500.0, high=84504.0, low=84500.0, close=84501.5,
+            volume=10.0, quote_volume=10.0 * 84500.0, trades_count=20,
+            taker_buy_volume=7.0, taker_sell_volume=3.0, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 84502.0,
+        'ema_slow_21': 84499.0,
+        'rsi_14': 58.0,
+        'momentum_3bar_usd': 2.0,
+    }
+    from app.integrations.market_data.base import MarketTick
+    # Recent ticks show price falling over the last 1 second
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84504.0, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84502.5, quantity=1.0, event_time=now - timedelta(milliseconds=500), provider="DETRADE_SYNTHETIC", is_buyer_maker=True),
+        MarketTick(symbol="BTCUSDT", price=84501.5, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=True),
+    ]
+    features = build_microstructure_features(
+        latest_book=book, recent_ticks=recent_ticks, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=6,
+        min_margin=3,
+        min_5s_range=1.00,
+        is_synthetic=True,
+        up_min_margin=4,
+    )
+
+    # Must veto UP because velocity is actively decelerating/dropping
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "velocity is decelerating" in decision.reason
+    assert decision.stake_recommendation == "🛡️ Skip Round"
+
+

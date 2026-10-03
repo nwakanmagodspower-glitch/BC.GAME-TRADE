@@ -101,10 +101,32 @@ def calculate_tfi(ticks: Sequence[MarketTick], now: datetime, lookback_seconds: 
 
     buy_qty = sum(t.quantity for t in window_ticks if t.is_buyer_maker is False)
     sell_qty = sum(t.quantity for t in window_ticks if t.is_buyer_maker is True)
-    total_qty = buy_qty + sell_qty
+    neutral_qty = sum(t.quantity for t in window_ticks if t.is_buyer_maker is None)
+    total_qty = buy_qty + sell_qty + neutral_qty
 
-    tfi = (buy_qty - sell_qty) / total_qty if total_qty > 0 else 0.0
+    if total_qty <= 0:
+        return 0.0, len(window_ticks), 0.0
+
+    effective_buy = buy_qty + (neutral_qty * 0.5)
+    effective_sell = sell_qty + (neutral_qty * 0.5)
+    tfi = (effective_buy - effective_sell) / total_qty
     return tfi, len(window_ticks), total_qty
+
+
+def _find_historical_price(
+    books: Sequence[BookTicker],
+    ticks: Sequence[MarketTick],
+    target_time_ts: float,
+) -> float | None:
+    if books:
+        candidates = [b for b in books if b.event_time.timestamp() <= target_time_ts]
+        if candidates:
+            return max(candidates, key=lambda b: b.event_time.timestamp()).mid_price
+    if ticks:
+        candidates = [t for t in ticks if t.event_time.timestamp() <= target_time_ts]
+        if candidates:
+            return max(candidates, key=lambda t: t.event_time.timestamp()).price
+    return None
 
 
 def _find_historical_mid(books: Sequence[BookTicker], target_time_ts: float) -> float | None:
@@ -198,11 +220,11 @@ def build_microstructure_features(
     now_ts = now.timestamp()
     p_now = mid
 
-    p_250ms = _find_historical_mid(book_history, now_ts - 0.25) or p_now
-    p_500ms = _find_historical_mid(book_history, now_ts - 0.50) or p_now
-    p_1s = _find_historical_mid(book_history, now_ts - 1.00) or p_now
-    p_2s = _find_historical_mid(book_history, now_ts - 2.00) or p_now
-    p_5s = _find_historical_mid(book_history, now_ts - 5.00) or p_now
+    p_250ms = _find_historical_price(book_history, recent_ticks, now_ts - 0.25) or p_now
+    p_500ms = _find_historical_price(book_history, recent_ticks, now_ts - 0.50) or p_now
+    p_1s = _find_historical_price(book_history, recent_ticks, now_ts - 1.00) or p_now
+    p_2s = _find_historical_price(book_history, recent_ticks, now_ts - 2.00) or p_now
+    p_5s = _find_historical_price(book_history, recent_ticks, now_ts - 5.00) or p_now
 
     ret_250ms_bps = ((p_now - p_250ms) / p_250ms * 10000.0) if p_250ms > 0 else 0.0
     ret_500ms_bps = ((p_now - p_500ms) / p_500ms * 10000.0) if p_500ms > 0 else 0.0
@@ -213,7 +235,7 @@ def build_microstructure_features(
     velocity_1s_bps = ret_1s_bps  # bps per 1s
 
     # Velocity 500ms ago
-    p_1s_500ms_ago = _find_historical_mid(book_history, now_ts - 1.50) or p_500ms
+    p_1s_500ms_ago = _find_historical_price(book_history, recent_ticks, now_ts - 1.50) or p_500ms
     prev_velocity_1s_bps = ((p_500ms - p_1s_500ms_ago) / p_1s_500ms_ago * 10000.0) if p_1s_500ms_ago > 0 else 0.0
     acceleration_1s_bps = velocity_1s_bps - prev_velocity_1s_bps
 

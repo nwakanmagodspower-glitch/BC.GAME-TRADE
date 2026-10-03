@@ -160,12 +160,24 @@ class DeTradeObserver:
                     return 0
                 ticks_sorted = sorted(ticks, key=lambda x: int(x.get('t', 0)))
                 count = 0
+                prev_p: float | None = None
                 for item in ticks_sorted:
                     try:
                         p = float(item['p'])
                         t = int(item['t'])
-                        self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
+                        is_bm: bool | None = None
+                        if prev_p is not None:
+                            if p > prev_p:
+                                is_bm = False  # buyer taker (uptick)
+                            elif p < prev_p:
+                                is_bm = True   # seller taker (downtick)
+                        self.bar_aggregator.add_synthetic_tick(
+                            price=p,
+                            timestamp_ms=t,
+                            is_buyer=not is_bm if is_bm is not None else None,
+                        )
                         self._last_tick_price = p
+                        prev_p = p
                         ts = (float(t) / 1000.0) if t > 1e11 else float(t)
                         ev_time = datetime.fromtimestamp(ts, tz=timezone.utc)
                         self._recent_ticks.append(
@@ -175,7 +187,7 @@ class DeTradeObserver:
                                 quantity=1.0,
                                 event_time=ev_time,
                                 provider='DETRADE_SYNTHETIC',
-                                is_buyer_maker=False,
+                                is_buyer_maker=is_bm,
                             )
                         )
                         count += 1
@@ -424,7 +436,17 @@ class DeTradeObserver:
                     t = int(item['t'])
                     sym = str(item.get('s', settings.detrade_synthetic_symbol))
                     c = float(item['c']) if 'c' in item and item['c'] is not None else None
-                    self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
+                    is_bm: bool | None = None
+                    if self._last_tick_price is not None:
+                        if p > self._last_tick_price:
+                            is_bm = False  # buyer taker (uptick)
+                        elif p < self._last_tick_price:
+                            is_bm = True   # seller taker (downtick)
+                    self.bar_aggregator.add_synthetic_tick(
+                        price=p,
+                        timestamp_ms=t,
+                        is_buyer=not is_bm if is_bm is not None else None,
+                    )
                     now_utc = datetime.now(timezone.utc)
                     ts = (float(t) / 1000.0) if t > 1e11 else float(t)
                     ev_time = datetime.fromtimestamp(ts, tz=timezone.utc) if ts > 0 else now_utc
@@ -435,7 +457,7 @@ class DeTradeObserver:
                             quantity=1.0,
                             event_time=ev_time,
                             provider='DETRADE_SYNTHETIC',
-                            is_buyer_maker=False,
+                            is_buyer_maker=is_bm,
                         )
                     )
                     self.latest_tick = {
