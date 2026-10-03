@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 import zlib
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,7 @@ from app.integrations.detrade_token_provider import (
     DeTradeTokenProvider,
     detrade_token_provider,
 )
+from app.integrations.market_data.base import BookTicker, MarketTick
 from app.integrations.market_data.five_second_bar import FiveSecondBar, FiveSecondBarAggregator
 
 settings = get_settings()
@@ -128,6 +130,7 @@ class DeTradeObserver:
         self.on_observation = on_observation
         self.on_tick = on_tick
         self.bar_aggregator = bar_aggregator or FiveSecondBarAggregator(max_bars=240)
+        self._recent_ticks: deque[MarketTick] = deque(maxlen=240)
         self.latest: DeTradeRoundObservation | None = None
         self.latest_tick: dict[str, Any] | None = None
         self.last_error: str | None = None
@@ -163,6 +166,18 @@ class DeTradeObserver:
                         t = int(item['t'])
                         self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
                         self._last_tick_price = p
+                        ts = (float(t) / 1000.0) if t > 1e11 else float(t)
+                        ev_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+                        self._recent_ticks.append(
+                            MarketTick(
+                                symbol=settings.analysis_pair,
+                                price=p,
+                                quantity=1.0,
+                                event_time=ev_time,
+                                provider='DETRADE_SYNTHETIC',
+                                is_buyer_maker=False,
+                            )
+                        )
                         count += 1
                         if self.on_tick is not None:
                             try:
@@ -196,6 +211,43 @@ class DeTradeObserver:
                 return count
         except Exception:
             return 0
+
+    def get_synthetic_snapshot(self, symbol: str = 'BTCUSDT', max_age_seconds: float = 3.0) -> Any:
+        """Return a 100% pure DeTrade synthetic microstructure snapshot with zero external exchange contamination."""
+        if self.latest_tick is None:
+            return None
+        now_mono = time.monotonic()
+        age = now_mono - float(self.latest_tick.get('received_monotonic', 0))
+        if age > max_age_seconds or age < 0:
+            return None
+        p = float(self.latest_tick['price'])
+        now_dt = datetime.now(timezone.utc)
+        from app.services.market_data import MicrostructureSnapshot
+        book = BookTicker(
+            symbol=symbol.upper(),
+            best_bid_price=p,
+            best_bid_qty=10.0,
+            best_ask_price=p,
+            best_ask_qty=10.0,
+            event_time=self.latest_tick.get('received_at', now_dt),
+            provider='DETRADE_SYNTHETIC',
+        )
+        bars = tuple(self.bar_aggregator.get_closed_bars(limit=60))
+        last_bar = self.bar_aggregator.get_last_closed_bar()
+        metrics = self.bar_aggregator.get_metrics()
+        ticks = tuple(self._recent_ticks)
+        return MicrostructureSnapshot(
+            symbol=symbol.upper(),
+            book_ticker=book,
+            depth=None,
+            recent_ticks=ticks,
+            book_ticker_age_seconds=age,
+            depth_age_seconds=None,
+            is_fresh=True,
+            last_5s_bar=last_bar,
+            bars_5s=bars,
+            bar_metrics_5s=metrics,
+        )
 
     async def start(self) -> None:
         if not settings.detrade_ws_enabled:
@@ -373,13 +425,26 @@ class DeTradeObserver:
                     sym = str(item.get('s', settings.detrade_synthetic_symbol))
                     c = float(item['c']) if 'c' in item and item['c'] is not None else None
                     self.bar_aggregator.add_synthetic_tick(price=p, timestamp_ms=t)
+                    now_utc = datetime.now(timezone.utc)
+                    ts = (float(t) / 1000.0) if t > 1e11 else float(t)
+                    ev_time = datetime.fromtimestamp(ts, tz=timezone.utc) if ts > 0 else now_utc
+                    self._recent_ticks.append(
+                        MarketTick(
+                            symbol=settings.analysis_pair,
+                            price=p,
+                            quantity=1.0,
+                            event_time=ev_time,
+                            provider='DETRADE_SYNTHETIC',
+                            is_buyer_maker=False,
+                        )
+                    )
                     self.latest_tick = {
                         'price': p,
                         'timestamp_ms': t,
                         'symbol': sym,
                         'change': c,
                         'received_monotonic': time.monotonic(),
-                        'received_at': datetime.now(timezone.utc),
+                        'received_at': now_utc,
                         'source': 'WS_STREAM',
                     }
                     self._last_tick_price = p

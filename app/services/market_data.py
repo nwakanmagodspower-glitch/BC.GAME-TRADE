@@ -383,6 +383,10 @@ class MicrostructureDataCache:
             metrics_5s = agg.get_metrics()
 
         latest_book = books[-1] if books else None
+        if settings.detrade_use_synthetic_feed and books:
+            synthetic_books = [b for b in books if b.provider == 'DETRADE_SYNTHETIC']
+            if synthetic_books:
+                latest_book = synthetic_books[-1]
         latest_depth = depths[-1] if depths else None
 
         book_age = (now - latest_book.event_time).total_seconds() if latest_book else None

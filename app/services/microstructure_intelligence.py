@@ -118,13 +118,31 @@ class MicrostructureIntelligenceService:
         now: datetime | None = None,
     ) -> MicrostructureIntelligenceResult:
         now_dt = now or datetime.now(timezone.utc)
-        ms_snapshot = await self.cache.get_snapshot(
-            market,
-            max_book_age_seconds=settings.microstructure_book_max_age_seconds,
-            max_depth_age_seconds=2.0,
-            trade_lookback_seconds=10.0,
-            reference_time=now_dt,
-        )
+        ms_snapshot: MicrostructureSnapshot | None = None
+        is_synth = False
+
+        if settings.detrade_use_synthetic_feed:
+            try:
+                from app.integrations.detrade_observer import detrade_observer
+                synth_snapshot = detrade_observer.get_synthetic_snapshot(market, max_age_seconds=settings.market_data_max_age_seconds)
+                if synth_snapshot is not None and (synth_snapshot.bars_5s or synth_snapshot.recent_ticks):
+                    ms_snapshot = synth_snapshot
+                    is_synth = True
+            except Exception:
+                pass
+
+        if ms_snapshot is None:
+            ms_snapshot = await self.cache.get_snapshot(
+                market,
+                max_book_age_seconds=settings.microstructure_book_max_age_seconds,
+                max_depth_age_seconds=2.0,
+                trade_lookback_seconds=10.0,
+                reference_time=now_dt,
+            )
+            is_synth = bool(settings.detrade_use_synthetic_feed and (
+                (ms_snapshot.bars_5s and len(ms_snapshot.bars_5s) > 0)
+                or (ms_snapshot.recent_ticks and len(ms_snapshot.recent_ticks) > 0)
+            ))
 
         book_ticker = ms_snapshot.book_ticker
         is_fresh = ms_snapshot.is_fresh
@@ -171,14 +189,9 @@ class MicrostructureIntelligenceService:
                 contract_duration_seconds=contract_duration_seconds,
             )
 
-        candles = await market_data_service.get_cached_candles(market)
-
-        book_history = await self.cache.get_book_history(market, lookback_seconds=10.0, reference_time=now_dt)
-
-        is_synth = bool(settings.detrade_use_synthetic_feed and (
-            (ms_snapshot.bars_5s and len(ms_snapshot.bars_5s) > 0)
-            or (ms_snapshot.recent_ticks and len(ms_snapshot.recent_ticks) > 0)
-        ))
+        candles = None if is_synth else await market_data_service.get_cached_candles(market)
+        book_history = () if is_synth else await self.cache.get_book_history(market, lookback_seconds=10.0, reference_time=now_dt)
+        depth_history = () if is_synth else await self.cache.get_depth_history(market, lookback_seconds=10.0, reference_time=now_dt)
 
         try:
             features = build_microstructure_features(
@@ -186,7 +199,7 @@ class MicrostructureIntelligenceService:
                 latest_book=book_ticker,
                 book_history=book_history,
                 depth=ms_snapshot.depth,
-                depth_history=await self.cache.get_depth_history(market, lookback_seconds=10.0, reference_time=now_dt),
+                depth_history=depth_history,
                 recent_ticks=ms_snapshot.recent_ticks,
                 now=now_dt,
                 bars_5s=ms_snapshot.bars_5s,

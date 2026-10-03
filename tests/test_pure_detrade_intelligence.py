@@ -125,3 +125,39 @@ def test_pure_detrade_strong_expansion_gives_stake_high():
 
     assert decision.direction == SignalDirection.UP
     assert decision.stake_recommendation == "🔥 Stake High"
+
+
+@pytest.mark.asyncio
+async def test_pure_detrade_end_to_end_decoupling():
+    import time
+    from app.integrations.detrade_observer import detrade_observer
+    from app.services.microstructure_intelligence import microstructure_intelligence_service
+
+    now_utc = datetime.now(timezone.utc)
+    ts = int(now_utc.timestamp())
+
+    # Pre-populate detrade_observer with pure synthetic ticks and closed bars
+    detrade_observer.latest_tick = {
+        'price': 84650.25,
+        'timestamp_ms': ts * 1000,
+        'symbol': 'BTCUSDT',
+        'change': 1.50,
+        'received_monotonic': time.monotonic(),
+        'received_at': now_utc,
+        'source': 'WS_STREAM',
+    }
+    detrade_observer.bar_aggregator.clear()
+    detrade_observer.bar_aggregator.add_synthetic_tick(price=84640.0, timestamp_ms=(ts - 10) * 1000)
+    detrade_observer.bar_aggregator.add_synthetic_tick(price=84645.0, timestamp_ms=(ts - 6) * 1000)
+    detrade_observer.bar_aggregator.add_synthetic_tick(price=84650.25, timestamp_ms=(ts - 1) * 1000)
+
+    try:
+        result = await microstructure_intelligence_service.scan('BTCUSDT', seconds_until_start=5.0)
+        assert result.service_available is True
+        assert result.reference_price == 84650.25
+        assert result.features is not None
+        assert result.decision is not None
+    finally:
+        detrade_observer.latest_tick = None
+        detrade_observer.bar_aggregator.clear()
+
