@@ -513,6 +513,11 @@ class SignalIntelligenceService:
         # 2. Fallback if microstructure stream is not yet active (e.g. unit tests without websocket ticks)
         candles = await market_data_service.get_cached_candles(market)
         if not candles:
+            sync_reason = (
+                'DeTrade synthetic microstructure feed is syncing.'
+                if settings.detrade_use_synthetic_feed
+                else 'BTC market data stream is warming up.'
+            )
             return IntelligenceResult(
                 market=market,
                 direction=SignalDirection.NO_TRADE,
@@ -521,7 +526,7 @@ class SignalIntelligenceService:
                 market_snapshot=snapshot,
                 features=None,
                 decision=None,
-                reason='BTC market data stream is warming up.',
+                reason=sync_reason,
                 service_available=False,
                 target=target,
                 context=context,

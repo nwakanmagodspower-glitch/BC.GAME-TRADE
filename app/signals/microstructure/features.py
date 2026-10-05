@@ -3,11 +3,66 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from math import floor
+from statistics import mean
 from typing import Sequence
 
 from app.integrations.market_data.base import BookTicker, Candle, DepthSnapshot, MarketTick
 from app.integrations.market_data.five_second_bar import FiveSecondBar, FiveSecondBarAggregator
-from app.signals.features import _atr_pct, _ema, _rsi, _structure
+
+
+def _ema(values: list[float], period: int) -> float:
+    if not values:
+        raise ValueError('values required')
+    alpha = 2 / (period + 1)
+    value = values[0]
+    for current in values[1:]:
+        value = (current * alpha) + (value * (1 - alpha))
+    return value
+
+
+def _rsi(closes: list[float], period: int = 14) -> float:
+    if len(closes) < period + 1:
+        raise ValueError('not enough closes for RSI')
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    recent = deltas[-period:]
+    gains = sum(max(delta, 0.0) for delta in recent) / period
+    losses = sum(max(-delta, 0.0) for delta in recent) / period
+    if losses == 0:
+        return 100.0 if gains > 0 else 50.0
+    rs = gains / losses
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _atr_pct(candles: list[Candle], period: int = 14) -> float:
+    if len(candles) < period + 1:
+        raise ValueError('not enough candles for ATR')
+    trs: list[float] = []
+    for previous, current in zip(candles[-period - 1:-1], candles[-period:]):
+        tr = max(
+            current.high - current.low,
+            abs(current.high - previous.close),
+            abs(current.low - previous.close),
+        )
+        trs.append(tr)
+    close = candles[-1].close
+    return (mean(trs) / close * 100.0) if close else 0.0
+
+
+def _structure(candles: list[Candle]) -> str:
+    if len(candles) < 6:
+        return 'UNKNOWN'
+    recent = candles[-6:]
+    highs = [c.high for c in recent]
+    lows = [c.low for c in recent]
+    higher_highs = sum(1 for a, b in zip(highs, highs[1:]) if b > a)
+    higher_lows = sum(1 for a, b in zip(lows, lows[1:]) if b > a)
+    lower_highs = sum(1 for a, b in zip(highs, highs[1:]) if b < a)
+    lower_lows = sum(1 for a, b in zip(lows, lows[1:]) if b < a)
+    if higher_highs >= 3 and higher_lows >= 3:
+        return 'BULLISH'
+    if lower_highs >= 3 and lower_lows >= 3:
+        return 'BEARISH'
+    return 'RANGE'
 
 
 @dataclass(frozen=True)
@@ -62,15 +117,18 @@ class MicrostructureFeatureSnapshot:
     delta_1s_usd: float = 0.0
     delta_2s_usd: float = 0.0
     delta_5s_usd: float = 0.0
+    delta_10s_usd: float = 0.0
+    delta_30s_usd: float = 0.0
+    range_20s: float = 0.0
 
     # Synthetic Station & Sequence Analysis
     internal_velocity_usd: float = 0.0      # v_t = (P_t - P_{t-1}) / dt in USD/sec
     internal_acceleration_usd: float = 0.0  # a_t = v_t - v_{t-1} in USD/sec^2
     station_barrier_lower: float = 0.0      # Lower station boundary ($)
     station_barrier_upper: float = 0.0      # Upper station boundary ($)
-    station_barrier_dist_upper: float = 0.0 # Distance to upper barrier ($)
-    station_barrier_dist_lower: float = 0.0 # Distance to lower barrier ($)
-    station_nearest_barrier_dist: float = 0.0 # Distance to nearest barrier ($)
+    station_barrier_dist_upper: float = 25.0 # Distance to upper barrier ($)
+    station_barrier_dist_lower: float = 25.0 # Distance to lower barrier ($)
+    station_nearest_barrier_dist: float = 25.0 # Distance to nearest barrier ($)
     station_nearest_barrier_type: str = "NONE" # "UPPER" or "LOWER"
     station_travel_time_seconds: float | None = None # Estimated seconds to barrier (dist / |v|)
     station_channel_progress: float = 0.5   # 0.0 to 1.0 position within station channel
@@ -269,7 +327,19 @@ def build_microstructure_features(
     delta_2s_usd = round(p_now - p_2s, 4)
     delta_5s_usd = round(p_now - p_5s, 4)
 
-    # Compute live lead range over the last 5 seconds from ticks
+    p_10s = _find_historical_price(book_history, recent_ticks, now_ts - 10.00)
+    p_30s = _find_historical_price(book_history, recent_ticks, now_ts - 30.00)
+    if p_10s is None and bars_5s and len(bars_5s) >= 2:
+        p_10s = bars_5s[-2].close
+    if p_30s is None and bars_5s and len(bars_5s) >= 6:
+        p_30s = bars_5s[-6].close
+    p_10s = p_10s or p_5s
+    p_30s = p_30s or p_10s
+
+    delta_10s_usd = round(p_now - p_10s, 4)
+    delta_30s_usd = round(p_now - p_30s, 4)
+
+    # Compute live lead range over the last 5 seconds and 20 seconds from ticks
     recent_5s_ticks = [t for t in recent_ticks if t.event_time.timestamp() >= now_ts - 5.0] if recent_ticks else []
     if recent_5s_ticks:
         live_lead_range = max(t.price for t in recent_5s_ticks) - min(t.price for t in recent_5s_ticks)
@@ -280,6 +350,15 @@ def build_microstructure_features(
         bar_5s_range = lead_range_dollars
     if bar_5s_return == 0.0 and abs(delta_5s_usd) > 0.0:
         bar_5s_return = delta_5s_usd
+
+    recent_20s_ticks = [t for t in recent_ticks if t.event_time.timestamp() >= now_ts - 20.0] if recent_ticks else []
+    if recent_20s_ticks:
+        range_20s = round(max(t.price for t in recent_20s_ticks) - min(t.price for t in recent_20s_ticks), 4)
+    elif bars_5s and len(bars_5s) >= 4:
+        recent_4_bars = bars_5s[-4:]
+        range_20s = round(max(b.high for b in recent_4_bars) - min(b.low for b in recent_4_bars), 4)
+    else:
+        range_20s = round(max(bar_5s_range, lead_range_dollars), 4)
 
     # Velocity 500ms ago
     p_1s_500ms_ago = _find_historical_price(book_history, recent_ticks, now_ts - 1.50) or p_500ms
@@ -427,6 +506,9 @@ def build_microstructure_features(
         delta_1s_usd=delta_1s_usd,
         delta_2s_usd=delta_2s_usd,
         delta_5s_usd=delta_5s_usd,
+        delta_10s_usd=delta_10s_usd,
+        delta_30s_usd=delta_30s_usd,
+        range_20s=range_20s,
         internal_velocity_usd=internal_velocity_usd,
         internal_acceleration_usd=internal_acceleration_usd,
         station_barrier_lower=station_barrier_lower,

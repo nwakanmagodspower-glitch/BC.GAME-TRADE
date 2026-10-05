@@ -97,19 +97,21 @@ def decide_microstructure(
 
     # 5-Second Range Filters:
     # Filter flat chop and parabolic exhaustion traps
+    # 5-Second Range Filters:
+    # Filter flat chop and parabolic exhaustion traps
     if is_synthetic:
-        eff_range = max(features.lead_range_dollars, features.bar_5s_range)
-        if eff_range < min_5s_range:
+        eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
+        if eff_range < 1.50:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'5-second bar range is too narrow (${eff_range:.2f} < ${min_5s_range:.2f}); market is in dead micro-noise. Preserving capital.',
+                f'20-second range is too narrow (${eff_range:.2f} < $1.50); market in flat chop risks BC.Game tie-loss.',
             )
-        if eff_range > max_5s_range:
+        if eff_range > 30.0:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'5-second bar range is overextended (${eff_range:.2f} > ${max_5s_range:.2f}); high retracement risk.',
+                f'20-second range is anomalous (${eff_range:.2f} > $30.00); extreme volatility risk.',
             )
     elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
@@ -126,20 +128,18 @@ def decide_microstructure(
             )
 
     # Parabolic Pre-Start Impulse / Exhaustion Gate (Synthetic OTC Defense)
-    # When trading 5s rounds with a pre-start countdown, a large surge during the countdown
-    # sets the Start Price at the peak of the impulse, creating extreme mean-reversion loss risk.
     if is_synthetic:
-        if features.bar_5s_return > max_lead_impulse or (features.bar_5s_return >= 8.0 and features.bar_5s_rsi_14 > 70.0):
+        if features.delta_5s_usd > 12.0 or features.bar_5s_return > 12.0:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'Pre-start bullish impulse (+${features.bar_5s_return:.2f}) is overextended (exhaustion top). Buying UP risks an immediate 5-second retracement loss.',
+                'Pre-start 5s impulse is overextended (exhaustion top). Buying UP risks an immediate retracement loss.',
             )
-        if features.bar_5s_return < -max_lead_impulse or (features.bar_5s_return <= -8.0 and features.bar_5s_rsi_14 < 30.0):
+        if features.delta_5s_usd < -12.0 or features.bar_5s_return < -12.0:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'Pre-start bearish impulse (${features.bar_5s_return:.2f}) is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
+                'Pre-start 5s impulse is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
             )
 
     # Fast / Slow Conflict Veto (applies if slow regime or 5s micro-trend strongly conflicts)
@@ -172,7 +172,13 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
                 )
-            if features.bar_5s_return < 1.20:
+            if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.50:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
+                )
+            if features.bar_5s_return < 1.00 and features.delta_30s_usd < 6.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
@@ -185,7 +191,7 @@ def decide_microstructure(
                     'Price is actively ticking down; entering UP risks immediate adverse movement.',
                 )
 
-        quality = 'STRONG' if (bull >= 8 and margin >= 4) or features.bar_5s_return >= 2.00 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bull >= 6 and margin >= 3) or features.delta_30s_usd >= 6.0 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.UP,
             quality,
@@ -207,7 +213,13 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
                 )
-            if features.bar_5s_return > -1.00:
+            if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.50:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
+                )
+            if features.bar_5s_return > -1.00 and features.delta_30s_usd > -6.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
@@ -220,7 +232,7 @@ def decide_microstructure(
                     'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
                 )
 
-        quality = 'STRONG' if (bear >= 8 and margin >= 4) or features.bar_5s_return <= -2.00 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bear >= 6 and margin >= 3) or features.delta_30s_usd <= -6.0 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.DOWN,
             quality,

@@ -178,6 +178,13 @@ class MarketDataService:
         if self._task and not self._task.done():
             return
         self._stop.clear()
+        if settings.detrade_use_synthetic_feed:
+            # Pure DeTrade synthetic mode: ticks, depth, and round state are fed natively
+            self.connected = True
+            self.last_error = None
+            self.candle_last_error = None
+            return
+
         try:
             await self.bootstrap(symbol)
             self.last_error = None
@@ -188,9 +195,8 @@ class MarketDataService:
             self.candle_last_error = error
         self._task = asyncio.create_task(self._run_ticks(symbol), name=f'market-data-{symbol.lower()}')
         self._candle_task = asyncio.create_task(self._run_candles(symbol), name=f'candle-cache-{symbol.lower()}')
-        if not settings.detrade_use_synthetic_feed:
-            self._book_ticker_task = asyncio.create_task(self._run_book_ticker(symbol), name=f'book-ticker-{symbol.lower()}')
-            self._depth_task = asyncio.create_task(self._run_depth(symbol), name=f'depth-{symbol.lower()}')
+        self._book_ticker_task = asyncio.create_task(self._run_book_ticker(symbol), name=f'book-ticker-{symbol.lower()}')
+        self._depth_task = asyncio.create_task(self._run_depth(symbol), name=f'depth-{symbol.lower()}')
 
     async def stop(self) -> None:
         self._stop.set()

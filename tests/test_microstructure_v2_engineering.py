@@ -64,6 +64,26 @@ async def test_market_data_service_workers_attached():
     assert hasattr(market_data_service, "_run_candles")
 
 
+@pytest.mark.asyncio
+async def test_market_data_service_synthetic_mode_bypasses_external_workers():
+    """Verify that in synthetic feed mode, market_data_service connects without spawning external Binance background tasks."""
+    from app.core.config import get_settings
+    settings = get_settings()
+    orig_synth = settings.detrade_use_synthetic_feed
+    try:
+        settings.detrade_use_synthetic_feed = True
+        await market_data_service.stop()
+        await market_data_service.start("BTCUSDT")
+        assert market_data_service.connected is True
+        assert market_data_service._task is None
+        assert market_data_service._candle_task is None
+        assert market_data_service._book_ticker_task is None
+        assert market_data_service._depth_task is None
+    finally:
+        await market_data_service.stop()
+        settings.detrade_use_synthetic_feed = orig_synth
+
+
 # ---------------------------------------------------------------------------
 # Requirement 2: Shared MicrostructureDataCache between services
 # ---------------------------------------------------------------------------
