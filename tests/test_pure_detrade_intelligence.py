@@ -457,5 +457,89 @@ def test_pure_detrade_phase_alignment_synchronization():
     assert features.round_progress_pct == 0.60
 
 
+def test_pure_detrade_down_signal_generation():
+    now = datetime(2026, 10, 3, 8, 50, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84520.0, 1.0, 84520.0, 1.0, now, "DETRADE_SYNTHETIC")
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84522.0, high=84522.5, low=84519.5, close=84520.0,
+            volume=6.0, quote_volume=6.0 * 84520.0, trades_count=12,
+            taker_buy_volume=1.5, taker_sell_volume=4.5, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 84521.0,
+        'ema_slow_21': 84525.0,
+        'rsi_14': 40.0,
+        'momentum_3bar_usd': -2.5,
+    }
+    features = build_microstructure_features(
+        latest_book=book,
+        now=now,
+        bars_5s=bars_5s,
+        bar_metrics_5s=bar_metrics,
+        is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        min_5s_range=0.80,
+        is_synthetic=True,
+    )
+    assert decision.direction == SignalDirection.DOWN
+    assert decision.stake_recommendation in ("🔥 Stake High", "⚡ Stake Low")
+
+
+def test_pure_detrade_minor_jitter_does_not_veto_strong_up():
+    now = datetime(2026, 10, 3, 8, 55, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 84530.0, 1.0, 84530.0, 1.0, now, "DETRADE_SYNTHETIC")
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=84527.0, high=84531.0, low=84527.0, close=84530.05,
+            volume=8.0, quote_volume=8.0 * 84530.0, trades_count=15,
+            taker_buy_volume=6.0, taker_sell_volume=2.0, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 84529.0,
+        'ema_slow_21': 84526.0,
+        'rsi_14': 62.0,
+        'momentum_3bar_usd': 3.0,
+    }
+    # Minor 5-cent noise jitter on the last tick (-$0.05)
+    recent_ticks = [
+        MarketTick(symbol="BTCUSDT", price=84530.10, quantity=1.0, event_time=now - timedelta(seconds=1), provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+        MarketTick(symbol="BTCUSDT", price=84530.05, quantity=1.0, event_time=now, provider="DETRADE_SYNTHETIC", is_buyer_maker=False),
+    ]
+    features = build_microstructure_features(
+        latest_book=book,
+        recent_ticks=recent_ticks,
+        now=now,
+        bars_5s=bars_5s,
+        bar_metrics_5s=bar_metrics,
+        is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        min_5s_range=0.80,
+        is_synthetic=True,
+        up_min_margin=3,
+    )
+    # 5-cent noise must NOT veto the strong upward thrust
+    assert decision.direction == SignalDirection.UP
+    assert decision.quality in ("VALID", "STRONG")
+
+
 
 

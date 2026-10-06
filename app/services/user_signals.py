@@ -58,12 +58,16 @@ class UserSignalService:
     def _clear_stale_current_signal(self, signal: Signal, now: datetime) -> bool:
         expiry = self._aware(signal.expiry_at)
         if expiry is None:
+            created = self._aware(signal.created_at)
+            if created and (now - created).total_seconds() > 15:
+                signal.status = SignalStatus.EXPIRED
+                signal.status_reason = 'Previous round expired (timeout); cleared for new scan.'
+                return True
             return False
-        stale_after = expiry + timedelta(seconds=settings.signal_settlement_window_seconds)
-        if now <= stale_after:
+        if now <= expiry:
             return False
         signal.status = SignalStatus.EXPIRED
-        signal.status_reason = 'Stale current signal was cleared before a new scan.'
+        signal.status_reason = 'Completed round cleared for new scan.'
         return True
 
     async def request_scan(self, user_id: int) -> UserSignalResult:
@@ -93,14 +97,15 @@ class UserSignalService:
 
         current = self._current_signal(user_id)
         if current is not None:
-            expiry = self._aware(current.expiry_at)
-            if expiry is None or now <= expiry + timedelta(seconds=settings.signal_settlement_window_seconds):
+            if not self._clear_stale_current_signal(current, now):
                 self.db.rollback()
                 return UserSignalResult(
                     None,
                     False,
                     'Your current signal round is still in progress. Wait for the next fresh round.',
                 )
+            self.db.commit()
+            current = None
 
         self.db.rollback()
 

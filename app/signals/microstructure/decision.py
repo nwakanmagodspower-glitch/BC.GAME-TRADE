@@ -101,17 +101,18 @@ def decide_microstructure(
     # Filter flat chop and parabolic exhaustion traps
     if is_synthetic:
         eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
-        if eff_range < 1.50:
+        eff_min = min_5s_range if min_5s_range is not None else 0.80
+        if eff_range < eff_min:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'20-second range is too narrow (${eff_range:.2f} < $1.50); market in flat chop risks BC.Game tie-loss.',
+                f'20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop risks BC.Game tie-loss.',
             )
-        if eff_range > 30.0:
+        if eff_range > 35.0:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'20-second range is anomalous (${eff_range:.2f} > $30.00); extreme volatility risk.',
+                f'20-second range is anomalous (${eff_range:.2f} > $35.00); extreme volatility risk.',
             )
     elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
@@ -172,26 +173,31 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
                 )
-            if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.50:
+            if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.00:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
                 )
-            if features.bar_5s_return < 1.00 and features.delta_30s_usd < 6.0:
+            if features.bar_5s_return < 0.60 and features.delta_30s_usd < 3.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
                 )
-            if features.delta_1s_usd < 0.0 or features.delta_2s_usd < 0.0 or features.velocity_1s_bps < 0.0 or features.internal_velocity_usd < -0.10:
+            if (
+                features.delta_1s_usd < -0.20
+                or features.delta_2s_usd < -0.30
+                or features.velocity_1s_bps < -0.30
+                or features.internal_velocity_usd < -0.30
+            ):
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     'Price is actively ticking down; entering UP risks immediate adverse movement.',
                 )
 
-        quality = 'STRONG' if (bull >= 6 and margin >= 3) or features.delta_30s_usd >= 6.0 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bull >= 6 and margin >= 3) or features.delta_10s_usd >= 1.5 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.UP,
             quality,
@@ -213,26 +219,31 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
                 )
-            if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.50:
+            if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.00:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
                 )
-            if features.bar_5s_return > -1.00 and features.delta_30s_usd > -6.0:
+            if features.bar_5s_return > -0.60 and features.delta_30s_usd > -3.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
                 )
-            if features.delta_1s_usd > 0.0 or features.delta_2s_usd > 0.0 or features.velocity_1s_bps > 0.0 or features.internal_velocity_usd > 0.10:
+            if (
+                features.delta_1s_usd > 0.20
+                or features.delta_2s_usd > 0.30
+                or features.velocity_1s_bps > 0.30
+                or features.internal_velocity_usd > 0.30
+            ):
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
                 )
 
-        quality = 'STRONG' if (bear >= 6 and margin >= 3) or features.delta_30s_usd <= -6.0 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bear >= 6 and margin >= 3) or features.delta_10s_usd <= -1.5 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.DOWN,
             quality,

@@ -143,3 +143,50 @@ async def test_post_analysis_cutoff_suppresses_signal(monkeypatch):
         assert 'too close to the cutoff' in result.reason
     finally:
         db.close()
+
+
+@pytest.mark.asyncio
+async def test_expired_signal_unblocks_user_for_new_scan(monkeypatch):
+    db, user = approved_session()
+    monkeypatch.setattr(user_signals.settings, 'app_env', 'development')
+    monkeypatch.setattr(user_signals.settings, 'signal_mode', 'LIVE')
+    monkeypatch.setattr(user_signals.settings, 'signals_enabled', True)
+    monkeypatch.setattr(user_signals.settings, 'signal_timing_mode', 'MANUAL_SYNC')
+    monkeypatch.setattr(user_signals.settings, 'signal_user_cooldown_seconds', 0.0)
+
+    # Insert a WAITING_ENTRY signal whose expiry_at is in the past
+    past = datetime.now(timezone.utc) - timedelta(seconds=5)
+    expired_signal = Signal(
+        requested_by_user_id=user.id,
+        market='BTC/USD',
+        product='BC_UPDOWN_5S',
+        direction=SignalDirection.UP,
+        status=SignalStatus.WAITING_ENTRY,
+        strategy_version='BTC_ORIGINAL_INTELLIGENCE_TIMER_V1',
+        expiry_at=past,
+        created_at=past - timedelta(seconds=15),
+    )
+    db.add(expired_signal)
+    db.commit()
+
+    async def scan(_symbol, **_timing):
+        return SimpleNamespace(service_available=True, reason='new scan ready')
+
+    recorded = object()
+
+    def record(_self, _result, **kwargs):
+        return recorded
+
+    monkeypatch.setattr(user_signals.signal_intelligence_service, 'scan', scan)
+    monkeypatch.setattr(user_signals.SignalRecordService, 'record_scan', record)
+
+    try:
+        result = await UserSignalService(db).request_scan(user.id)
+        assert result.available is True
+        assert result.signal is recorded
+        # The previous signal must be marked EXPIRED
+        db.refresh(expired_signal)
+        assert expired_signal.status == SignalStatus.EXPIRED
+    finally:
+        db.close()
+

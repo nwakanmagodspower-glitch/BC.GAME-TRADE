@@ -60,12 +60,12 @@ class Settings(BaseSettings):
     detrade_synthetic_symbol: str = 'BTC-USD'
     detrade_use_synthetic_feed: bool = True
     detrade_stake_room: str = '$1-$50'
-    detrade_min_5s_range_dollars: float = 1.50
+    detrade_min_5s_range_dollars: float = 0.80
     detrade_max_5s_range_dollars: float = 25.00
     detrade_max_lead_impulse: float = 16.00
-    detrade_min_score: int = 6
-    detrade_min_margin: int = 3
-    detrade_up_min_margin: int = 4
+    detrade_min_score: int = 5
+    detrade_min_margin: int = 2
+    detrade_up_min_margin: int = 3
     detrade_latency_safety_margin_ms: int = 0
     detrade_dispatch_min_remaining_ms: int = 0
     detrade_stale_after_ms: int = 1500
@@ -87,9 +87,9 @@ class Settings(BaseSettings):
     signal_min_lead_range_dollars: float = 1.50
     signal_min_trade_count: int = 5
     signal_trade_flow_lookback_seconds: int = 15
-    signal_settlement_window_seconds: int = 2
+    signal_settlement_window_seconds: int = 1
     signal_scan_coalesce_ms: int = 250
-    signal_user_cooldown_seconds: float = 5.0
+    signal_user_cooldown_seconds: float = 1.0
     worker_heartbeat_max_age_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'

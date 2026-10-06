@@ -23,95 +23,121 @@ def score_microstructure_features(
 
     if is_synthetic:
         # PURE DETRADE SYNTHETIC SCORING
-        # Driven by multi-bar synthetic drift (30s) and 10s intermediate confirmation.
-        # Empirically validated on real DeTrade settlement rounds (61.5% - 66.7% win rate).
+        # Calibrated on real DeTrade OTC micro-rounds: 10s synthetic momentum + 5s bar impulse.
+        # Independent, additive scoring ensures valid moves are captured without artificial hurdles.
 
-        # 1. 30-Second Synthetic Drift (Core Engine, up to +4 points)
-        eff_30s = features.delta_30s_usd if abs(features.delta_30s_usd) > 0.1 else (features.bar_5s_momentum_3bar * 2.0)
-        if eff_30s >= 6.0:
-            bull += 4
-            reasons.append(f'30s synthetic upward drift (+${eff_30s:.2f})')
-        elif eff_30s >= 4.0:
+        # 1. 10-Second Synthetic Momentum (Core Engine, up to +3 points)
+        eff_10s = features.delta_10s_usd if abs(features.delta_10s_usd) > 0.05 else features.bar_5s_return
+        if eff_10s >= 2.0:
             bull += 3
-            reasons.append(f'moderate 30s synthetic upward drift (+${eff_30s:.2f})')
-        elif eff_30s <= -6.0:
-            bear += 4
-            reasons.append(f'30s synthetic downward drift (${eff_30s:.2f})')
-        elif eff_30s <= -4.0:
+            reasons.append(f'strong 10s synthetic momentum (+${eff_10s:.2f})')
+        elif eff_10s >= 1.0:
+            bull += 2
+            reasons.append(f'10s synthetic momentum (+${eff_10s:.2f})')
+        elif eff_10s >= 0.40:
+            bull += 1
+            reasons.append(f'positive 10s drift (+${eff_10s:.2f})')
+        elif eff_10s <= -2.0:
             bear += 3
+            reasons.append(f'strong 10s synthetic downward momentum (${eff_10s:.2f})')
+        elif eff_10s <= -1.0:
+            bear += 2
+            reasons.append(f'10s synthetic downward momentum (${eff_10s:.2f})')
+        elif eff_10s <= -0.40:
+            bear += 1
+            reasons.append(f'negative 10s drift (${eff_10s:.2f})')
+
+        # 2. 5-Second Bar Impulse (up to +2 points)
+        if features.bar_5s_return >= 1.0:
+            bull += 2
+            reasons.append(f'5s bar impulse expansion (+${features.bar_5s_return:.2f})')
+        elif features.bar_5s_return >= 0.35:
+            bull += 1
+            reasons.append(f'5s bar positive impulse (+${features.bar_5s_return:.2f})')
+        elif features.bar_5s_return <= -1.0:
+            bear += 2
+            reasons.append(f'5s bar impulse expansion (${features.bar_5s_return:.2f})')
+        elif features.bar_5s_return <= -0.35:
+            bear += 1
+            reasons.append(f'5s bar downward impulse (${features.bar_5s_return:.2f})')
+
+        # 3. 15-Second Multi-Bar Persistence (up to +2 points)
+        if features.bar_5s_momentum_3bar >= 2.0:
+            bull += 2
+            reasons.append(f'15s persistent momentum (+${features.bar_5s_momentum_3bar:.2f})')
+        elif features.bar_5s_momentum_3bar >= 0.8:
+            bull += 1
+            reasons.append(f'15s upward persistence (+${features.bar_5s_momentum_3bar:.2f})')
+        elif features.bar_5s_momentum_3bar <= -2.0:
+            bear += 2
+            reasons.append(f'15s persistent downward momentum (${features.bar_5s_momentum_3bar:.2f})')
+        elif features.bar_5s_momentum_3bar <= -0.8:
+            bear += 1
+            reasons.append(f'15s downward persistence (${features.bar_5s_momentum_3bar:.2f})')
+
+        # 4. 30-Second Synthetic Drift (up to +2 points)
+        eff_30s = features.delta_30s_usd if abs(features.delta_30s_usd) > 0.1 else (features.bar_5s_momentum_3bar * 2.0)
+        if eff_30s >= 3.0:
+            bull += 2
+            reasons.append(f'30s synthetic upward drift (+${eff_30s:.2f})')
+        elif eff_30s >= 1.5:
+            bull += 1
+            reasons.append(f'moderate 30s synthetic upward drift (+${eff_30s:.2f})')
+        elif eff_30s <= -3.0:
+            bear += 2
+            reasons.append(f'30s synthetic downward drift (${eff_30s:.2f})')
+        elif eff_30s <= -1.5:
+            bear += 1
             reasons.append(f'moderate 30s synthetic downward drift (${eff_30s:.2f})')
 
-        # 2. 10-Second Intermediate Trend Alignment (up to +2 points / -3 penalty)
-        eff_10s = features.delta_10s_usd if abs(features.delta_10s_usd) > 0.1 else features.bar_5s_return
-        if eff_10s >= 0.5 and bull > 0:
-            bull += 2
-            reasons.append(f'10s intermediate momentum aligned (+${eff_10s:.2f})')
-        elif eff_10s <= -0.5 and bear > 0:
-            bear += 2
-            reasons.append(f'10s intermediate momentum aligned (${eff_10s:.2f})')
-        elif eff_10s < -0.5 and bull > 0:
-            bull = max(0, bull - 3)
-            reasons.append(f'10s counter-pullback (${eff_10s:.2f}) weakens upward drift')
-        elif eff_10s > 0.5 and bear > 0:
-            bear = max(0, bear - 3)
-            reasons.append(f'10s counter-bounce (+${eff_10s:.2f}) weakens downward drift')
-
-        # 3. 5-Second Bar Expansion & Taker Flow Confirmation (up to +2 points)
-        if features.bar_5s_return >= 2.0 and bull > 0:
-            bull += 1
-            reasons.append(f'strong 5s bullish expansion (+${features.bar_5s_return:.2f})')
-        elif features.bar_5s_return <= -2.0 and bear > 0:
-            bear += 1
-            reasons.append(f'strong 5s downward expansion (${features.bar_5s_return:.2f})')
-
-        if features.bar_5s_taker_ratio >= 0.58 and bull > 0:
+        # 5. Taker Delta Flow Confirmation (+1 point)
+        if features.bar_5s_taker_ratio >= 0.58:
             bull += 1
             reasons.append(f'buyer delta confirmed ({features.bar_5s_taker_ratio*100:.0f}%)')
-        elif features.bar_5s_taker_ratio <= 0.42 and bear > 0:
+        elif features.bar_5s_taker_ratio <= 0.42:
             bear += 1
             reasons.append(f'seller delta confirmed ({features.bar_5s_taker_ratio*100:.0f}%)')
 
-        # 4. Micro-Trend & Kinematics Confirmation (up to +2 points)
-        if features.bar_5s_ema_fast > features.bar_5s_ema_slow and bull > 0 and features.delta_2s_usd >= 0.0:
+        # 6. 5s Micro-Trend Alignment (EMA9 vs EMA21) (+1 point)
+        if features.bar_5s_ema_fast > features.bar_5s_ema_slow and features.bar_5s_ema_fast > 0:
             bull += 1
             reasons.append('5s micro-trend (EMA9 > EMA21) confirms active bullish thrust')
-        elif features.bar_5s_ema_fast < features.bar_5s_ema_slow and bear > 0 and features.delta_2s_usd <= 0.0:
+        elif features.bar_5s_ema_fast < features.bar_5s_ema_slow and features.bar_5s_ema_fast > 0:
             bear += 1
             reasons.append('5s micro-trend (EMA9 < EMA21) confirms active bearish thrust')
 
-        if (features.delta_2s_usd >= 0.35 and features.delta_1s_usd >= 0.15) or (features.return_500ms_bps >= 0.5 and features.velocity_1s_bps >= 0.6):
-            if bull > 0:
-                bull += 1
-                reasons.append('positive tick kinematics aligned with upward drift')
-        elif (features.delta_2s_usd <= -0.35 and features.delta_1s_usd <= -0.15) or (features.return_500ms_bps <= -0.5 and features.velocity_1s_bps <= -0.6):
-            if bear > 0:
-                bear += 1
-                reasons.append('negative tick kinematics aligned with downward drift')
+        # 7. Fast Tick Kinematics (+1 point)
+        if (features.delta_2s_usd >= 0.25 and features.delta_1s_usd >= 0.05) or (features.return_500ms_bps >= 0.4 and features.velocity_1s_bps >= 0.4):
+            bull += 1
+            reasons.append('positive tick kinematics aligned with upward thrust')
+        elif (features.delta_2s_usd <= -0.25 and features.delta_1s_usd <= -0.05) or (features.return_500ms_bps <= -0.4 and features.velocity_1s_bps <= -0.4):
+            bear += 1
+            reasons.append('negative tick kinematics aligned with downward thrust')
 
-        # 5. Late Jitter Defense (Last 2s must not violently contradict)
-        if features.delta_2s_usd < -0.3 and bull > 0:
+        # 8. Counter-Jitter Defense (Sharp 2s reversal against trend)
+        if features.delta_2s_usd < -0.60 and bull > 0:
             bull = max(0, bull - 2)
-            reasons.append('2s counter-tick dampens UP signal')
-        elif features.delta_2s_usd > 0.3 and bear > 0:
+            reasons.append('sharp 2s counter-tick dampens UP signal')
+        elif features.delta_2s_usd > 0.60 and bear > 0:
             bear = max(0, bear - 2)
-            reasons.append('2s counter-tick dampens DOWN signal')
+            reasons.append('sharp 2s counter-tick dampens DOWN signal')
 
-        # 6. Station Barrier Clearance ($50 Boundaries)
-        if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 2.0 and bull > 0:
+        # 9. Station Barrier Clearance ($50 Boundaries)
+        if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.20 and bull > 0:
             bull = max(0, bull - 3)
             reasons.append(f'approaching $50 station ceiling (${features.station_barrier_dist_upper:.2f} away)')
-        if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 2.0 and bear > 0:
+        if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.20 and bear > 0:
             bear = max(0, bear - 3)
             reasons.append(f'approaching $50 station floor (${features.station_barrier_dist_lower:.2f} away)')
 
-        # 7. Volatility Floor (BC.Game tie rule defense)
+        # 10. Flat Chop Defense (BC.Game tie rule defense)
         eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
-        if eff_range < 2.0:
-            bull = max(0, bull - 4)
-            bear = max(0, bear - 4)
-            reasons.append(f'low 20s volatility (${eff_range:.2f} < $2.00) risks house tie-loss')
+        if eff_range < 0.60:
+            bull = max(0, bull - 3)
+            bear = max(0, bear - 3)
+            reasons.append(f'flat volatility (${eff_range:.2f} < $0.60) risks house tie-loss')
 
-        # 8. Station Regime Dynamics (Surge breakout & Bounded bounce)
+        # 11. Station Regime Dynamics (Surge breakout & Bounded bounce)
         if features.regime_classification == 'SURGE_BREAKOUT':
             if features.delta_2s_usd > 0:
                 bull += 2
