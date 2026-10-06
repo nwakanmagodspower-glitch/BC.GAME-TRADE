@@ -205,7 +205,15 @@ async def health():
             'connected': detrade_observer.connected,
             'has_observation': observed is not None,
             'fresh': bool(observed and observed.fresh),
-            'authorization_configured': usable_detrade_token(settings.detrade_ws_token) is not None,
+            'authorization_configured': bool(
+                detrade_observer.connected
+                or usable_detrade_token(settings.detrade_ws_token) is not None
+                or (
+                    hasattr(detrade_token_provider, '_db_token_getter')
+                    and detrade_token_provider._db_token_getter is not None
+                    and detrade_token_provider._usable_token(detrade_token_provider._db_token_getter()) is not None
+                )
+            ),
             'timer': observed.to_public_dict() if observed else None,
             'synthetic_feed': {
                 'enabled': settings.detrade_use_synthetic_feed,
