@@ -633,6 +633,8 @@ class DeTradeObserver:
                 pass
             if self.latest and self.latest.fresh:
                 return self.latest
+            if self.latest and self.connected and self.latest.data_age_ms < 15_000:
+                return self.latest
             if self.last_error and 'authorization' in self.last_error.lower():
                 return None
             self.last_error = 'DeTrade timer probe timed out.'
