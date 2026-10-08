@@ -541,5 +541,76 @@ def test_pure_detrade_minor_jitter_does_not_veto_strong_up():
     assert decision.quality in ("VALID", "STRONG")
 
 
+def test_station_barrier_ceiling_buffer_vetoes_up():
+    # Price is 81847.0 (within $3.00 of 81850 ceiling barrier)
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 81847.0, 1.0, 81847.0, 1.0, now, "DETRADE_SYNTHETIC")
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=81845.0, high=81847.5, low=81845.0, close=81847.0,
+            volume=5.0, quote_volume=5.0 * 81847.0, trades_count=10,
+            taker_buy_volume=4.0, taker_sell_volume=1.0, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 81846.0,
+        'ema_slow_21': 81842.0,
+        'rsi_14': 65.0,
+        'momentum_3bar_usd': 3.0,
+    }
+    features = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        is_synthetic=True,
+    )
+    # Must veto UP due to proximity to 81850 ceiling
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "station ceiling" in decision.reason.lower()
+
+
+def test_micro_chop_return_filter_vetoes_weak_drift():
+    # 5s return is only $0.65 with weak 30s drift ($1.00)
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 81820.0, 1.0, 81820.0, 1.0, now, "DETRADE_SYNTHETIC")
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=81819.35, high=81820.5, low=81819.35, close=81820.0,
+            volume=5.0, quote_volume=5.0 * 81820.0, trades_count=10,
+            taker_buy_volume=4.0, taker_sell_volume=1.0, closed=True,
+        )
+    ]
+    bar_metrics = {
+        'ema_fast_9': 81820.0,
+        'ema_slow_21': 81819.0,
+        'rsi_14': 58.0,
+        'momentum_3bar_usd': 0.8,
+    }
+    features = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, bar_metrics_5s=bar_metrics, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        is_synthetic=True,
+    )
+    # Must veto UP due to insufficient return (< $0.90)
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "insufficient" in decision.reason.lower()
+
+
+
 
 

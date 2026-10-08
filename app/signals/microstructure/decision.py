@@ -42,7 +42,7 @@ def decide_microstructure(
     def _make(dir_val: SignalDirection, qual_val: str, reason_val: str) -> MicrostructureDecision:
         if dir_val != SignalDirection.NO_TRADE:
             peak = max(bull, bear)
-            if qual_val == 'STRONG' or (peak >= 8 and margin >= 5):
+            if (qual_val == 'STRONG' and peak >= 7 and margin >= 4) or (peak >= 8 and margin >= 5):
                 tier = 'PRIME'
                 rec = '🔥 Stake High'
             else:
@@ -173,13 +173,13 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
                 )
-            if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.00:
+            if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 3.50:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
                 )
-            if features.bar_5s_return < 0.60 and features.delta_30s_usd < 3.0:
+            if features.bar_5s_return < 0.90 and features.delta_30s_usd < 3.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
@@ -197,7 +197,7 @@ def decide_microstructure(
                     'Price is actively ticking down; entering UP risks immediate adverse movement.',
                 )
 
-        quality = 'STRONG' if (bull >= 6 and margin >= 3) or features.delta_10s_usd >= 1.5 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bull >= 7 and margin >= 4 and features.bar_5s_return >= 1.20) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.UP,
             quality,
@@ -219,13 +219,13 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
                 )
-            if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.00:
+            if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 3.50:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
                 )
-            if features.bar_5s_return > -0.60 and features.delta_30s_usd > -3.0:
+            if features.bar_5s_return > -0.90 and features.delta_30s_usd > -3.0:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
@@ -243,7 +243,7 @@ def decide_microstructure(
                     'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
                 )
 
-        quality = 'STRONG' if (bear >= 6 and margin >= 3) or features.delta_10s_usd <= -1.5 or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
+        quality = 'STRONG' if (bear >= 7 and margin >= 4 and features.bar_5s_return <= -1.20) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.DOWN,
             quality,
