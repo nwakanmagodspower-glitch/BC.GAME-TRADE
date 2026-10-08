@@ -67,13 +67,13 @@ services:
       - key: DETRADE_DISPATCH_MIN_REMAINING_MS
         value: "8000"
       - key: DETRADE_STALE_AFTER_MS
-        value: "1500"
+        value: "8000"
       - key: DETRADE_PROBE_TIMEOUT_SECONDS
         value: "2.5"
       - key: DETRADE_SCAN_PROBE_TIMEOUT_SECONDS
         value: "1.0"
       - key: DETRADE_PROBE_COALESCE_MS
-        value: "300"
+        value: "1500"
       - key: DETRADE_PING_INTERVAL_SECONDS
         value: "5"
       - key: DETRADE_PING_TIMEOUT_SECONDS
