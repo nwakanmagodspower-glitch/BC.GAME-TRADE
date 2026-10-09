@@ -150,7 +150,7 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
         },
     )
     text_prime = signal_views.format_signal(signal_prime)
-    assert '🎯 Stake: 🔥 Stake High' in text_prime
+    assert 'STAKE HIGH' in text_prime
 
     signal_std = Signal(
         direction=SignalDirection.DOWN,
@@ -171,5 +171,7 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
         },
     )
     text_std = signal_views.format_signal(signal_std)
-    assert '🎯 Stake: ⚡ Stake Low' in text_std
+    assert 'Stake Low' not in text_std
+    assert 'DOWN SIGNAL' in text_std
+
 

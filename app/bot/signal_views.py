@@ -40,10 +40,10 @@ def format_scan_context() -> str:
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
         f'Room: {room}\n\n'
-        '🎯 STAKE GUIDANCE:\n'
-        '• Strong Setup: Stake High\n'
-        '• Standard Setup: Stake Low\n'
-        '• Chop / Reversal: Skip Round\n\n'
+        '🎯 SIGNAL GUIDANCE:\n'
+        '• 🔥 STAKE HIGH — Rare 10/10 Institutional Prime Setup (Maximum Conviction)\n'
+        '• Standard Signal — Market Momentum Direction (Normal Execution)\n'
+        '• 🛡️ Skip Round — Choppy Market or Counter-Trend\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
         '3️⃣ Tap ⚡ Scan Market anytime during the countdown (from 15s down to 1s). The closer to start, the sharper the micro-momentum.\n\n'
@@ -156,7 +156,7 @@ def format_signal(signal: Signal) -> str:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
     tie_note = '💡 Tie rule: Qualified expansion confirmed.\n' if signal.direction == SignalDirection.UP else '💡 Tie advantage: DOWN wins on flat ties.\n'
-    stake_rec = decision.get('stake_recommendation')
+    stake_rec = decision.get('stake_recommendation') or ''
     if not stake_rec or 'allocation' in stake_rec.lower() or 'setup' in stake_rec.lower():
         bull = decision.get('bull_score', 0)
         bear = decision.get('bear_score', 0)
@@ -165,8 +165,11 @@ def format_signal(signal: Signal) -> str:
         if peak >= 8 or (peak >= 6 and margin >= 4):
             stake_rec = '🔥 Stake High'
         else:
-            stake_rec = '⚡ Stake Low'
-    stake_line = f'🎯 Stake: {stake_rec}\n'
+            stake_rec = ''
+    if 'stake high' in stake_rec.lower():
+        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Maximum Conviction)\n'
+    else:
+        stake_line = ''
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'
