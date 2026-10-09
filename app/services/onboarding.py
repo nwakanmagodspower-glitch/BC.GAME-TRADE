@@ -80,6 +80,12 @@ class OnboardingService:
         user.onboarding_step = step
         self.db.commit()
 
+    def set_selected_tier(self, user: User, tier_name: str) -> VerificationRequest:
+        request = self.current_request(user)
+        request.admin_note = tier_name
+        self.db.commit()
+        return request
+
     def set_bcgame_user_id(self, user: User, value: str) -> VerificationRequest:
         request = self.current_request(user)
         request.bcgame_user_id = value.strip()

@@ -134,25 +134,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         if step == OnboardingStep.DEPOSIT:
-            await _send_deposit_step(update)
+            request = service.current_request(user)
+            chosen_key = None
+            if request.admin_note:
+                for k, v in TIER_INFO.items():
+                    if v['name'] == request.admin_note:
+                        chosen_key = k
+                        break
+            await _send_deposit_step(update, tier_key=chosen_key, edit=False)
             return
         if step == OnboardingStep.BC_ID:
-            await update.effective_chat.send_message('3️⃣ SEND YOUR BCGAME USER ID\n\nCopy your User ID from your BCGAME profile and send it here.')
+            await update.effective_chat.send_message('3️⃣ SEND YOUR BCGAME USER ID 🆔\n\nCopy your User ID from your BCGAME profile and send it here.')
             return
         if step == OnboardingStep.PROFILE_PROOF:
-            await update.effective_chat.send_message('4️⃣ PROFILE SCREENSHOT\n\nSend one clear screenshot of your BCGAME profile showing the User ID you submitted.')
+            await update.effective_chat.send_message('4️⃣ PROFILE SCREENSHOT 📸\n\nSend one clear screenshot of your BCGAME profile showing the User ID you submitted.')
             return
         if step == OnboardingStep.DEPOSIT_PROOF:
             request = service.current_request(user)
             proof_count = len(request.deposit_proof_file_ids or [])
+            tier_line = f'⭐ Selected Tier: {request.admin_note}\n\n' if request.admin_note else ''
+            deposit_req = request.admin_note or '₦15,000 or more'
             if proof_count:
                 await update.effective_chat.send_message(
-                    f'5️⃣ DEPOSIT PROOF 🧾\n\n✅ {proof_count} deposit screenshot(s) received.\n\n💰 Minimum qualifying deposit: ₦15,000 (or your chosen VIP tier).\n\nTap below to submit for verification, or send another screenshot if needed.',
+                    f'5️⃣ DEPOSIT PROOF 🧾\n\n'
+                    f'✅ {proof_count} deposit screenshot(s) received.\n\n'
+                    f'{tier_line}'
+                    f'💰 Target deposit: {deposit_req}\n\n'
+                    'Tap below to submit for verification, or send another screenshot if needed.',
                     reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
                 )
             else:
                 await update.effective_chat.send_message(
-                    '5️⃣ DEPOSIT PROOF 🧾\n\nSend one clear screenshot showing your successful BCGAME deposit of ₦15,000 or more (or your chosen VIP tier).\n\nThe submit button will appear once your screenshot is received.'
+                    f'5️⃣ DEPOSIT PROOF 🧾\n\n'
+                    f'{tier_line}'
+                    f'Send one clear screenshot showing your BCGAME deposit ({deposit_req}).\n\n'
+                    'The submit button will appear once your screenshot is received.'
                 )
             return
         if step == OnboardingStep.REVIEW:
@@ -162,26 +178,83 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message('🔄 NEW VERIFICATION REQUESTED\n\nSend your BCGAME User ID to begin again.')
 
 
-async def _send_deposit_step(update: Update):
+TIER_INFO = {
+    'starter': {
+        'name': '🥉 Starter Tier (₦15,000)',
+        'amount': '₦15,000',
+        'scans': '3 to 4 High-Accuracy Scans / Day',
+        'perks': 'Minimum qualifying deposit to unlock access',
+    },
+    'pro': {
+        'name': '🥈 Pro Trader Tier (₦20,000 – ₦49,000)',
+        'amount': '₦20,000 or more',
+        'scans': '5 to 8 High-Accuracy Scans / Day (⭐ Most Popular)',
+        'perks': 'Micro-momentum setups & Stake Guidance',
+    },
+    'vip': {
+        'name': '🥇 VIP Elite Tier (₦50,000 – ₦100,000+)',
+        'amount': '₦50,000 or more',
+        'scans': 'Unlimited Daily Signal Scans',
+        'perks': 'Prime Institutional Signals & Priority VIP Approval',
+    },
+}
+
+
+def _deposit_tiers_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('🥉 Starter Tier (₦15,000) • 3–4 Scans', callback_data='onboard:tier:starter')],
+        [InlineKeyboardButton('🥈 Pro Trader Tier (₦20,000+) • 5–8 Scans ⭐', callback_data='onboard:tier:pro')],
+        [InlineKeyboardButton('🥇 VIP Elite Tier (₦50,000+) • Unlimited', callback_data='onboard:tier:vip')],
+    ])
+
+
+def _tier_deposit_keyboard() -> InlineKeyboardMarkup:
     keyboard = []
     if settings.bcgame_deposit_url:
         keyboard.append([InlineKeyboardButton('💳 Open BCGAME Deposit', url=settings.bcgame_deposit_url)])
     keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
-    await update.effective_chat.send_message(
-        '2️⃣ FUND YOUR BCGAME ACCOUNT (NAIRA) 💳\n\n'
-        '💰 SELECT YOUR ACCESS TIER:\n'
-        '• 🥉 Starter (3–4 scans/day): Deposit ₦15,000\n'
-        '• 🥈 Pro Trader (5–8 scans/day): Deposit ₦20,000 – ₦49,000 (⭐ Recommended)\n'
-        '• 🥇 VIP Elite (Unlimited scans): Deposit ₦50,000 – ₦100,000+\n\n'
-        '⚠️ Minimum qualifying deposit is ₦15,000. Deposits below ₦15,000 cannot be approved.\n\n'
-        '📌 HOW TO DEPOSIT ON BCGAME:\n'
-        '1. Tap "Open BCGAME Deposit" below.\n'
-        '2. Choose your deposit method (Bank Transfer, OPay, Card, or Crypto).\n'
-        '3. Deposit ₦15,000 or more according to your desired tier.\n'
-        '4. Save a screenshot of your successful payment receipt.\n\n'
-        'Once done, return here and tap “✅ I Have Deposited”.',
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+    keyboard.append([InlineKeyboardButton('🔄 Choose Different Tier', callback_data='onboard:tier:choose')])
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: bool = False):
+    chat = update.effective_chat
+    if tier_key and tier_key in TIER_INFO:
+        info = TIER_INFO[tier_key]
+        text = (
+            f'🎯 TIER SELECTED: {info["name"]}\n\n'
+            f'• Daily Signals: {info["scans"]}\n'
+            f'• Features: {info["perks"]}\n\n'
+            '💳 PROCEED TO DEPOSIT:\n'
+            '1. Tap "💳 Open BCGAME Deposit" below.\n'
+            '2. Select Naira (Bank Transfer, OPay, Palmpay, Card, or Crypto).\n'
+            f'3. Complete your deposit of {info["amount"]} on BCGAME.\n'
+            '4. Save a screenshot of your successful transaction receipt.\n\n'
+            'Once completed, return here and tap “✅ I Have Deposited”.'
+        )
+        markup = _tier_deposit_keyboard()
+    else:
+        text = (
+            '2️⃣ SELECT YOUR TRADING TIER (NAIRA) 💳\n\n'
+            'Tap the button for the tier you want to activate:\n\n'
+            '🥉 STARTER TIER — ₦15,000\n'
+            '• 3–4 High-Accuracy Scans Daily\n'
+            '• Minimum qualifying deposit\n\n'
+            '🥈 PRO TRADER TIER — ₦20,000 to ₦49,000 (⭐ Most Popular)\n'
+            '• 5–8 High-Accuracy Scans Daily\n'
+            '• Micro-Momentum Setups & Stake Guidance\n\n'
+            '🥇 VIP ELITE TIER — ₦50,000 to ₦100,000+\n'
+            '• Unlimited Daily Signal Scans\n'
+            '• Prime Institutional Signals (Stake High setups)\n'
+            '• Priority VIP Approval & Fast-Track Access\n\n'
+            '👇 Tap your preferred tier below to proceed:'
+        )
+        markup = _deposit_tiers_keyboard()
+
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup)
+    elif chat:
+        await chat.send_message(text, reply_markup=markup)
 
 
 async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,11 +267,22 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
             await query.answer('This onboarding action is not available.', show_alert=True)
             return
+        if query.data.startswith('onboard:tier:'):
+            tier_action = query.data.split(':', 2)[2]
+            if tier_action == 'choose':
+                await query.answer()
+                await _send_deposit_step(update, tier_key=None, edit=True)
+                return
+            if tier_action in TIER_INFO:
+                await query.answer(f'Selected {TIER_INFO[tier_action]["name"]}')
+                service.set_selected_tier(user, TIER_INFO[tier_action]['name'])
+                await _send_deposit_step(update, tier_key=tier_action, edit=True)
+                return
         if query.data == 'onboard:registered' and user.onboarding_step == OnboardingStep.REGISTRATION:
             await query.answer()
             service.set_step(user, OnboardingStep.DEPOSIT)
             await query.edit_message_text('✅ Registration step complete.')
-            await _send_deposit_step(update)
+            await _send_deposit_step(update, edit=False)
             return
         if query.data == 'onboard:deposited' and user.onboarding_step == OnboardingStep.DEPOSIT:
             await query.answer()
@@ -261,10 +345,12 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if user.onboarding_step == OnboardingStep.PROFILE_PROOF:
             service.set_profile_proof(user, file_id)
+            request = service.current_request(user)
+            deposit_prompt = f' ({request.admin_note})' if request.admin_note else ' of ₦15,000 or more'
             await update.message.reply_text(
                 '✅ PROFILE SCREENSHOT RECEIVED 📸\n\n'
                 '5️⃣ DEPOSIT PROOF 🧾\n\n'
-                'Now send a clear screenshot showing your BCGAME deposit of ₦15,000 or more (or your chosen VIP tier receipt).'
+                f'Now send a clear screenshot showing your BCGAME deposit{deposit_prompt}.'
             )
             return
         if user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
@@ -274,9 +360,10 @@ async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(str(exc))
                 return
             count = len(request.deposit_proof_file_ids or [])
+            tier_line = f'⭐ Selected Tier: {request.admin_note}\n\n' if request.admin_note else ''
             await update.message.reply_text(
                 f'✅ DEPOSIT PROOF RECEIVED ({count}) 🧾\n\n'
-                '💰 Minimum qualifying deposit: ₦15,000 (or your chosen VIP tier).\n\n'
+                f'{tier_line}'
                 'Everything required is ready! Tap below to submit your verification for review.',
                 reply_markup=_button('✅ Submit Verification', 'onboard:submit'),
             )

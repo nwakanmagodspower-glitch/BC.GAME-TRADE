@@ -79,12 +79,14 @@ class VerificationDeliveryWorker:
             try:
                 async with Bot(settings.telegram_bot_token) as bot:
                     username = f'@{user.telegram_username}' if user.telegram_username else 'Not set'
+                    tier_line = f'⭐ Selected Tier: {request.admin_note}\n' if request.admin_note else ''
                     caption = (
                         '🔐 NEW VERIFICATION\n\n'
                         f'👤 {user.first_name or "Unknown"} • {username}\n'
                         f'🆔 Telegram: {user.telegram_user_id}\n'
                         f'🎮 BCGAME ID: {request.bcgame_user_id}\n'
                         f'📦 Request #{request.id}\n'
+                        f'{tier_line}'
                         '💰 Required deposit: ₦15,000+ ($10+)\n\n'
                         'Photo 1: BCGAME profile\n'
                         'Photo 2+: Deposit proof\n\n'

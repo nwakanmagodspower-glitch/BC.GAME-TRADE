@@ -108,3 +108,16 @@ def test_deposit_evidence_is_bounded_and_delivery_is_queued(monkeypatch):
         assert delivery.status == VerificationDeliveryStatus.PENDING
     finally:
         db.close()
+
+
+def test_selected_tier_is_persisted_on_verification_request():
+    db, service = make_service()
+    try:
+        telegram_user = SimpleNamespace(id=101, username='tieruser', first_name='TierUser')
+        user = service.get_or_create_user(telegram_user)
+        req = service.set_selected_tier(user, '🥈 Pro Trader Tier (₦20,000 – ₦49,000)')
+        assert req.admin_note == '🥈 Pro Trader Tier (₦20,000 – ₦49,000)'
+        assert service.current_request(user).admin_note == '🥈 Pro Trader Tier (₦20,000 – ₦49,000)'
+    finally:
+        db.close()
+
