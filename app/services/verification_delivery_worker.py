@@ -85,10 +85,10 @@ class VerificationDeliveryWorker:
                         f'🆔 Telegram: {user.telegram_user_id}\n'
                         f'🎮 BCGAME ID: {request.bcgame_user_id}\n'
                         f'📦 Request #{request.id}\n'
-                        '💰 Required deposit: $10 or more\n\n'
+                        '💰 Required deposit: ₦15,000+ ($10+)\n\n'
                         'Photo 1: BCGAME profile\n'
                         'Photo 2+: Deposit proof\n\n'
-                        'Confirm registration and the $10+ deposit in your affiliate dashboard before approving.'
+                        'Confirm registration and the ₦15,000+ ($10+) deposit in your affiliate dashboard before approving.'
                     )
                     proof_ids = [request.profile_proof_file_id, *(request.deposit_proof_file_ids or [])]
                     proof_ids = [file_id for file_id in proof_ids if file_id]
