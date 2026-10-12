@@ -542,21 +542,21 @@ def test_pure_detrade_minor_jitter_does_not_veto_strong_up():
 
 
 def test_station_barrier_ceiling_buffer_vetoes_up():
-    # Price is 81847.0 (within $3.00 of 81850 ceiling barrier)
+    # Price is 81849.0 (within $1.00 of 81850 ceiling barrier)
     now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
     ts = int(now.timestamp())
-    book = BookTicker("BTCUSDT", 81847.0, 1.0, 81847.0, 1.0, now, "DETRADE_SYNTHETIC")
+    book = BookTicker("BTCUSDT", 81849.0, 1.0, 81849.0, 1.0, now, "DETRADE_SYNTHETIC")
     bars_5s = [
         FiveSecondBar(
             bucket_ts=ts - 5,
-            open=81845.0, high=81847.5, low=81845.0, close=81847.0,
-            volume=5.0, quote_volume=5.0 * 81847.0, trades_count=10,
+            open=81847.0, high=81849.5, low=81847.0, close=81849.0,
+            volume=5.0, quote_volume=5.0 * 81849.0, trades_count=10,
             taker_buy_volume=4.0, taker_sell_volume=1.0, closed=True,
         )
     ]
     bar_metrics = {
-        'ema_fast_9': 81846.0,
-        'ema_slow_21': 81842.0,
+        'ema_fast_9': 81848.0,
+        'ema_slow_21': 81844.0,
         'rsi_14': 65.0,
         'momentum_3bar_usd': 3.0,
     }
@@ -577,14 +577,14 @@ def test_station_barrier_ceiling_buffer_vetoes_up():
 
 
 def test_micro_chop_return_filter_vetoes_weak_drift():
-    # 5s return is only $0.65 with weak 30s drift ($1.00)
+    # 5s return is only $0.35 with weak 30s drift ($1.00)
     now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
     ts = int(now.timestamp())
     book = BookTicker("BTCUSDT", 81820.0, 1.0, 81820.0, 1.0, now, "DETRADE_SYNTHETIC")
     bars_5s = [
         FiveSecondBar(
             bucket_ts=ts - 5,
-            open=81819.35, high=81820.5, low=81819.35, close=81820.0,
+            open=81819.0, high=81820.5, low=81819.0, close=81819.5,
             volume=5.0, quote_volume=5.0 * 81820.0, trades_count=10,
             taker_buy_volume=4.0, taker_sell_volume=1.0, closed=True,
         )
@@ -606,9 +606,37 @@ def test_micro_chop_return_filter_vetoes_weak_drift():
         min_margin=2,
         is_synthetic=True,
     )
-    # Must veto UP due to insufficient return (< $0.90)
+    # Must veto UP due to insufficient return (< $0.60)
     assert decision.direction == SignalDirection.NO_TRADE
     assert "insufficient" in decision.reason.lower()
+
+
+def test_parabolic_exhaustion_vetoes_spike():
+    # 5s return is $7.50 (exhaustion spike that risks immediate retracement loss)
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 81827.5, 1.0, 81827.5, 1.0, now, "DETRADE_SYNTHETIC")
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=81820.0, high=81828.0, low=81820.0, close=81827.5,
+            volume=10.0, quote_volume=10.0 * 81825.5, trades_count=20,
+            taker_buy_volume=9.0, taker_sell_volume=1.0, closed=True,
+        )
+    ]
+    features = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=5,
+        min_margin=2,
+        is_synthetic=True,
+    )
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "exhaustion" in decision.reason.lower()
 
 
 
