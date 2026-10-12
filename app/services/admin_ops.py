@@ -11,9 +11,34 @@ settings = get_settings()
 
 class AdminOpsService:
     SIGNALS_ENABLED_KEY = 'signals_enabled'
+    WELCOME_VIDEO_KEY = 'welcome_video_file_id'
 
     def __init__(self, db: Session):
         self.db = db
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self.db.get(RuntimeSetting, key)
+        if row is None or not row.value:
+            return default
+        return row.value
+
+    def set_setting(self, key: str, value: str | None, actor_telegram_id: int) -> str | None:
+        row = self.db.get(RuntimeSetting, key)
+        if row is None:
+            if value:
+                row = RuntimeSetting(key=key, value=value)
+                self.db.add(row)
+        else:
+            if value:
+                row.value = value
+            else:
+                self.db.delete(row)
+                row = None
+        if row is not None:
+            row.updated_by = actor_telegram_id
+        self._audit(actor_telegram_id, f'{key.upper()}_CHANGED', 'system', {'value': value})
+        self.db.commit()
+        return value
 
     def get_bool(self, key: str, default: bool) -> bool:
         row = self.db.get(RuntimeSetting, key)

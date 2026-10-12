@@ -195,3 +195,41 @@ async def _change_user_status(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def suspend_command(update: Update, context: ContextTypes.DEFAULT_TYPE): await _change_user_status(update, context, False)
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE): await _change_user_status(update, context, True)
+
+async def set_welcome_video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_owner(update) or not update.message:
+        return
+    video_id = None
+    if update.message.video:
+        video_id = update.message.video.file_id
+    elif update.message.reply_to_message and update.message.reply_to_message.video:
+        video_id = update.message.reply_to_message.video.file_id
+    elif update.message.animation:
+        video_id = update.message.animation.file_id
+    elif update.message.reply_to_message and update.message.reply_to_message.animation:
+        video_id = update.message.reply_to_message.animation.file_id
+    elif context.args:
+        video_id = context.args[0].strip()
+
+    if not video_id:
+        await update.message.reply_text(
+            '🎥 Set Welcome Video\n\n'
+            'Usage:\n'
+            '1. Send a video here with caption: /set_welcome_video\n'
+            '2. Or reply to a video with: /set_welcome_video\n'
+            '3. Or run: /set_welcome_video <file_id_or_url>'
+        )
+        return
+
+    with SessionLocal() as db:
+        AdminOpsService(db).set_setting(AdminOpsService.WELCOME_VIDEO_KEY, video_id, update.effective_user.id)
+    await update.message.reply_text('✅ Welcome video updated successfully! New users will now see this video on /start.')
+
+
+async def clear_welcome_video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_owner(update) or not update.message:
+        return
+    with SessionLocal() as db:
+        AdminOpsService(db).set_setting(AdminOpsService.WELCOME_VIDEO_KEY, None, update.effective_user.id)
+    await update.message.reply_text('✅ Welcome video removed. New users will now receive text onboarding on /start.')
+

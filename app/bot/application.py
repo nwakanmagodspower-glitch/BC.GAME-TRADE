@@ -2,7 +2,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 from app.bot.admin_handlers import (
     admin_command, admin_ops_callback, broadcast_callback, broadcast_command,
-    restore_command, suspend_command,
+    restore_command, suspend_command, set_welcome_video_command, clear_welcome_video_command,
 )
 from app.bot.handlers import (
     admin_review_callback, menu_callback, onboarding_callback, photo_input, start, text_input,
@@ -25,6 +25,8 @@ def build_telegram_application() -> Application | None:
     application.add_handler(CommandHandler('broadcast', broadcast_command))
     application.add_handler(CommandHandler('suspend', suspend_command))
     application.add_handler(CommandHandler('restore', restore_command))
+    application.add_handler(CommandHandler('set_welcome_video', set_welcome_video_command))
+    application.add_handler(CommandHandler('clear_welcome_video', clear_welcome_video_command))
     application.add_handler(CommandHandler('round_status', round_status_command))
     application.add_handler(CommandHandler('preflight', preflight_command))
     application.add_handler(CommandHandler('set_token', set_token_command))

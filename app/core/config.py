@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     bcgame_deposit_url: str | None = None
     bcgame_updown_url: str | None = None
     support_url: str | None = None
+    welcome_video_file_id: str | None = None
+    welcome_video_url: str | None = None
 
     signal_mode: str = 'PAPER'
     signals_enabled: bool = False

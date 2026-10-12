@@ -5,6 +5,7 @@ from app.bot.signal_views import build_scan_prompt_keyboard, build_signal_keyboa
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.entities import OnboardingStep, UserStatus
+from app.services.admin_ops import AdminOpsService
 from app.services.onboarding import OnboardingService
 from app.services.user_signals import UserSignalService
 
@@ -108,6 +109,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             step = OnboardingStep.REGISTRATION
 
         if step == OnboardingStep.REGISTRATION:
+            welcome_video = (
+                AdminOpsService(db).get_setting(AdminOpsService.WELCOME_VIDEO_KEY, settings.welcome_video_file_id)
+                or settings.welcome_video_url
+            )
+            if welcome_video:
+                try:
+                    await update.effective_chat.send_video(
+                        video=welcome_video,
+                        caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades!',
+                    )
+                except Exception:
+                    pass
+
             keyboard = []
             if settings.bcgame_registration_url:
                 keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=settings.bcgame_registration_url)])
@@ -115,6 +129,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message(
                 '⚡ WELCOME TO BCGAME AI SIGNALS 🇳🇬\n\n'
                 'Get institutional-grade BTC/USD 5-second Up/Down trading signals directly inside Telegram.\n\n'
+                '💡 100% FREE ACCESS:\n'
+                'You do NOT pay any subscription or bot fees. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
                 '🔥 EXCLUSIVE ACCESS TIERS (DEPOSIT IN NAIRA):\n'
                 '🥉 Starter Tier — ₦15,000 deposit\n'
                 '• 3 to 4 High-Accuracy Scans / Day\n'
@@ -143,7 +159,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_deposit_step(update, tier_key=chosen_key, edit=False)
             return
         if step == OnboardingStep.BC_ID:
-            await update.effective_chat.send_message('3️⃣ SEND YOUR BCGAME USER ID 🆔\n\nCopy your User ID from your BCGAME profile and send it here.')
+            await update.effective_chat.send_message(
+                '3️⃣ SEND YOUR BCGAME USER ID 🆔\n\n'
+                '📍 Where to find it:\n'
+                '1. Open BCGAME\n'
+                '2. Tap the Profile icon at the top right\n'
+                '3. Copy the numeric User ID displayed under your username (e.g. 12345678)\n\n'
+                'Send your numeric User ID here to continue.'
+            )
             return
         if step == OnboardingStep.PROFILE_PROOF:
             await update.effective_chat.send_message('4️⃣ PROFILE SCREENSHOT 📸\n\nSend one clear screenshot of your BCGAME profile showing the User ID you submitted.')
@@ -174,7 +197,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message('⏳ VERIFICATION UNDER REVIEW\n\nYour evidence has been submitted. You will receive a message here once your access is approved.')
             return
         if step == OnboardingStep.RESUBMIT:
-            await update.effective_chat.send_message('🔄 NEW VERIFICATION REQUESTED\n\nSend your BCGAME User ID to begin again.')
+            await update.effective_chat.send_message(
+                '🔄 NEW VERIFICATION REQUESTED\n\n'
+                'Send your numeric BCGAME User ID to begin again (found under Profile icon at top right).'
+            )
 
 
 TIER_INFO = {
@@ -224,6 +250,7 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
             f'🎯 TIER SELECTED: {info["name"]}\n\n'
             f'• Daily Signals: {info["scans"]}\n'
             f'• Features: {info["perks"]}\n\n'
+            '💡 Remember: This deposit is your own trading capital in your personal BCGAME wallet, not a fee.\n\n'
             '💳 PROCEED TO DEPOSIT:\n'
             '1. Tap "💳 Open BCGAME Deposit" below.\n'
             '2. Select Naira (Bank Transfer, OPay, Palmpay, Card, or Crypto).\n'
@@ -235,6 +262,7 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
     else:
         text = (
             '2️⃣ SELECT YOUR TRADING TIER (NAIRA) 💳\n\n'
+            '💡 100% of your deposit stays in your personal BCGAME account for trading. You can withdraw your funds back to your bank account anytime!\n\n'
             'Tap the button for the tier you want to activate:\n\n'
             '🥉 STARTER TIER — ₦15,000\n'
             '• 3–4 High-Accuracy Scans Daily\n'
@@ -286,7 +314,15 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if query.data == 'onboard:deposited' and user.onboarding_step == OnboardingStep.DEPOSIT:
             await query.answer()
             service.set_step(user, OnboardingStep.BC_ID)
-            await query.edit_message_text('✅ Deposit step completed.\n\n3️⃣ SEND YOUR BCGAME USER ID 🆔\n\nCopy your numeric User ID from your BCGAME profile and send it here.')
+            await query.edit_message_text(
+                '✅ Deposit step completed.\n\n'
+                '3️⃣ SEND YOUR BCGAME USER ID 🆔\n\n'
+                '📍 Where to find it:\n'
+                '1. Open BCGAME\n'
+                '2. Tap the Profile icon at the top right\n'
+                '3. Copy the numeric User ID displayed under your username (e.g. 12345678)\n\n'
+                'Send your numeric User ID here to continue.'
+            )
             return
         if query.data == 'onboard:submit' and user.onboarding_step == OnboardingStep.DEPOSIT_PROOF:
             try:
