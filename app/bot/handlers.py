@@ -122,29 +122,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
+            first_name = tg_user.first_name or 'Trader'
             keyboard = []
             if settings.bcgame_registration_url:
-                keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=settings.bcgame_registration_url)])
+                keyboard.append([InlineKeyboardButton('🔗 Create Free BCGAME Account', url=settings.bcgame_registration_url)])
             keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
             await update.effective_chat.send_message(
-                '⚡ WELCOME TO BCGAME AI SIGNALS 🇳🇬\n\n'
-                'Get institutional-grade BTC/USD 5-second Up/Down trading signals directly inside Telegram.\n\n'
+                f'👋 Welcome {first_name}! 🇳🇬\n\n'
+                'You are here to start making at least ₦10,000 to ₦20,000+ every day depending on how consistent you are.\n\n'
+                '💎 $200 SYSTEM — 100% FREE TODAY:\n'
+                'This is an institutional AI trading system that is normally sold for $200 (over ₦300,000) to serious traders. Today, you get complete access 100% FREE.\n\n'
+                '⚡ HOW THIS ALGORITHM WORKS:\n'
+                'This software connects directly to the BCGAME 5-second BTC/USD price feed. It tracks micro-ticks and algorithmic momentum before candles close, giving you high-conviction 🟢 UP or 🔴 DOWN signals so you can trade with an unfair mathematical edge.\n\n'
                 '💡 100% FREE ACCESS:\n'
                 'You do NOT pay any subscription or bot fees. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-                '🔥 EXCLUSIVE ACCESS TIERS (DEPOSIT IN NAIRA):\n'
-                '🥉 Starter Tier — ₦15,000 deposit\n'
-                '• 3 to 4 High-Accuracy Scans / Day\n'
-                '• Minimum qualifying deposit to unlock access\n\n'
-                '🥈 Pro Trader Tier — ₦20,000 to ₦49,000 deposit (⭐ Most Popular)\n'
-                '• 5 to 8 High-Accuracy Scans / Day\n'
-                '• Fast-momentum setups & Stake Guidance\n\n'
-                '🥇 VIP Elite Tier — ₦50,000 to ₦100,000+ deposit\n'
-                '• Unlimited Daily Signal Scans\n'
-                '• Prime Institutional Signals (Stake High setups)\n'
-                '• Priority VIP Approval & Fast-Track Access\n\n'
                 '━━━━━━━━━━━━━━━━━━━━━\n'
-                '1️⃣ CREATE YOUR ACCOUNT\n'
-                'Tap the button below to register your BCGAME account. Once registered, return here and tap “✅ I Have Registered”.',
+                '👇 GET STARTED IN 2 SIMPLE STEPS:\n\n'
+                '1️⃣ Tap “🔗 Create Free BCGAME Account” below to register.\n'
+                '2️⃣ Return here and tap “✅ I Have Registered” to unlock your signal dashboard!',
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
             return
@@ -205,19 +200,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 TIER_INFO = {
     'starter': {
-        'name': '🥉 Starter Tier (₦15,000)',
+        'name': '🥉 Starter Level (₦15,000)',
         'amount': '₦15,000',
         'scans': '3 to 4 High-Accuracy Scans / Day',
-        'perks': 'Minimum qualifying deposit to unlock access',
+        'perks': 'Core 5-Second BTC Momentum Signals',
     },
     'pro': {
-        'name': '🥈 Pro Trader Tier (₦20,000 – ₦49,000)',
+        'name': '🥈 Pro Trader Level (₦20,000+)',
         'amount': '₦20,000 or more',
         'scans': '5 to 8 High-Accuracy Scans / Day (⭐ Most Popular)',
-        'perks': 'Micro-momentum setups & Stake Guidance',
+        'perks': 'Micro-Momentum Setups & Stake Guidance',
     },
     'vip': {
-        'name': '🥇 VIP Elite Tier (₦50,000 – ₦100,000+)',
+        'name': '🥇 VIP Elite Level (₦50,000+)',
         'amount': '₦50,000 or more',
         'scans': 'Unlimited Daily Signal Scans',
         'perks': 'Prime Institutional Signals & Priority VIP Approval',
@@ -227,9 +222,9 @@ TIER_INFO = {
 
 def _deposit_tiers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('🥉 Starter Tier (₦15,000) • 3–4 Scans', callback_data='onboard:tier:starter')],
-        [InlineKeyboardButton('🥈 Pro Trader Tier (₦20,000+) • 5–8 Scans ⭐', callback_data='onboard:tier:pro')],
-        [InlineKeyboardButton('🥇 VIP Elite Tier (₦50,000+) • Unlimited', callback_data='onboard:tier:vip')],
+        [InlineKeyboardButton('🥉 Starter Level (₦15,000) • 3–4 Scans', callback_data='onboard:tier:starter')],
+        [InlineKeyboardButton('🥈 Pro Trader (₦20,000+) • 5–8 Scans ⭐ Most Popular', callback_data='onboard:tier:pro')],
+        [InlineKeyboardButton('🥇 VIP Elite (₦50,000+) • Unlimited Scans', callback_data='onboard:tier:vip')],
     ])
 
 
@@ -238,7 +233,7 @@ def _tier_deposit_keyboard() -> InlineKeyboardMarkup:
     if settings.bcgame_deposit_url:
         keyboard.append([InlineKeyboardButton('💳 Open BCGAME Deposit', url=settings.bcgame_deposit_url)])
     keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
-    keyboard.append([InlineKeyboardButton('🔄 Choose Different Tier', callback_data='onboard:tier:choose')])
+    keyboard.append([InlineKeyboardButton('🔄 Choose Different Level', callback_data='onboard:tier:choose')])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -247,34 +242,26 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
     if tier_key and tier_key in TIER_INFO:
         info = TIER_INFO[tier_key]
         text = (
-            f'🎯 TIER SELECTED: {info["name"]}\n\n'
+            f'🎯 LEVEL SELECTED: {info["name"]}\n\n'
             f'• Daily Signals: {info["scans"]}\n'
-            f'• Features: {info["perks"]}\n\n'
-            '💡 Remember: This deposit is your own trading capital in your personal BCGAME wallet, not a fee.\n\n'
-            '💳 PROCEED TO DEPOSIT:\n'
+            f'• System Access: {info["perks"]}\n\n'
+            '💡 100% YOUR CAPITAL:\n'
+            'This deposit goes directly into YOUR personal BCGAME wallet to trade with and generate your daily ₦10,000+ profits. It is NOT a fee, and you can withdraw it back to your bank account anytime.\n\n'
+            '💳 HOW TO DEPOSIT:\n'
             '1. Tap "💳 Open BCGAME Deposit" below.\n'
-            '2. Select Naira (Bank Transfer, OPay, Palmpay, Card, or Crypto).\n'
-            f'3. Complete your deposit of {info["amount"]} on BCGAME.\n'
+            '2. Select Naira (Bank Transfer, OPay, PalmPay, Card, or Crypto).\n'
+            f'3. Fund your BCGAME wallet with {info["amount"]}.\n'
             '4. Save a screenshot of your successful transaction receipt.\n\n'
             'Once completed, return here and tap “✅ I Have Deposited”.'
         )
         markup = _tier_deposit_keyboard()
     else:
         text = (
-            '2️⃣ SELECT YOUR TRADING TIER (NAIRA) 💳\n\n'
-            '💡 100% of your deposit stays in your personal BCGAME account for trading. You can withdraw your funds back to your bank account anytime!\n\n'
-            'Tap the button for the tier you want to activate:\n\n'
-            '🥉 STARTER TIER — ₦15,000\n'
-            '• 3–4 High-Accuracy Scans Daily\n'
-            '• Minimum qualifying deposit\n\n'
-            '🥈 PRO TRADER TIER — ₦20,000 to ₦49,000 (⭐ Most Popular)\n'
-            '• 5–8 High-Accuracy Scans Daily\n'
-            '• Micro-Momentum Setups & Stake Guidance\n\n'
-            '🥇 VIP ELITE TIER — ₦50,000 to ₦100,000+\n'
-            '• Unlimited Daily Signal Scans\n'
-            '• Prime Institutional Signals (Stake High setups)\n'
-            '• Priority VIP Approval & Fast-Track Access\n\n'
-            '👇 Tap your preferred tier below to proceed:'
+            '2️⃣ CHOOSE YOUR TRADING LEVEL 💳\n\n'
+            'Your BCGAME account is ready! To start taking live 5-second signals and making your daily ₦10,000+, you need active trading capital in your personal BCGAME wallet.\n\n'
+            '💡 100% YOUR OWN MONEY:\n'
+            'Every Naira you deposit remains 100% yours to trade and withdraw to your Nigerian bank account anytime. There are ZERO bot fees or deductions.\n\n'
+            '👇 Tap the button below to select your starting level:'
         )
         markup = _deposit_tiers_keyboard()
 
