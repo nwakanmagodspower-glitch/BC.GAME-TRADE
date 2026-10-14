@@ -123,25 +123,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
             first_name = tg_user.first_name or 'Trader'
-            keyboard = []
-            if settings.bcgame_registration_url:
-                keyboard.append([InlineKeyboardButton('🔗 Create Free BCGAME Account', url=settings.bcgame_registration_url)])
-            keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
-            await update.effective_chat.send_message(
+            text = (
                 f'👋 Welcome {first_name}! 🇳🇬\n\n'
-                'You are here to start making at least ₦10,000 to ₦20,000+ every day depending on how consistent you are.\n\n'
-                '💎 $200 SYSTEM — 100% FREE TODAY:\n'
-                'This is an institutional AI trading system that is normally sold for $200 (over ₦300,000) to serious traders. Today, you get complete access 100% FREE.\n\n'
-                '⚡ HOW THIS ALGORITHM WORKS:\n'
-                'This software connects directly to the BCGAME 5-second BTC/USD price feed. It tracks micro-ticks and algorithmic momentum before candles close, giving you high-conviction 🟢 UP or 🔴 DOWN signals so you can trade with an unfair mathematical edge.\n\n'
+                'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal bot.\n\n'
+                'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
                 '💡 100% FREE ACCESS:\n'
-                'You do NOT pay any subscription or bot fees. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-                '━━━━━━━━━━━━━━━━━━━━━\n'
-                '👇 GET STARTED IN 2 SIMPLE STEPS:\n\n'
-                '1️⃣ Tap “🔗 Create Free BCGAME Account” below to register.\n'
-                '2️⃣ Return here and tap “✅ I Have Registered” to unlock your signal dashboard!',
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
+                '🎯 What is your daily profit target?'
             )
+            keyboard = [
+                [InlineKeyboardButton('🎯 ₦10,000 / day', callback_data='onboard:goal:10k')],
+                [InlineKeyboardButton('🎯 ₦25,000 / day', callback_data='onboard:goal:25k')],
+                [InlineKeyboardButton('🎯 ₦50,000+ / day', callback_data='onboard:goal:50k')],
+            ]
+            await update.effective_chat.send_message(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return
         if step == OnboardingStep.DEPOSIT:
             request = service.current_request(user)
@@ -200,31 +195,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 TIER_INFO = {
     'starter': {
-        'name': '🥉 Starter Level (₦15,000)',
+        'name': '🥉 Starter (₦15,000) • 7-Day Trial',
         'amount': '₦15,000',
-        'scans': '3 to 4 High-Accuracy Scans / Day',
-        'perks': 'Core 5-Second BTC Momentum Signals',
+        'trial': '7-Day Free Trial',
+        'stake': '₦3,000 – ₦3,500 / trade',
+        'scans': '3 to 4 Scans Daily',
+        'daily_profit': '₦6,000 – ₦8,000+',
+        'trial_profit': '₦40,000 – ₦50,000+',
     },
     'pro': {
-        'name': '🥈 Pro Trader Level (₦20,000+)',
-        'amount': '₦20,000 or more',
-        'scans': '5 to 8 High-Accuracy Scans / Day (⭐ Most Popular)',
-        'perks': 'Micro-Momentum Setups & Stake Guidance',
+        'name': '🥈 Pro Trader (₦25,000) • 14-Day Trial ⭐',
+        'amount': '₦25,000 or more',
+        'trial': '14-Day Free Trial (⭐ Most Popular)',
+        'stake': '₦3,500 – ₦5,000 / trade',
+        'scans': '5 to 8 Scans Daily',
+        'daily_profit': '₦15,000 – ₦25,000+',
+        'trial_profit': '₦150,000 – ₦250,000+',
     },
     'vip': {
-        'name': '🥇 VIP Elite Level (₦50,000+)',
+        'name': '🥇 VIP Elite (₦50,000+) • 30-Day Trial',
         'amount': '₦50,000 or more',
-        'scans': 'Unlimited Daily Signal Scans',
-        'perks': 'Prime Institutional Signals & Priority VIP Approval',
+        'trial': '30-Day Full VIP Trial',
+        'stake': '₦7,500 – ₦10,000 / trade',
+        'scans': 'Unlimited Scans Daily',
+        'daily_profit': '₦35,000 – ₦50,000+',
+        'trial_profit': '₦500,000+',
     },
 }
 
 
 def _deposit_tiers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('🥉 Starter Level (₦15,000) • 3–4 Scans', callback_data='onboard:tier:starter')],
-        [InlineKeyboardButton('🥈 Pro Trader (₦20,000+) • 5–8 Scans ⭐ Most Popular', callback_data='onboard:tier:pro')],
-        [InlineKeyboardButton('🥇 VIP Elite (₦50,000+) • Unlimited Scans', callback_data='onboard:tier:vip')],
+        [InlineKeyboardButton('🥉 Starter (₦15,000) • 7-Day Trial', callback_data='onboard:tier:starter')],
+        [InlineKeyboardButton('🥈 Pro Trader (₦25,000) • 14-Day Trial ⭐', callback_data='onboard:tier:pro')],
+        [InlineKeyboardButton('🥇 VIP Elite (₦50,000+) • 30-Day Trial', callback_data='onboard:tier:vip')],
     ])
 
 
@@ -242,26 +246,24 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
     if tier_key and tier_key in TIER_INFO:
         info = TIER_INFO[tier_key]
         text = (
-            f'🎯 LEVEL SELECTED: {info["name"]}\n\n'
-            f'• Daily Signals: {info["scans"]}\n'
-            f'• System Access: {info["perks"]}\n\n'
-            '💡 100% YOUR CAPITAL:\n'
-            'This deposit goes directly into YOUR personal BCGAME wallet to trade with and generate your daily ₦10,000+ profits. It is NOT a fee, and you can withdraw it back to your bank account anytime.\n\n'
-            '💳 HOW TO DEPOSIT:\n'
-            '1. Tap "💳 Open BCGAME Deposit" below.\n'
-            '2. Select Naira (Bank Transfer, OPay, PalmPay, Card, or Crypto).\n'
-            f'3. Fund your BCGAME wallet with {info["amount"]}.\n'
-            '4. Save a screenshot of your successful transaction receipt.\n\n'
-            'Once completed, return here and tap “✅ I Have Deposited”.'
+            f'🎯 SELECTED: {info["name"]}\n\n'
+            '📊 PROFIT PROJECTION:\n'
+            f'• Capital: {info["amount"]}\n'
+            f'• Recommended Stake: {info["stake"]}\n'
+            f'• Signals: {info["scans"]}\n'
+            f'• Target Daily Profit: {info["daily_profit"]}\n'
+            f'• Expected Trial Profit: {info["trial_profit"]} (covers future renewal from profit!)\n\n'
+            '💳 NEXT STEPS:\n'
+            f'1. Tap "💳 Open BCGAME Deposit" and fund {info["amount"]}.\n'
+            '2. Save a screenshot of your successful transaction receipt.\n'
+            '3. Tap “✅ I Have Deposited” below to submit.'
         )
         markup = _tier_deposit_keyboard()
     else:
         text = (
-            '2️⃣ CHOOSE YOUR TRADING LEVEL 💳\n\n'
-            'Your BCGAME account is ready! To start taking live 5-second signals and making your daily ₦10,000+, you need active trading capital in your personal BCGAME wallet.\n\n'
-            '💡 100% YOUR OWN MONEY:\n'
-            'Every Naira you deposit remains 100% yours to trade and withdraw to your Nigerian bank account anytime. There are ZERO bot fees or deductions.\n\n'
-            '👇 Tap the button below to select your starting level:'
+            '2️⃣ CHOOSE YOUR TRIAL LEVEL 💳\n\n'
+            'Select your capital level below to activate your signals and see your profit projection:\n\n'
+            '🔒 100% Secure: We NEVER ask for your password, email, or login details.'
         )
         markup = _deposit_tiers_keyboard()
 
@@ -281,6 +283,55 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if _is_access_blocked(user) or user.status in (UserStatus.APPROVED, UserStatus.REJECTED):
             await query.answer('This onboarding action is not available.', show_alert=True)
             return
+
+        if query.data.startswith('onboard:goal:'):
+            goal_key = query.data.split(':', 2)[2]
+            goal_labels = {'10k': '₦10,000 / day', '25k': '₦25,000 / day', '50k': '₦50,000+ / day'}
+            chosen_goal = goal_labels.get(goal_key, '₦10,000 / day')
+            await query.answer()
+            await query.edit_message_text(
+                f'🎯 Target Set: {chosen_goal}\n\n'
+                '📊 What is your trading experience level?',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🟢 Beginner', callback_data=f'onboard:exp:beg:{goal_key}')],
+                    [InlineKeyboardButton('🟡 Intermediate', callback_data=f'onboard:exp:int:{goal_key}')],
+                    [InlineKeyboardButton('🔴 Experienced', callback_data=f'onboard:exp:exp:{goal_key}')],
+                ]),
+            )
+            return
+
+        if query.data.startswith('onboard:exp:'):
+            parts = query.data.split(':')
+            goal_key = parts[3] if len(parts) > 3 else '10k'
+            goal_labels = {'10k': '₦10,000 / day', '25k': '₦25,000 / day', '50k': '₦50,000+ / day'}
+            chosen_goal = goal_labels.get(goal_key, '₦10,000 / day')
+            first_name = query.from_user.first_name or 'Trader'
+            await query.answer()
+
+            keyboard = []
+            if settings.bcgame_registration_url:
+                keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=settings.bcgame_registration_url)])
+            keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
+
+            text = (
+                '🎟️ VIP TRIAL APPROVED!\n\n'
+                f'👤 Trader: {first_name}\n'
+                f'🎯 Daily Target: {chosen_goal}\n'
+                '💎 Value: ₦50,000/Month (Active Free Trial)\n'
+                '⏳ Reservation: Expires in 1 Hour\n\n'
+                '⚡ HOW BCGAME AI WORKS:\n'
+                '• BCGAME’s Bitcoin Up/Down gives you 5 seconds to predict price direction.\n'
+                '• Manual guessing is risky. BCGAME AI tracks millisecond momentum to deliver high-accuracy 🟢 UP or 🔴 DOWN signals.\n\n'
+                '🔒 100% ACCOUNT SECURITY:\n'
+                'We NEVER ask for your password, email, or login details. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw anytime.\n\n'
+                '━━━━━━━━━━━━━━━━━━━━━\n'
+                '👇 CLAIM YOUR TRIAL (2 STEPS):\n\n'
+                '1️⃣ Tap “🔗 Create BCGAME Account” below to register.\n'
+                '2️⃣ Return here and tap “✅ I Have Registered”.'
+            )
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
         if query.data.startswith('onboard:tier:'):
             tier_action = query.data.split(':', 2)[2]
             if tier_action == 'choose':
