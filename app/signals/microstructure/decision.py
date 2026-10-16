@@ -186,10 +186,10 @@ def decide_microstructure(
                     f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
                 )
             if (
-                features.delta_1s_usd < -0.20
-                or features.delta_2s_usd < -0.30
-                or features.velocity_1s_bps < -0.30
-                or features.internal_velocity_usd < -0.30
+                features.delta_1s_usd < -0.35
+                or features.delta_2s_usd < -0.50
+                or features.velocity_1s_bps < -0.45
+                or features.internal_velocity_usd < -0.45
             ):
                 return _make(
                     SignalDirection.NO_TRADE,
@@ -225,17 +225,17 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
                 )
-            if features.bar_5s_return > -0.60 and features.delta_30s_usd > -2.5:
+            if features.bar_5s_return > -0.35 and features.delta_30s_usd > -1.5:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
                     f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
                 )
             if (
-                features.delta_1s_usd > 0.20
-                or features.delta_2s_usd > 0.30
-                or features.velocity_1s_bps > 0.30
-                or features.internal_velocity_usd > 0.30
+                features.delta_1s_usd > 0.35
+                or features.delta_2s_usd > 0.50
+                or features.velocity_1s_bps > 0.45
+                or features.internal_velocity_usd > 0.45
             ):
                 return _make(
                     SignalDirection.NO_TRADE,
