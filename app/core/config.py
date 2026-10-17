@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     detrade_min_score: int = 4
     detrade_min_margin: int = 2
     detrade_up_min_margin: int = 2
+    detrade_allow_lean_fallback: bool = True
     detrade_latency_safety_margin_ms: int = 0
     detrade_dispatch_min_remaining_ms: int = 0
     detrade_stale_after_ms: int = 8000

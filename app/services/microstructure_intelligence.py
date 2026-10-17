@@ -262,6 +262,7 @@ class MicrostructureIntelligenceService:
             up_min_margin=settings.detrade_up_min_margin if is_synth else None,
             max_lead_impulse=getattr(settings, 'detrade_max_lead_impulse', 16.0),
             seconds_until_start=seconds_until_start,
+            allow_lean_fallback=getattr(settings, 'detrade_allow_lean_fallback', True) if is_synth else False,
         )
 
         details = {

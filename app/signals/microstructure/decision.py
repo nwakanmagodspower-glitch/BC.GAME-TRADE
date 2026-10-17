@@ -34,6 +34,7 @@ def decide_microstructure(
     up_min_margin: int | None = None,
     max_lead_impulse: float = 16.0,
     seconds_until_start: float | None = None,
+    allow_lean_fallback: bool = False,
 ) -> MicrostructureDecision:
     bull = score.bull_score
     bear = score.bear_score
@@ -103,10 +104,16 @@ def decide_microstructure(
         eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
         eff_min = min_5s_range if min_5s_range is not None else 0.80
         if eff_range < eff_min:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop risks BC.Game tie-loss.',
+                )
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                f'20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop risks BC.Game tie-loss.',
+                SignalDirection.DOWN,
+                'VALID',
+                'Flat market consolidation; house tie-rule awards round to DOWN.',
             )
         if eff_range > 35.0:
             return _make(
@@ -249,6 +256,40 @@ def decide_microstructure(
             quality,
             '; '.join(score.reasons),
         )
+
+    if allow_lean_fallback:
+        if bull > bear:
+            return _make(
+                SignalDirection.UP,
+                'VALID',
+                f'Bullish momentum bias (Bull {bull} vs Bear {bear}) leading order flow.',
+            )
+        elif bear > bull:
+            return _make(
+                SignalDirection.DOWN,
+                'VALID',
+                f'Bearish momentum bias (Bear {bear} vs Bull {bull}) leading order flow.',
+            )
+        else:
+            fast_bias = (
+                features.delta_1s_usd
+                or features.delta_2s_usd
+                or features.bar_5s_return
+                or features.velocity_1s_bps
+                or (features.bar_5s_taker_ratio - 0.5)
+            )
+            if fast_bias >= 0:
+                return _make(
+                    SignalDirection.UP,
+                    'VALID',
+                    'Micro-tick buying pressure holding immediate directional advantage.',
+                )
+            else:
+                return _make(
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Micro-tick selling pressure holding immediate directional advantage.',
+                )
 
     return _make(
         SignalDirection.NO_TRADE,

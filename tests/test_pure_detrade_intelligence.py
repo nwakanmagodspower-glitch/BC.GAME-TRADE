@@ -639,6 +639,38 @@ def test_parabolic_exhaustion_vetoes_spike():
     assert "exhaustion" in decision.reason.lower()
 
 
+def test_allow_lean_fallback_ensures_directional_signals():
+    now = datetime(2026, 10, 3, 6, 0, 0, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    book = BookTicker("BTCUSDT", 81820.0, 1.0, 81820.0, 1.0, now, "DETRADE_SYNTHETIC")
+    # Low-momentum 5s bar (only $0.30 return, score below 4)
+    bars_5s = [
+        FiveSecondBar(
+            bucket_ts=ts - 5,
+            open=81819.7, high=81820.3, low=81819.6, close=81820.0,
+            volume=2.0, quote_volume=2.0 * 81820.0, trades_count=5,
+            taker_buy_volume=1.2, taker_sell_volume=0.8, closed=True,
+        )
+    ]
+    features = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, is_synthetic=True,
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    # With allow_lean_fallback=True, it must NOT return NO_TRADE!
+    decision = decide_microstructure(
+        score=score,
+        features=features,
+        min_score=4,
+        min_margin=2,
+        is_synthetic=True,
+        allow_lean_fallback=True,
+    )
+    assert decision.direction in {SignalDirection.UP, SignalDirection.DOWN}
+    assert decision.direction != SignalDirection.NO_TRADE
+    assert decision.quality == "VALID"
+
+
+
 
 
 

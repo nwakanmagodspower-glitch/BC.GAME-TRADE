@@ -92,6 +92,8 @@ services:
         value: "2"
       - key: DETRADE_MIN_5S_RANGE_DOLLARS
         value: "0.60"
+      - key: DETRADE_ALLOW_LEAN_FALLBACK
+        value: "true"
       - key: SIGNAL_MIN_SCORE
         value: "3"
       - key: SIGNAL_MIN_MARGIN
