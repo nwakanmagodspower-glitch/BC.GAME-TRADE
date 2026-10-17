@@ -84,6 +84,14 @@ services:
         value: "30"
       - key: DETRADE_MAX_FRAME_BYTES
         value: "1000000"
+      - key: DETRADE_MIN_SCORE
+        value: "4"
+      - key: DETRADE_MIN_MARGIN
+        value: "2"
+      - key: DETRADE_UP_MIN_MARGIN
+        value: "2"
+      - key: DETRADE_MIN_5S_RANGE_DOLLARS
+        value: "0.60"
       - key: SIGNAL_MIN_SCORE
         value: "3"
       - key: SIGNAL_MIN_MARGIN

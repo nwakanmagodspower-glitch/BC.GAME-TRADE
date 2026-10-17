@@ -132,10 +132,10 @@ def score_microstructure_features(
 
         # 10. Flat Chop Defense (BC.Game tie rule defense)
         eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
-        if eff_range < 0.60:
+        if eff_range < 0.50:
             bull = max(0, bull - 3)
             bear = max(0, bear - 3)
-            reasons.append(f'flat volatility (${eff_range:.2f} < $0.60) risks house tie-loss')
+            reasons.append(f'flat volatility (${eff_range:.2f} < $0.50) risks house tie-loss')
 
         # 11. Station Regime Dynamics (Surge breakout & Bounded bounce)
         if features.regime_classification == 'SURGE_BREAKOUT':
