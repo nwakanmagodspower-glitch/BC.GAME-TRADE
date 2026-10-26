@@ -60,19 +60,29 @@ def _entry_window_text(signal: Signal) -> str:
     if round_meta.get('source') == 'DETRADE_SYNC':
         remaining = round_meta.get('remaining_seconds_at_scan')
         if isinstance(remaining, (int, float)):
-            return f'⏱️ Entry window: ~{float(remaining):.1f}s\n'
+            rem = float(remaining)
+            if rem > 8.0:
+                return f'⏱️ Entry window: ~{rem:.1f}s until start (💡 Best accuracy: scan at ~3s)\n'
+            elif 1.5 <= rem <= 5.0:
+                return f'⏱️ Entry window: ~{rem:.1f}s (🎯 PERFECT ENTRY TIMING)\n'
+            return f'⏱️ Entry window: ~{rem:.1f}s\n'
     return ''
 
 
 def _format_confidence_tag(decision: dict) -> str:
+    quality = decision.get('quality', '')
     bull = decision.get('bull_score', 0)
     bear = decision.get('bear_score', 0)
     peak = max(bull, bear)
+    if quality in {'LEAN', 'SPECULATIVE'}:
+        return '60% (Speculative Lean)'
     if peak >= 7:
         return '94% (High Conviction)'
     elif peak >= 5:
         return '85% (Triple Confluence)'
-    return '75% (Confirmed)'
+    elif peak >= 3:
+        return '75% (Confirmed)'
+    return '60% (Speculative Lean)'
 
 
 def format_signal(signal: Signal) -> str:
@@ -166,10 +176,12 @@ def format_signal(signal: Signal) -> str:
             stake_rec = '🔥 Stake High'
         else:
             stake_rec = ''
-    if 'stake high' in stake_rec.lower():
-        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Maximum Conviction)\n'
+    if quality in {'LEAN', 'SPECULATIVE'}:
+        stake_line = '🎯 Recommended Stake: 🛡️ MINIMUM STAKE (1%) OR SKIP (Market In Chop)\n'
+    elif 'stake high' in stake_rec.lower():
+        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Maximum Conviction — Max 5%)\n'
     else:
-        stake_line = ''
+        stake_line = '🎯 Recommended Stake: ⚡ STANDARD (1%–2% Balance)\n'
     action = (
         'Recorded for PAPER validation only.'
         if mode == 'PAPER'

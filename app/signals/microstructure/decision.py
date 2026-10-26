@@ -337,38 +337,27 @@ def decide_microstructure(
         )
 
     if allow_lean_fallback:
-        if bull > bear:
+        # Asymmetric BC.Game Tie-Rule Defense:
+        # End <= Start pays DOWN. Never issue an UP lean on weak/flat momentum.
+        if bull >= 3 and bull > bear and features.bar_5s_return >= 0.40:
             return _make(
                 SignalDirection.UP,
-                'VALID',
-                f'Bullish momentum bias (Bull {bull} vs Bear {bear}) leading order flow.',
+                'LEAN',
+                f'Bullish momentum bias (Bull {bull} vs Bear {bear}, +${features.bar_5s_return:.2f}) leading order flow.',
             )
         elif bear > bull:
             return _make(
                 SignalDirection.DOWN,
-                'VALID',
+                'LEAN',
                 f'Bearish momentum bias (Bear {bear} vs Bull {bull}) leading order flow.',
             )
         else:
-            fast_bias = (
-                features.delta_1s_usd
-                or features.delta_2s_usd
-                or features.bar_5s_return
-                or features.velocity_1s_bps
-                or (features.bar_5s_taker_ratio - 0.5)
+            # Under flat chop or weak momentum, house tie rule awards neutral rounds to DOWN
+            return _make(
+                SignalDirection.DOWN,
+                'LEAN',
+                'Flat chop / low velocity; BC.Game house tie-rule awards neutral rounds to DOWN.',
             )
-            if fast_bias >= 0:
-                return _make(
-                    SignalDirection.UP,
-                    'VALID',
-                    'Micro-tick buying pressure holding immediate directional advantage.',
-                )
-            else:
-                return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Micro-tick selling pressure holding immediate directional advantage.',
-                )
 
     return _make(
         SignalDirection.NO_TRADE,
