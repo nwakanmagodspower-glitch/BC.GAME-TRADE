@@ -40,7 +40,10 @@ class SignalLifecycleService:
         if settings.detrade_use_synthetic_feed:
             try:
                 from app.integrations.detrade_observer import detrade_observer
-                synth = detrade_observer.get_synthetic_snapshot(settings.analysis_pair, max_age_seconds=settings.market_data_max_age_seconds)
+                synth = detrade_observer.get_synthetic_snapshot(
+                    settings.analysis_pair,
+                    max_age_seconds=max(float(settings.market_data_max_age_seconds), 6.0),
+                )
                 if synth and synth.book_ticker:
                     from app.services.market_data import MarketSnapshot
                     snapshot = MarketSnapshot(
@@ -98,7 +101,10 @@ class SignalLifecycleService:
         if settings.detrade_use_synthetic_feed:
             try:
                 from app.integrations.detrade_observer import detrade_observer
-                synth = detrade_observer.get_synthetic_snapshot(settings.analysis_pair, max_age_seconds=settings.market_data_max_age_seconds)
+                synth = detrade_observer.get_synthetic_snapshot(
+                    settings.analysis_pair,
+                    max_age_seconds=max(float(settings.market_data_max_age_seconds), 6.0),
+                )
                 if synth and synth.book_ticker:
                     from app.services.market_data import MarketSnapshot
                     snapshot = MarketSnapshot(

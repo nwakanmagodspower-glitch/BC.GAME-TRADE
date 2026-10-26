@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from app.integrations.market_data.base import BookTicker, MarketTick
 from app.integrations.market_data.five_second_bar import FiveSecondBar
 from app.models.entities import SignalDirection
-from app.signals.microstructure.features import build_microstructure_features
+from app.signals.microstructure.features import MicrostructureFeatureSnapshot, build_microstructure_features
 from app.signals.microstructure.scoring import score_microstructure_features
 from app.signals.microstructure.decision import decide_microstructure
 
@@ -667,10 +667,45 @@ def test_allow_lean_fallback_ensures_directional_signals():
     )
     assert decision.direction in {SignalDirection.UP, SignalDirection.DOWN}
     assert decision.direction != SignalDirection.NO_TRADE
-    assert decision.quality == "VALID"
+    # Test exhaustion top with allow_lean_fallback
+    features_exhaustion_top = build_microstructure_features(
+        latest_book=book, now=now, bars_5s=bars_5s, is_synthetic=True,
+    )
+    f_dict = features_exhaustion_top.to_dict()
+    f_dict["range_20s"] = 10.0
+    f_dict["bar_5s_range"] = 10.0
+    f_dict["delta_5s_usd"] = 9.5
+    f_dict["bar_5s_return"] = 8.5
+    f_top = MicrostructureFeatureSnapshot(**f_dict)
+    decision_top = decide_microstructure(
+        score=score, features=f_top, is_synthetic=True, allow_lean_fallback=True,
+    )
+    assert decision_top.direction == SignalDirection.DOWN
+    assert "exhaustion top" in decision_top.reason.lower()
 
+    # Test exhaustion bottom with allow_lean_fallback
+    f_dict["delta_5s_usd"] = -9.5
+    f_dict["bar_5s_return"] = -8.5
+    f_bottom = MicrostructureFeatureSnapshot(**f_dict)
+    decision_bottom = decide_microstructure(
+        score=score, features=f_bottom, is_synthetic=True, allow_lean_fallback=True,
+    )
+    assert decision_bottom.direction == SignalDirection.UP
+    assert "exhaustion bottom" in decision_bottom.reason.lower()
 
+    # Test high-volatility range (> 35.0)
+    f_dict["delta_5s_usd"] = 2.0
+    f_dict["bar_5s_return"] = 2.0
+    f_dict["range_20s"] = 40.0
+    f_vol = MicrostructureFeatureSnapshot(**f_dict)
+    decision_vol_no_lean = decide_microstructure(
+        score=score, features=f_vol, is_synthetic=True, allow_lean_fallback=False,
+    )
+    assert decision_vol_no_lean.direction == SignalDirection.NO_TRADE
 
-
-
+    decision_vol_lean = decide_microstructure(
+        score=score, features=f_vol, is_synthetic=True, allow_lean_fallback=True,
+    )
+    assert decision_vol_lean.direction == SignalDirection.UP
+    assert "breakout" in decision_vol_lean.reason.lower()
 

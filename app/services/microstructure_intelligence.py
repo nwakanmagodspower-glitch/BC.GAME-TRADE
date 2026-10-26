@@ -149,7 +149,10 @@ class MicrostructureIntelligenceService:
         if settings.detrade_use_synthetic_feed:
             try:
                 from app.integrations.detrade_observer import detrade_observer
-                synth_snapshot = detrade_observer.get_synthetic_snapshot(market, max_age_seconds=settings.market_data_max_age_seconds)
+                synth_snapshot = detrade_observer.get_synthetic_snapshot(
+                    market,
+                    max_age_seconds=max(float(settings.market_data_max_age_seconds), 6.0),
+                )
                 if synth_snapshot is not None and (synth_snapshot.bars_5s or synth_snapshot.recent_ticks):
                     ms_snapshot = synth_snapshot
                     is_synth = True

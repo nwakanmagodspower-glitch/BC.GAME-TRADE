@@ -116,10 +116,17 @@ def decide_microstructure(
                 'Flat market consolidation; house tie-rule awards round to DOWN.',
             )
         if eff_range > 35.0:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'20-second range is anomalous (${eff_range:.2f} > $35.00); extreme volatility risk.',
+                )
+            direction = SignalDirection.UP if (features.bar_5s_return >= 0 or bull >= bear) else SignalDirection.DOWN
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                f'20-second range is anomalous (${eff_range:.2f} > $35.00); extreme volatility risk.',
+                direction,
+                'STRONG',
+                f'High-volatility expansion breakout (${eff_range:.2f} 20s range); momentum favors {direction.value}.',
             )
     elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
@@ -138,16 +145,28 @@ def decide_microstructure(
     # Parabolic Pre-Start Impulse / Exhaustion Gate (Synthetic OTC Defense)
     if is_synthetic:
         if features.delta_5s_usd > 8.0 or features.bar_5s_return > 7.0:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Pre-start 5s impulse is overextended (exhaustion top). Buying UP risks an immediate retracement loss.',
+                )
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Pre-start 5s impulse is overextended (exhaustion top). Buying UP risks an immediate retracement loss.',
+                SignalDirection.DOWN,
+                'VALID',
+                'Exhaustion top on pre-start 5s impulse; mean-reversion favors DOWN.',
             )
         if features.delta_5s_usd < -8.0 or features.bar_5s_return < -7.0:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Pre-start 5s impulse is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
+                )
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Pre-start 5s impulse is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
+                SignalDirection.UP,
+                'VALID',
+                'Oversold exhaustion bottom on pre-start 5s impulse; mean-reversion bounce favors UP.',
             )
 
     # Fast / Slow Conflict Veto (applies if slow regime or 5s micro-trend strongly conflicts)
@@ -167,30 +186,54 @@ def decide_microstructure(
     # Decision logic
     if bull >= min_score and bull - bear >= effective_up_margin:
         if (slow_bearish and has_bearish_conflict) or trend_strongly_bearish:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
+                )
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
+                SignalDirection.DOWN,
+                'VALID',
+                'Trend conflict against bull; broader macro flow favors DOWN.',
             )
 
         if is_synthetic:
             if features.regime_classification == 'BOUNDED_BOUNCE' and features.station_nearest_barrier_type == 'UPPER':
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; barrier resistance favors DOWN.',
                 )
             if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.20:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling; rejection favors DOWN.',
                 )
             if features.bar_5s_return < 0.60 and features.delta_30s_usd < 2.5:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Bullish return insufficient to overcome house tie-rule; edge favors DOWN.',
                 )
             if (
                 features.delta_1s_usd < -0.35
@@ -198,10 +241,16 @@ def decide_microstructure(
                 or features.velocity_1s_bps < -0.45
                 or features.internal_velocity_usd < -0.45
             ):
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        'Price is actively ticking down; entering UP risks immediate adverse movement.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    'Price is actively ticking down; entering UP risks immediate adverse movement.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Price actively ticking down into start; micro-momentum favors DOWN.',
                 )
 
         quality = 'STRONG' if (bull >= 6 and margin >= 3 and features.bar_5s_return >= 0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
@@ -213,30 +262,54 @@ def decide_microstructure(
 
     if bear >= min_score and bear - bull >= min_margin:
         if (slow_bullish and has_bullish_conflict) or trend_strongly_bullish:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
+                )
             return _make(
-                SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
+                SignalDirection.UP,
+                'VALID',
+                'Trend conflict against bear; broader macro trend favors UP.',
             )
 
         if is_synthetic:
             if features.regime_classification == 'BOUNDED_BOUNCE' and features.station_nearest_barrier_type == 'LOWER':
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
+                    SignalDirection.UP,
+                    'VALID',
+                    f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; barrier support favors UP.',
                 )
             if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.20:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
+                    SignalDirection.UP,
+                    'VALID',
+                    f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor; bounce favors UP.',
                 )
             if features.bar_5s_return > -0.35 and features.delta_30s_usd > -1.5:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Bearish lean maintained with downward order flow.',
                 )
             if (
                 features.delta_1s_usd > 0.35
@@ -244,10 +317,16 @@ def decide_microstructure(
                 or features.velocity_1s_bps > 0.45
                 or features.internal_velocity_usd > 0.45
             ):
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
+                    )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
+                    SignalDirection.UP,
+                    'VALID',
+                    'Price actively ticking up into start; micro-momentum favors UP.',
                 )
 
         quality = 'STRONG' if (bear >= 6 and margin >= 3 and features.bar_5s_return <= -0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
