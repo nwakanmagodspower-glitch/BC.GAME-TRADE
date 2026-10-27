@@ -153,6 +153,23 @@ def score_microstructure_features(
                 bull += 2
                 reasons.append(f'bounded bounce off lower station barrier (${features.station_barrier_lower:.0f})')
 
+        # 12. Pre-Start Sub-Second Kinematic Thrust Acceleration (+1 point)
+        thrust_usd = (0.50 * features.delta_1s_usd) + (0.30 * features.delta_2s_usd) + (0.20 * features.delta_5s_usd)
+        if thrust_usd >= 0.35 and features.internal_acceleration_usd >= 0:
+            bull += 1
+            reasons.append(f'pre-start kinematic acceleration vector (+${thrust_usd:.2f})')
+        elif thrust_usd <= -0.35 and features.internal_acceleration_usd <= 0:
+            bear += 1
+            reasons.append(f'pre-start downward kinematic acceleration vector (${thrust_usd:.2f})')
+
+        # 13. Triple-Horizon Confluence Synergy (+1 point bonus)
+        if eff_10s >= 0.40 and features.bar_5s_return >= 0.35 and eff_30s >= 1.0 and features.delta_1s_usd >= 0:
+            bull += 1
+            reasons.append('triple-horizon confluence (1s micro + 5s bar + 30s drift all bullish)')
+        elif eff_10s <= -0.40 and features.bar_5s_return <= -0.35 and eff_30s <= -1.0 and features.delta_1s_usd <= 0:
+            bear += 1
+            reasons.append('triple-horizon confluence (1s micro + 5s bar + 30s drift all bearish)')
+
         return MicrostructureScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
 
     # 1. 5-Second Bar Micro-Momentum & Taker Flow (up to +3 points)
