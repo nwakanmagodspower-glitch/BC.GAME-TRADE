@@ -118,7 +118,7 @@ def format_signal(signal: Signal) -> str:
                 '⚪ NO TRADE — Low Market Speed\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
                 '🎯 Stake: 🛡️ Skip Round\n\n'
-                '💡 Why skip? Under BCGAME rules, ties (End <= Start) award the round to DOWN. In flat chop, UP has negative expected value.\n'
+                '💡 Market momentum is too low for a high-probability trade.\n'
                 'Skipping preserves your balance until clean momentum returns.\n\n'
                 'Wait for a fresh round with active movement before scanning again.'
                 + paper
