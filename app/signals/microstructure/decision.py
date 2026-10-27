@@ -342,20 +342,20 @@ def decide_microstructure(
         if bull >= 3 and bull > bear and features.bar_5s_return >= 0.40:
             return _make(
                 SignalDirection.UP,
-                'LEAN',
+                'CONFIRMED',
                 f'Bullish momentum bias (Bull {bull} vs Bear {bear}, +${features.bar_5s_return:.2f}) leading order flow.',
             )
         elif bear > bull:
             return _make(
                 SignalDirection.DOWN,
-                'LEAN',
+                'CONFIRMED',
                 f'Bearish momentum bias (Bear {bear} vs Bull {bull}) leading order flow.',
             )
         else:
             # Under flat chop or weak momentum, house tie rule awards neutral rounds to DOWN
             return _make(
                 SignalDirection.DOWN,
-                'LEAN',
+                'CONFIRMED',
                 'Flat chop / low velocity; BC.Game house tie-rule awards neutral rounds to DOWN.',
             )
 
