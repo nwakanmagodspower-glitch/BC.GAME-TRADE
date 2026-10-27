@@ -265,7 +265,7 @@ class MicrostructureIntelligenceService:
             up_min_margin=settings.detrade_up_min_margin if is_synth else None,
             max_lead_impulse=getattr(settings, 'detrade_max_lead_impulse', 16.0),
             seconds_until_start=seconds_until_start,
-            allow_lean_fallback=getattr(settings, 'detrade_allow_lean_fallback', True) if is_synth else False,
+            allow_lean_fallback=getattr(settings, 'detrade_allow_lean_fallback', False) if is_synth else False,
         )
 
         details = {
@@ -283,6 +283,10 @@ class MicrostructureIntelligenceService:
             'bar_5s_range': features.bar_5s_range,
             'lead_range_dollars': features.lead_range_dollars,
             'bar_5s_taker_ratio': features.bar_5s_taker_ratio,
+            'fractal_efficiency_5s': features.fractal_efficiency_5s,
+            'micro_tick_streak': features.micro_tick_streak,
+            'speed_convexity': features.speed_convexity,
+            'pullback_from_extremum': features.pullback_from_extremum,
             'stake_tier': decision.stake_tier,
             'stake_recommendation': decision.stake_recommendation,
         }

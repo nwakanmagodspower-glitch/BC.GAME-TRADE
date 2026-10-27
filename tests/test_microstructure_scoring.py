@@ -105,3 +105,71 @@ def test_fast_slow_conflict_veto():
     decision = decide_microstructure(score, features, min_score=5, min_margin=3)
     assert decision.direction == SignalDirection.NO_TRADE
     assert "conflicts strongly" in decision.reason.lower()
+
+
+def test_kaufman_fractal_efficiency_laminar_and_turbulent():
+    # 1. Laminar flow: ER = 0.85
+    features_laminar = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "delta_10s_usd": 2.5,
+            "bar_5s_return": 1.5,
+            "fractal_efficiency_5s": 0.85,
+        }
+    )
+    score_laminar = score_microstructure_features(features_laminar, is_synthetic=True)
+    assert any("laminar" in r.lower() for r in score_laminar.reasons)
+
+    # 2. Turbulent noise: ER = 0.20
+    features_turbulent = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "delta_10s_usd": 1.0,
+            "bar_5s_return": 0.5,
+            "range_20s": 2.0,
+            "fractal_efficiency_5s": 0.20,
+        }
+    )
+    score_turbulent = score_microstructure_features(features_turbulent, is_synthetic=True)
+    assert any("turbulent" in r.lower() for r in score_turbulent.reasons)
+
+
+def test_micro_tick_streak_and_speed_convexity():
+    features = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "delta_1s_usd": 0.60,
+            "delta_5s_usd": 1.20,
+            "micro_tick_streak": 4,
+            "speed_convexity": 2.5,
+        }
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    assert any("unbroken buyer aggressor streak" in r.lower() for r in score.reasons)
+    assert any("speed convexity" in r.lower() for r in score.reasons)
+
+
+def test_instantaneous_peak_exhaustion_wick_veto():
+    # Upward impulse reached +$2.50, but pulled back by $1.40 (>50%) and ticking down
+    features = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "bar_5s_return": 2.50,
+            "pullback_from_extremum": 1.40,
+            "delta_1s_usd": -0.30,
+            "delta_5s_usd": 2.50,
+            "range_20s": 4.0,
+        }
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score,
+        features,
+        is_synthetic=True,
+        min_score=4,
+        min_margin=2,
+        allow_lean_fallback=False,
+    )
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "exhaustion wick" in decision.reason.lower() or "pulled back" in decision.reason.lower()
+

@@ -138,6 +138,10 @@ class MicrostructureFeatureSnapshot:
     round_progress_pct: float = 0.0         # Fraction of round elapsed
     phase_aligned: bool = False             # Whether synchronized with DeTrade round clock
     regime_classification: str = "NEUTRAL"  # "SURGE_BREAKOUT", "BOUNDED_BOUNCE", "NEUTRAL_CHOP"
+    fractal_efficiency_5s: float = 0.5      # Kaufman fractal efficiency (net delta / total tick path)
+    micro_tick_streak: int = 0              # Consecutive micro-ticks in same direction (+up, -down)
+    speed_convexity: float = 1.0            # Ratio of 1s velocity to 5s avg velocity
+    pullback_from_extremum: float = 0.0     # USD distance from 5s extremum
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -383,6 +387,53 @@ def build_microstructure_features(
         internal_velocity_usd = round(delta_1s_usd, 4)
         internal_acceleration_usd = round(delta_1s_usd - (delta_2s_usd - delta_1s_usd), 4)
 
+    # 5b. Kaufman Fractal Efficiency, Micro-Streak, Speed Convexity & Wick Analysis
+    if recent_5s_ticks and len(recent_5s_ticks) >= 2:
+        tick_path_5s = sum(
+            abs(recent_5s_ticks[i].price - recent_5s_ticks[i - 1].price)
+            for i in range(1, len(recent_5s_ticks))
+        )
+        net_delta_5s = abs(recent_5s_ticks[-1].price - recent_5s_ticks[0].price)
+        fractal_efficiency_5s = round(net_delta_5s / max(tick_path_5s, 0.01), 3)
+        max_5s = max(t.price for t in recent_5s_ticks)
+        min_5s = min(t.price for t in recent_5s_ticks)
+        if delta_5s_usd > 0:
+            pullback_from_extremum = round(max_5s - mid, 4)
+        elif delta_5s_usd < 0:
+            pullback_from_extremum = round(mid - min_5s, 4)
+        else:
+            pullback_from_extremum = 0.0
+    else:
+        fractal_efficiency_5s = 0.5
+        pullback_from_extremum = 0.0
+
+    micro_tick_streak = 0
+    if recent_ticks and len(recent_ticks) >= 2:
+        consec_dir = None
+        streak = 0
+        for i in range(len(recent_ticks) - 1, 0, -1):
+            diff = recent_ticks[i].price - recent_ticks[i - 1].price
+            if abs(diff) < 0.001:
+                continue
+            step_dir = 1 if diff > 0 else -1
+            if consec_dir is None:
+                consec_dir = step_dir
+                streak = 1
+            elif step_dir == consec_dir:
+                streak += 1
+            else:
+                break
+            if streak >= 6:
+                break
+        micro_tick_streak = streak * (consec_dir or 0)
+
+    v_1s = delta_1s_usd
+    v_5s = delta_5s_usd / 5.0
+    if abs(v_5s) > 0.05:
+        speed_convexity = round(v_1s / v_5s, 3)
+    else:
+        speed_convexity = 1.0 if abs(v_1s) <= 0.05 else (2.0 if v_1s > 0 else -2.0)
+
     # 6. Station Barrier Proximity ($1–$50, $50–$100, $100–$200 boundaries)
     station_width = 50.0
     station_barrier_lower = round(floor(mid / station_width) * station_width, 2)
@@ -525,4 +576,8 @@ def build_microstructure_features(
         round_progress_pct=round_progress_pct,
         phase_aligned=phase_aligned,
         regime_classification=regime_classification,
+        fractal_efficiency_5s=fractal_efficiency_5s,
+        micro_tick_streak=micro_tick_streak,
+        speed_convexity=speed_convexity,
+        pullback_from_extremum=pullback_from_extremum,
     )

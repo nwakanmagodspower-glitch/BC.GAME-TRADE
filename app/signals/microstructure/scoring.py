@@ -170,6 +170,37 @@ def score_microstructure_features(
             bear += 1
             reasons.append('triple-horizon confluence (1s micro + 5s bar + 30s drift all bearish)')
 
+        # 14. Kaufman Fractal Efficiency & Laminar Flow Intelligence (up to +1 point or -1 dampener)
+        if features.fractal_efficiency_5s >= 0.60:
+            if eff_10s >= 0.40 and features.bar_5s_return >= 0.35:
+                bull += 1
+                reasons.append(f'laminar directional flow (efficiency {features.fractal_efficiency_5s*100:.0f}%)')
+            elif eff_10s <= -0.40 and features.bar_5s_return <= -0.35:
+                bear += 1
+                reasons.append(f'laminar downward flow (efficiency {features.fractal_efficiency_5s*100:.0f}%)')
+        elif features.fractal_efficiency_5s <= 0.28 and eff_range >= 0.80:
+            if bull > 0:
+                bull = max(0, bull - 1)
+            if bear > 0:
+                bear = max(0, bear - 1)
+            reasons.append(f'turbulent Brownian noise (efficiency {features.fractal_efficiency_5s*100:.0f}%) dampens conviction')
+
+        # 15. Run-Length Micro-Streak Aggressor Urgency (+1 point)
+        if features.micro_tick_streak >= 3 and features.delta_1s_usd >= 0.10:
+            bull += 1
+            reasons.append(f'unbroken buyer aggressor streak ({features.micro_tick_streak} consecutive ticks)')
+        elif features.micro_tick_streak <= -3 and features.delta_1s_usd <= -0.10:
+            bear += 1
+            reasons.append(f'unbroken seller aggressor streak ({abs(features.micro_tick_streak)} consecutive ticks)')
+
+        # 16. Sub-Second Speed Convexity Acceleration (+1 point)
+        if features.speed_convexity >= 1.40 and features.delta_1s_usd >= 0.25 and features.delta_5s_usd > 0:
+            bull += 1
+            reasons.append(f'positive speed convexity ({features.speed_convexity:.1f}x) accelerating into strike')
+        elif features.speed_convexity >= 1.40 and features.delta_1s_usd <= -0.25 and features.delta_5s_usd < 0:
+            bear += 1
+            reasons.append(f'negative speed convexity ({features.speed_convexity:.1f}x) accelerating downward into strike')
+
         return MicrostructureScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
 
     # 1. 5-Second Bar Micro-Momentum & Taker Flow (up to +3 points)

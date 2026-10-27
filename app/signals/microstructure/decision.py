@@ -253,6 +253,23 @@ def decide_microstructure(
                     'Price actively ticking down into start; micro-momentum favors DOWN.',
                 )
 
+            if (
+                features.bar_5s_return >= 1.50
+                and features.pullback_from_extremum >= 0.50 * features.bar_5s_return
+                and features.delta_1s_usd < -0.15
+            ):
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Upward impulse peaked and pulled back (${features.pullback_from_extremum:.2f} wick); skipping UP to prevent buying top.',
+                    )
+                return _make(
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Upward impulse peaked and pulled back; mean-reversion favors DOWN.',
+                )
+
         quality = 'STRONG' if (bull >= 6 and margin >= 3 and features.bar_5s_return >= 0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.UP,
@@ -327,6 +344,23 @@ def decide_microstructure(
                     SignalDirection.UP,
                     'VALID',
                     'Price actively ticking up into start; micro-momentum favors UP.',
+                )
+
+            if (
+                features.bar_5s_return <= -1.50
+                and features.pullback_from_extremum >= 0.50 * abs(features.bar_5s_return)
+                and features.delta_1s_usd > 0.15
+            ):
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Downward impulse bottomed and bounced (${features.pullback_from_extremum:.2f} wick); skipping DOWN to prevent selling bottom.',
+                    )
+                return _make(
+                    SignalDirection.UP,
+                    'VALID',
+                    'Downward impulse bottomed and bounced; mean-reversion bounce favors UP.',
                 )
 
         quality = 'STRONG' if (bear >= 6 and margin >= 3 and features.bar_5s_return <= -0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
