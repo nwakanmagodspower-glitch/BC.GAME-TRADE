@@ -46,12 +46,16 @@ class SignalLifecycleService:
                 )
                 if synth and synth.book_ticker:
                     from app.services.market_data import MarketSnapshot
+                    age = synth.book_ticker_age_seconds if synth.book_ticker_age_seconds is not None else 0.0
                     snapshot = MarketSnapshot(
                         symbol=settings.analysis_pair,
                         price=synth.book_ticker.mid_price,
                         event_time=synth.book_ticker.event_time,
-                        source='DETRADE_SYNTHETIC',
+                        provider='DETRADE_SYNTHETIC',
+                        age_seconds=round(max(0.0, age), 3),
                         fresh=True,
+                        last_quantity=1.0,
+                        is_buyer_maker=None,
                     )
             except Exception:
                 pass
@@ -107,12 +111,16 @@ class SignalLifecycleService:
                 )
                 if synth and synth.book_ticker:
                     from app.services.market_data import MarketSnapshot
+                    age = synth.book_ticker_age_seconds if synth.book_ticker_age_seconds is not None else 0.0
                     snapshot = MarketSnapshot(
                         symbol=settings.analysis_pair,
                         price=synth.book_ticker.mid_price,
                         event_time=synth.book_ticker.event_time,
-                        source='DETRADE_SYNTHETIC',
+                        provider='DETRADE_SYNTHETIC',
+                        age_seconds=round(max(0.0, age), 3),
                         fresh=True,
+                        last_quantity=1.0,
+                        is_buyer_maker=None,
                     )
             except Exception:
                 pass

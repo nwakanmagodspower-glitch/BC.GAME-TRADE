@@ -78,6 +78,9 @@ class SignalRecordService:
                 'bull_score': result.decision.bull_score,
                 'bear_score': result.decision.bear_score,
                 'margin': result.decision.margin,
+                'reason': result.decision.reason,
+                'stake_tier': result.decision.stake_tier,
+                'stake_recommendation': result.decision.stake_recommendation,
             }
         if result.engine_details is not None:
             feature_data['_engine'] = result.engine_details
