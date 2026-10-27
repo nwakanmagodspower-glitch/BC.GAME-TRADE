@@ -370,6 +370,8 @@ class SignalIntelligenceService:
             try:
                 from app.integrations.detrade_observer import detrade_observer
                 if detrade_observer.latest_tick and detrade_observer.latest_tick.get('price'):
+                    now_mono = time.monotonic()
+                    age = now_mono - float(detrade_observer.latest_tick.get('received_monotonic', 0))
                     max_synthetic_age = max(float(settings.market_data_max_age_seconds), 6.0)
                     if 0 <= age <= max_synthetic_age:
                         p = float(detrade_observer.latest_tick['price'])
