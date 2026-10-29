@@ -487,6 +487,7 @@ class SignalIntelligenceService:
                     'micro_tick_streak': ms_result.features.micro_tick_streak,
                     'speed_convexity': ms_result.features.speed_convexity,
                     'pullback_from_extremum': ms_result.features.pullback_from_extremum,
+                    'projected_expiry_drift_usd': ms_result.features.projected_expiry_drift_usd,
                     'round_progress_pct': ms_result.features.round_progress_pct,
                     'round_id': target.round_id if target else None,
                     'target_start': target.target_start.isoformat() if target else None,

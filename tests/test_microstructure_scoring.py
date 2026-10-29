@@ -173,3 +173,42 @@ def test_instantaneous_peak_exhaustion_wick_veto():
     assert decision.direction == SignalDirection.NO_TRADE
     assert "exhaustion wick" in decision.reason.lower() or "pulled back" in decision.reason.lower()
 
+
+def test_temporal_horizon_expiry_projection_scoring():
+    features = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "delta_1s_usd": 0.50,
+            "delta_10s_usd": 1.50,
+            "projected_expiry_drift_usd": 0.85,
+        }
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    assert any("temporal horizon projection" in r.lower() for r in score.reasons)
+
+
+def test_temporal_horizon_projection_veto():
+    # Bullish setup but temporal horizon projects a negative finish at expiry
+    features = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "range_20s": 3.0,
+            "delta_10s_usd": 2.50,
+            "bar_5s_return": 1.20,
+            "delta_30s_usd": 3.0,
+            "projected_expiry_drift_usd": -0.65,
+        }
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score,
+        features,
+        is_synthetic=True,
+        min_score=4,
+        min_margin=2,
+        allow_lean_fallback=False,
+    )
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "temporal horizon projection" in decision.reason.lower()
+
+

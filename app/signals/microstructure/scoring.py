@@ -201,6 +201,21 @@ def score_microstructure_features(
             bear += 1
             reasons.append(f'negative speed convexity ({features.speed_convexity:.1f}x) accelerating downward into strike')
 
+        # 17. Temporal Horizon Expiry Projection (Exact [T_start -> T_expiry] Integration)
+        # Evaluates the mathematically projected price delta over the exact 5.0s game window
+        if features.projected_expiry_drift_usd >= 0.70:
+            bull += 2
+            reasons.append(f'temporal horizon projection (+${features.projected_expiry_drift_usd:.2f} at expiry)')
+        elif features.projected_expiry_drift_usd >= 0.30:
+            bull += 1
+            reasons.append(f'positive temporal drift (+${features.projected_expiry_drift_usd:.2f} at expiry)')
+        elif features.projected_expiry_drift_usd <= -0.70:
+            bear += 2
+            reasons.append(f'temporal horizon projection (${features.projected_expiry_drift_usd:.2f} at expiry)')
+        elif features.projected_expiry_drift_usd <= -0.30:
+            bear += 1
+            reasons.append(f'negative temporal drift (${features.projected_expiry_drift_usd:.2f} at expiry)')
+
         return MicrostructureScoreResult(bull_score=bull, bear_score=bear, reasons=reasons)
 
     # 1. 5-Second Bar Micro-Momentum & Taker Flow (up to +3 points)

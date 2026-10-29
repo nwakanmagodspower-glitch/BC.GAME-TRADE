@@ -142,6 +142,7 @@ class MicrostructureFeatureSnapshot:
     micro_tick_streak: int = 0              # Consecutive micro-ticks in same direction (+up, -down)
     speed_convexity: float = 1.0            # Ratio of 1s velocity to 5s avg velocity
     pullback_from_extremum: float = 0.0     # USD distance from 5s extremum
+    projected_expiry_drift_usd: float = 0.0 # Mathematically projected USD delta across [T_start -> T_expiry]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -466,6 +467,21 @@ def build_microstructure_features(
             phase_aligned = bool(getattr(round_context, 'is_fresh', False))
         except Exception:
             pass
+    else:
+        duration = 5.0
+
+    # 7b. Dynamic Lead-Time Horizon Projection across [T_start -> T_expiry]
+    # Integrates the expected price change Delta P over the exact 5.0s game window:
+    # 1. Accounts for t_lead (remaining seconds before the game starts)
+    # 2. Accounts for contract duration (exactly 5.0s game duration)
+    # 3. Decays fast micro-velocity toward macro drift over the lead time
+    t_lead = round_remaining_seconds
+    v_micro = internal_velocity_usd if abs(internal_velocity_usd) > 0.05 else delta_1s_usd
+    v_30s = (delta_30s_usd / 30.0) if abs(delta_30s_usd) > 0.05 else (bar_5s_return / 5.0)
+    decay_lead = max(0.05, min(1.0, 2.71828 ** (-0.23 * t_lead)))
+    v_start = (v_micro * decay_lead) + (v_30s * (1.0 - decay_lead))
+    int_decay = (1.0 - 2.71828 ** (-0.23 * duration)) / 0.23
+    projected_expiry_drift_usd = round((v_start * int_decay) + (v_30s * (duration - int_decay)), 3)
 
     # 8. Mean-Reversion vs. Surge Breakout Detection
     regime_classification = 'NEUTRAL'
@@ -580,4 +596,5 @@ def build_microstructure_features(
         micro_tick_streak=micro_tick_streak,
         speed_convexity=speed_convexity,
         pullback_from_extremum=pullback_from_extremum,
+        projected_expiry_drift_usd=projected_expiry_drift_usd,
     )

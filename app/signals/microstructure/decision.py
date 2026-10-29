@@ -270,6 +270,19 @@ def decide_microstructure(
                     'Upward impulse peaked and pulled back; mean-reversion favors DOWN.',
                 )
 
+            if features.projected_expiry_drift_usd < -0.40:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Temporal horizon projection (${features.projected_expiry_drift_usd:.2f}) indicates price will finish negative at expiry; skipping UP to protect capital.',
+                    )
+                return _make(
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Temporal horizon projection indicates negative drift at expiry; edge favors DOWN.',
+                )
+
         quality = 'STRONG' if (bull >= 6 and margin >= 3 and features.bar_5s_return >= 0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
         return _make(
             SignalDirection.UP,
@@ -361,6 +374,19 @@ def decide_microstructure(
                     SignalDirection.UP,
                     'VALID',
                     'Downward impulse bottomed and bounced; mean-reversion bounce favors UP.',
+                )
+
+            if features.projected_expiry_drift_usd > 0.40:
+                if not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'Temporal horizon projection (+${features.projected_expiry_drift_usd:.2f}) indicates price will finish positive at expiry; skipping DOWN to protect capital.',
+                    )
+                return _make(
+                    SignalDirection.UP,
+                    'VALID',
+                    'Temporal horizon projection indicates positive drift at expiry; edge favors UP.',
                 )
 
         quality = 'STRONG' if (bear >= 6 and margin >= 3 and features.bar_5s_return <= -0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'

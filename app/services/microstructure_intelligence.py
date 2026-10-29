@@ -287,6 +287,7 @@ class MicrostructureIntelligenceService:
             'micro_tick_streak': features.micro_tick_streak,
             'speed_convexity': features.speed_convexity,
             'pullback_from_extremum': features.pullback_from_extremum,
+            'projected_expiry_drift_usd': features.projected_expiry_drift_usd,
             'stake_tier': decision.stake_tier,
             'stake_recommendation': decision.stake_recommendation,
         }

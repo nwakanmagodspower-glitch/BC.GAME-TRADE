@@ -57,11 +57,17 @@ def format_scan_context() -> str:
 def _entry_window_text(signal: Signal) -> str:
     data = signal.features_snapshot or {}
     round_meta = data.get('_bcgame_round') or {}
+    lines = []
     if round_meta.get('source') == 'DETRADE_SYNC':
         remaining = round_meta.get('remaining_seconds_at_scan')
         if isinstance(remaining, (int, float)):
-            return f'⏱️ Entry window: ~{float(remaining):.1f}s\n'
-    return ''
+            lines.append(f'⏱️ Entry window: ~{float(remaining):.1f}s (Start Rate in {float(remaining):.1f}s • 5.0s Game)\n')
+
+    projected = data.get('projected_expiry_drift_usd')
+    if isinstance(projected, (int, float)) and abs(projected) >= 0.15:
+        sign = '+' if projected > 0 else ''
+        lines.append(f'🎯 Expiry Target: {sign}${float(projected):.2f} projected at finish\n')
+    return ''.join(lines)
 
 
 def _format_confidence_tag(decision: dict) -> str:
