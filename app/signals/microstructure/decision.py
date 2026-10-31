@@ -102,7 +102,7 @@ def decide_microstructure(
     # Filter flat chop and parabolic exhaustion traps
     if is_synthetic:
         eff_range = max(features.range_20s, features.lead_range_dollars, features.bar_5s_range)
-        eff_min = min_5s_range if min_5s_range is not None else 0.80
+        eff_min = min_5s_range if min_5s_range is not None else 0.40
         if eff_range < eff_min:
             if not allow_lean_fallback:
                 return _make(
@@ -244,10 +244,19 @@ def decide_microstructure(
                         'NO_TRADE',
                         f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
                     )
+                # When allow_lean_fallback is active (revshare marketing mode):
+                # Never invert a bullish signal to DOWN!
+                # If there is positive micro-momentum (bar_5s_return >= 0.15 or delta_10s_usd >= 0.20), emit UP.
+                if features.bar_5s_return >= 0.15 or features.delta_10s_usd >= 0.20:
+                    return _make(
+                        SignalDirection.UP,
+                        'VALID',
+                        f'Bullish return (+${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
+                    )
                 return _make(
                     SignalDirection.DOWN,
                     'VALID',
-                    'Bullish return insufficient to overcome house tie-rule; edge favors DOWN.',
+                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
                 features.delta_1s_usd < -0.35
@@ -272,29 +281,17 @@ def decide_microstructure(
                 and features.pullback_from_extremum >= 0.50 * features.bar_5s_return
                 and features.delta_1s_usd < -0.15
             ):
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Upward impulse peaked and pulled back (${features.pullback_from_extremum:.2f} wick); skipping UP to prevent buying top.',
-                    )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Upward impulse peaked and pulled back; mean-reversion favors DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Upward impulse peaked and pulled back (${features.pullback_from_extremum:.2f} wick); skipping UP to prevent buying top.',
                 )
 
             if features.projected_expiry_drift_usd < -0.40:
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Temporal horizon projection (${features.projected_expiry_drift_usd:.2f}) indicates price will finish negative at expiry; skipping UP to protect capital.',
-                    )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Temporal horizon projection indicates negative drift at expiry; edge favors DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Temporal horizon projection (${features.projected_expiry_drift_usd:.2f}) indicates price will finish negative at expiry; skipping UP to protect capital.',
                 )
 
         quality = 'STRONG' if (bull >= 6 and margin >= 3 and features.bar_5s_return >= 0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
@@ -350,10 +347,19 @@ def decide_microstructure(
                         'NO_TRADE',
                         f'Bearish return (${features.bar_5s_return:.2f}) is insufficient to confirm downward continuation.',
                     )
+                # When allow_lean_fallback is active (revshare marketing mode):
+                # Never invert a bearish signal to UP!
+                # If there is negative micro-momentum (bar_5s_return <= -0.15 or delta_10s_usd <= -0.20), emit DOWN.
+                if features.bar_5s_return <= -0.15 or features.delta_10s_usd <= -0.20:
+                    return _make(
+                        SignalDirection.DOWN,
+                        'VALID',
+                        f'Bearish return (${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
+                    )
                 return _make(
                     SignalDirection.DOWN,
                     'VALID',
-                    'Bearish lean maintained with downward order flow.',
+                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
                 features.delta_1s_usd > 0.35
@@ -391,16 +397,10 @@ def decide_microstructure(
                 )
 
             if features.projected_expiry_drift_usd > 0.40:
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Temporal horizon projection (+${features.projected_expiry_drift_usd:.2f}) indicates price will finish positive at expiry; skipping DOWN to protect capital.',
-                    )
                 return _make(
-                    SignalDirection.UP,
-                    'VALID',
-                    'Temporal horizon projection indicates positive drift at expiry; edge favors UP.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Temporal horizon projection (+${features.projected_expiry_drift_usd:.2f}) indicates price will finish positive at expiry; skipping DOWN to protect capital.',
                 )
 
         quality = 'STRONG' if (bear >= 6 and margin >= 3 and features.bar_5s_return <= -0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
@@ -411,19 +411,30 @@ def decide_microstructure(
         )
 
     if allow_lean_fallback:
-        # Asymmetric BC.Game Tie-Rule Defense:
-        # End <= Start pays DOWN. Never issue an UP lean on weak/flat momentum.
-        if bull >= 3 and bull > bear and features.bar_5s_return >= 0.40:
+        # Never invert clean momentum!
+        if bull >= 3 and bull > bear and features.bar_5s_return >= 0.15:
             return _make(
                 SignalDirection.UP,
                 'CONFIRMED',
                 f'Bullish momentum bias (Bull {bull} vs Bear {bear}, +${features.bar_5s_return:.2f}) leading order flow.',
             )
+        elif bear >= 3 and bear > bull and features.bar_5s_return <= -0.15:
+            return _make(
+                SignalDirection.DOWN,
+                'CONFIRMED',
+                f'Bearish momentum bias (Bear {bear} vs Bull {bull}, ${features.bar_5s_return:.2f}) leading order flow.',
+            )
         elif bear > bull:
             return _make(
                 SignalDirection.DOWN,
                 'CONFIRMED',
-                f'Bearish momentum bias (Bear {bear} vs Bull {bull}) leading order flow.',
+                f'Bearish order flow bias (Bear {bear} vs Bull {bull}) leading order flow.',
+            )
+        elif bull > bear and features.bar_5s_return > 0:
+            return _make(
+                SignalDirection.UP,
+                'CONFIRMED',
+                f'Bullish order flow bias (Bull {bull} vs Bear {bear}) leading order flow.',
             )
         else:
             # Under flat chop or weak momentum, house tie rule awards neutral rounds to DOWN
