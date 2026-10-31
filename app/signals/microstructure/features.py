@@ -478,6 +478,10 @@ def build_microstructure_features(
     t_lead = round_remaining_seconds
     v_micro = internal_velocity_usd if abs(internal_velocity_usd) > 0.05 else delta_1s_usd
     v_30s = (delta_30s_usd / 30.0) if abs(delta_30s_usd) > 0.05 else (bar_5s_return / 5.0)
+    # Lead-Time Velocity Dampener: If scanning early (>5s before start) without multi-bar support,
+    # isolated 1s micro-ticks tend to mean-revert before start rate locks in.
+    if t_lead > 5.0 and abs(v_30s) < 0.04:
+        v_micro = v_micro * 0.4
     decay_lead = max(0.05, min(1.0, 2.71828 ** (-0.23 * t_lead)))
     v_start = (v_micro * decay_lead) + (v_30s * (1.0 - decay_lead))
     int_decay = (1.0 - 2.71828 ** (-0.23 * duration)) / 0.23
@@ -485,7 +489,7 @@ def build_microstructure_features(
 
     # 8. Mean-Reversion vs. Surge Breakout Detection
     regime_classification = 'NEUTRAL'
-    eff_range = max(bar_5s_range, abs(delta_2s_usd))
+    eff_range = max(bar_5s_range, abs(delta_2s_usd), lead_range_dollars, range_20s)
     if is_synthetic:
         is_near_barrier = station_nearest_barrier_dist <= 1.20
         barrier_reversal = (
@@ -496,7 +500,7 @@ def build_microstructure_features(
 
         if is_near_barrier and (barrier_reversal or barrier_deceleration):
             regime_classification = 'BOUNDED_BOUNCE'
-        elif eff_range < 1.50 or abs(delta_2s_usd) < 0.50:
+        elif eff_range < 1.50 and abs(delta_2s_usd) < 0.80:
             regime_classification = 'NEUTRAL_CHOP'
         elif abs(delta_2s_usd) >= 1.50 and (
             (delta_2s_usd > 0 and internal_velocity_usd > 0 and velocity_1s_bps > 0)

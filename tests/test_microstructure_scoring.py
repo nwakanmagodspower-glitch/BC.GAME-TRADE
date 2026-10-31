@@ -212,3 +212,30 @@ def test_temporal_horizon_projection_veto():
     assert "temporal horizon projection" in decision.reason.lower()
 
 
+
+
+def test_flat_chop_and_neutral_consolidation_veto():
+    # In weekend/flat consolidation, range < 1.50 or regime NEUTRAL_CHOP must return NO_TRADE
+    features = MicrostructureFeatureSnapshot(
+        **{
+            **create_feature_snapshot().to_dict(),
+            "range_20s": 1.20,
+            "bar_5s_range": 0.90,
+            "lead_range_dollars": 0.90,
+            "regime_classification": "NEUTRAL_CHOP",
+            "delta_10s_usd": 0.50,
+            "bar_5s_return": 0.40,
+        }
+    )
+    score = score_microstructure_features(features, is_synthetic=True)
+    decision = decide_microstructure(
+        score,
+        features,
+        is_synthetic=True,
+        min_score=5,
+        min_margin=2,
+        min_5s_range=1.50,
+        allow_lean_fallback=False,
+    )
+    assert decision.direction == SignalDirection.NO_TRADE
+    assert "narrow" in decision.reason.lower() or "neutral consolidation" in decision.reason.lower()

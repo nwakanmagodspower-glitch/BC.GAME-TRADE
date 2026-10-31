@@ -115,6 +115,7 @@ def decide_microstructure(
                 'VALID',
                 'Flat market consolidation; house tie-rule awards round to DOWN.',
             )
+
         if eff_range > 35.0:
             if not allow_lean_fallback:
                 return _make(
@@ -167,6 +168,19 @@ def decide_microstructure(
                 SignalDirection.UP,
                 'VALID',
                 'Oversold exhaustion bottom on pre-start 5s impulse; mean-reversion bounce favors UP.',
+            )
+
+        if features.regime_classification == 'NEUTRAL_CHOP' and eff_range < 2.0:
+            if not allow_lean_fallback:
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Market in neutral consolidation (${eff_range:.2f} range); momentum is too low for a safe trade.',
+                )
+            return _make(
+                SignalDirection.DOWN,
+                'VALID',
+                'Neutral consolidation; BC.Game house tie-rule favors DOWN.',
             )
 
     # Fast / Slow Conflict Veto (applies if slow regime or 5s micro-trend strongly conflicts)
