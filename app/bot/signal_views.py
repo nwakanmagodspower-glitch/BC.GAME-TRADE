@@ -46,7 +46,7 @@ def format_scan_context() -> str:
         '• 🛡️ Skip Round — Choppy Market or Counter-Trend\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
-        '3️⃣ Tap ⚡ Scan Market anytime during the countdown (from 15s down to 1s). The closer to start, the sharper the micro-momentum.\n\n'
+        '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.\n\n'
         '🟢 UP — qualified upward setup (exhaustion filtered)\n'
         '🔴 DOWN — qualified downward setup\n'
         '⚪ NO TRADE — no qualified setup (flat chop or counter-trend)\n'
@@ -117,11 +117,12 @@ def format_signal(signal: Signal) -> str:
             )
 
         min_range = getattr(settings, 'detrade_min_5s_range_dollars', settings.signal_min_lead_range_dollars)
-        if quality == 'LOW_SPEED' or 'too narrow' in reason_str.lower() or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
-            range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else 'Low'
+        if quality == 'LOW_SPEED' or 'too narrow' in reason_str.lower() or 'neutral consolidation' in reason_str.lower() or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
+            range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else f'<${min_range:.2f}'
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
-                '⚪ NO TRADE — Low Market Speed\n\n'
+                '⚪ NO TRADE — Low Market Speed\n'
+                '🛡️ Chop Defense: Capital Preserved\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
                 '🎯 Stake: 🛡️ Skip Round\n\n'
                 '💡 Market momentum is too low for a high-probability trade.\n'
