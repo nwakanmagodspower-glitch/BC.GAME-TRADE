@@ -193,6 +193,54 @@ async def _change_user_status(update: Update, context: ContextTypes.DEFAULT_TYPE
         pass
 
 
+async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_owner(update) or not update.message:
+        return
+    target = None
+    if update.message.reply_to_message and update.message.reply_to_message.forward_from:
+        target = str(update.message.reply_to_message.forward_from.id)
+    elif context.args:
+        target = context.args[0].strip()
+
+    if not target:
+        await update.message.reply_text(
+            '👤 FAST-TRACK USER APPROVAL\n\n'
+            'Usage:\n'
+            '• /approve <Telegram ID>\n'
+            '• /approve @username\n'
+            '• Or forward a message from the user and reply with /approve\n\n'
+            '💡 This immediately approves the user for signals without requiring any screenshots or onboarding steps.'
+        )
+        return
+
+    with SessionLocal() as db:
+        try:
+            user = AdminOpsService(db).approve_user(target, update.effective_user.id)
+        except ValueError as exc:
+            await update.message.reply_text(f'❌ {exc}')
+            return
+
+    await update.message.reply_text(
+        f'✅ USER APPROVED INSTANTLY!\n\n'
+        f'• Telegram ID: {user.telegram_user_id}\n'
+        f'• Username: @{user.telegram_username or "None"}\n'
+        f'• Status: APPROVED\n\n'
+        f'The user now has full access to 5-second signals.'
+    )
+    try:
+        from app.bot.handlers import _approved_menu
+        await context.bot.send_message(
+            user.telegram_user_id,
+            '🎉 ACCESS APPROVED!\n\n'
+            'Your BCGAME AI Signals account has been activated by the admin.\n'
+            'You now have full access to all 5-second Bitcoin signals.\n\n'
+            'Tap ⚡ BTC 5s Signal below to start!',
+            reply_markup=_approved_menu(),
+        )
+    except Exception:
+        pass
+
+
 async def suspend_command(update: Update, context: ContextTypes.DEFAULT_TYPE): await _change_user_status(update, context, False)
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE): await _change_user_status(update, context, True)
 

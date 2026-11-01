@@ -90,14 +90,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     if not tg_user or not update.effective_chat:
         return
+    args = getattr(context, 'args', None) or []
+    start_arg = args[0].lower() if args else ''
+    is_vip = start_arg in {'vip', 'direct', 'fasttrack'}
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(tg_user)
         if user.is_blocked:
             await update.effective_chat.send_message('Your access is blocked. Please contact support.')
             return
+
+        # Direct VIP fast-track for leads registered via the owner (?start=vip)
+        if is_vip and user.status != UserStatus.APPROVED:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            user.status = UserStatus.APPROVED
+            user.onboarding_step = OnboardingStep.APPROVED
+            user.approved_at = now
+            user.approved_by = settings.owner_telegram_id
+            db.commit()
+            db.refresh(user)
+            if settings.owner_telegram_id:
+                try:
+                    await context.bot.send_message(
+                        settings.owner_telegram_id,
+                        f'🌟 NEW VIP LEAD AUTO-APPROVED!\n\n'
+                        f'• Name: {tg_user.first_name}\n'
+                        f'• Username: @{tg_user.username or "None"}\n'
+                        f'• ID: {tg_user.id}\n'
+                        f'• Access: Instant VIP Access via direct link (?start={start_arg})',
+                    )
+                except Exception:
+                    pass
+
         if user.status == UserStatus.APPROVED:
-            await update.effective_chat.send_message('⚡ BCGAME AI SIGNALS\n\n✅ Access active. Choose what you want to do below.', reply_markup=_approved_menu())
+            welcome_text = (
+                '⚡ BCGAME AI SIGNALS — VIP ACCESS\n\n'
+                f'👋 Welcome {tg_user.first_name or "Trader"}!\n'
+                '✅ Access active! Choose what you want to do below.\n\n'
+                '🎯 Universal Signals: Works on ALL rooms ($1–$50, $50–$100, $100–$200+).\n'
+                '💡 Bankroll Rule: Risk only 2%–3% of your balance per trade (5% on VIP).'
+            )
+            await update.effective_chat.send_message(welcome_text, reply_markup=_approved_menu())
             return
         if user.status == UserStatus.SUSPENDED:
             await update.effective_chat.send_message('Your access is suspended. Please contact support.')

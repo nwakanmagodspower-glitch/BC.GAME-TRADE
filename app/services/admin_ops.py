@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.entities import AuditLog, RuntimeSetting, User, UserStatus
+from app.models.entities import AuditLog, OnboardingStep, RuntimeSetting, User, UserStatus
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -59,6 +60,43 @@ class AdminOpsService:
         self._audit(actor_telegram_id, 'SIGNALS_ENABLED_CHANGED', 'system', {'enabled': enabled})
         self.db.commit()
         return enabled
+
+    def approve_user(self, target: int | str, actor_telegram_id: int) -> User:
+        now = datetime.now(timezone.utc)
+        user = None
+
+        if isinstance(target, int) or (isinstance(target, str) and target.isdigit()):
+            tid = int(target)
+            user = self.db.scalar(select(User).where((User.telegram_user_id == tid) | (User.id == tid)))
+            if user is None:
+                user = User(
+                    telegram_user_id=tid,
+                    status=UserStatus.APPROVED,
+                    onboarding_step=OnboardingStep.APPROVED,
+                    approved_at=now,
+                    approved_by=actor_telegram_id,
+                )
+                self.db.add(user)
+                self.db.commit()
+                self.db.refresh(user)
+                self._audit(actor_telegram_id, 'USER_PREAPPROVED', f'user:{user.id}', {'telegram_user_id': tid})
+                return user
+        elif isinstance(target, str):
+            uname = target.lstrip('@').lower().strip()
+            user = self.db.scalar(select(User).where(func.lower(User.telegram_username) == uname))
+
+        if user is None:
+            raise ValueError(f'User "{target}" not found. Please provide a numeric Telegram ID or existing @username.')
+
+        user.status = UserStatus.APPROVED
+        user.onboarding_step = OnboardingStep.APPROVED
+        user.is_blocked = False
+        user.approved_at = now
+        user.approved_by = actor_telegram_id
+        self._audit(actor_telegram_id, 'USER_DIRECT_APPROVED', f'user:{user.id}', {'telegram_user_id': user.telegram_user_id})
+        self.db.commit()
+        self.db.refresh(user)
+        return user
 
     def suspend_user(self, user_id: int, actor_telegram_id: int) -> User:
         user = self.db.get(User, user_id)

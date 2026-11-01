@@ -164,3 +164,48 @@ async def test_start_delivers_welcome_video_and_reassurance(monkeypatch):
     assert 'Watch this live demonstration' in chat2.videos[0][1]
     assert len(chat2.messages) == 1
     assert '100% FREE ACCESS' in chat2.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_approve_command_and_vip_deep_link(monkeypatch):
+    engine = create_engine('sqlite+pysqlite:///:memory:')
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+
+    from app.bot import admin_handlers, handlers
+    monkeypatch.setattr(admin_handlers.settings, 'owner_telegram_id', 12345)
+    monkeypatch.setattr(admin_handlers, 'SessionLocal', session_factory)
+    monkeypatch.setattr(handlers, 'SessionLocal', session_factory)
+
+    # 1. Owner uses /approve on a new lead ID
+    chat = DummyChat()
+    msg = DummyMessage()
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=12345),
+        effective_chat=chat,
+        message=msg,
+    )
+    context = SimpleNamespace(args=['555123'])
+    await admin_handlers.approve_command(update, context)
+    assert any('APPROVED INSTANTLY' in r for r in msg.replies)
+
+    # 2. When that lead types /start, they are immediately approved!
+    lead_chat = DummyChat()
+    lead_update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=555123, username='vip_lead', first_name='VIP'),
+        effective_chat=lead_chat,
+    )
+    lead_context = SimpleNamespace(args=[])
+    await handlers.start(lead_update, lead_context)
+    assert any('Access active' in m for m in lead_chat.messages)
+
+    # 3. Test VIP referral link (?start=vip)
+    direct_chat = DummyChat()
+    direct_update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=999888, username='direct_lead', first_name='DirectVIP'),
+        effective_chat=direct_chat,
+    )
+    direct_context = SimpleNamespace(args=['vip'])
+    await handlers.start(direct_update, direct_context)
+    assert any('VIP ACCESS' in m for m in direct_chat.messages)
+    assert any('Access active' in m for m in direct_chat.messages)
