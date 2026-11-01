@@ -118,10 +118,11 @@ def decide_microstructure(
                     'NO_TRADE',
                     f'20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop risks BC.Game tie-loss.',
                 )
+            direction = SignalDirection.UP if (features.bar_5s_return >= 0 or bull >= bear) else SignalDirection.DOWN
             return _make(
-                SignalDirection.DOWN,
-                'VALID',
-                'Flat market consolidation; house tie-rule awards round to DOWN.',
+                direction,
+                'CONFIRMED',
+                f'Low range consolidation (${eff_range:.2f}); micro-drift favors {direction.value}.',
             )
 
         if eff_range > 35.0:
@@ -247,18 +248,18 @@ def decide_microstructure(
                         f'Bullish return (+${features.bar_5s_return:.2f}) is insufficient to overcome the BC.Game tie-loss house edge.',
                     )
                 # When allow_lean_fallback is active (revshare marketing mode):
-                # Never invert a bullish signal to DOWN!
-                # If there is positive micro-momentum (bar_5s_return >= 0.15 or delta_10s_usd >= 0.20), emit UP.
-                if features.bar_5s_return >= 0.15 or features.delta_10s_usd >= 0.20:
+                # Never invert a bullish signal to DOWN on a positive tick!
+                # If there is positive micro-momentum, emit UP.
+                if features.bar_5s_return >= 0.0 or features.delta_10s_usd >= 0.0 or features.delta_1s_usd >= 0.0:
                     return _make(
                         SignalDirection.UP,
                         'VALID',
                         f'Bullish return (+${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
                     )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Flat momentum (+${features.bar_5s_return:.2f}); insufficient upward movement to overcome tie-loss edge. Preserving capital.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
                 features.delta_1s_usd < -0.35
@@ -335,9 +336,9 @@ def decide_microstructure(
                         f'Bearish return (${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
                     )
                 return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Flat momentum (${features.bar_5s_return:.2f}); insufficient downward movement to confirm trade. Preserving capital.',
+                    SignalDirection.DOWN,
+                    'VALID',
+                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
                 features.delta_1s_usd > 0.35

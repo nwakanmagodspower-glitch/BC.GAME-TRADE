@@ -26,25 +26,23 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
 
 
 def _room_label() -> str:
-    room = getattr(settings, 'detrade_stake_room', None) or getattr(settings, 'default_stake_band', '1-50')
-    if not room.startswith('$'):
-        room = f'${room}'
-    return room
+    return 'All Rooms ($1–$50, $50–$100, $100+)'
 
 
 def format_scan_context() -> str:
     room = _room_label()
     return (
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
-        '🎯 CORRECT MARKET\n'
-        'Pair: BTC/USD\n'
-        'Duration: 5 Seconds\n'
-        f'Room: {room}\n\n'
+        '🎯 ALL STAKE ROOMS SUPPORTED:\n'
+        '• $1–$50 (Standard)\n'
+        '• $50–$100 (High Staker)\n'
+        '• $100–$200+ (VIP)\n\n'
+        '💡 The signal works universally across all rooms (same BTC chart & round timing).\n\n'
         '🎯 SIGNAL GUIDE:\n'
         '• 🔥 STAKE HIGH — Highest Confidence Setup (Best Win Rate)\n'
         '• Standard Signal — Strong Market Movement (Normal Trade)\n'
         '• 🛡️ Skip Round — Flat Market or Sideways Movement\n\n'
-        f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
+        '1️⃣ Open BCGAME Up/Down and choose any room of your choice ($1–$50, $50–$100, $100–$200+).\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
         '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.\n\n'
         '🟢 UP — Clear upward move\n'
@@ -198,9 +196,9 @@ def format_signal(signal: Signal) -> str:
             ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
 
     if 'stake high' in stake_rec.lower():
-        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Best Win Rate)\n'
+        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (5% Allocation • Best Win Rate)\n'
     else:
-        stake_line = ''
+        stake_line = '🎯 Recommended Stake: 2%–3% Allocation (Protect Capital)\n'
 
     action = (
         'Recorded for PAPER validation only.'
