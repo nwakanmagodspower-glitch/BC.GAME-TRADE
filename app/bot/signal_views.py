@@ -39,9 +39,9 @@ def format_scan_context() -> str:
         '• $100–$200+\n\n'
         '💡 The signal works universally across all rooms (same BTC chart & round timing).\n\n'
         '🎯 SIGNAL GUIDE:\n'
-        '• 🔥 STAKE HIGH — Highest Confidence Setup (Best Win Rate)\n'
-        '• Standard Signal — Strong Market Movement (Normal Trade)\n'
-        '• 🛡️ Skip Round — Flat Market or Sideways Movement\n\n'
+        '• 🟢 UP — Clear upward move\n'
+        '• 🔴 DOWN — Clear downward move\n'
+        '• ⚪ NO TRADE — Flat market or sideways move (skip round)\n\n'
         '1️⃣ Open BCGAME Up/Down and choose any room of your choice ($1–$50, $50–$100, $100–$200+).\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
         '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.\n\n'
@@ -125,7 +125,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Round Already Started\n\n'
                 '⏱️ Window: The round countdown has already reached 0:00\n'
-                '🎯 Stake: 🛡️ Skip Round\n\n'
+                '🎯 Action: 🛡️ Skip Round\n\n'
                 '💡 Wait for the next round countdown and tap Scan to get your signal.'
                 + paper
             )
@@ -135,7 +135,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Trend Conflict\n\n'
                 '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
-                '🎯 Stake: 🛡️ Skip Round (Wait for trend alignment)\n\n'
+                '🎯 Action: 🛡️ Skip Round (Wait for trend alignment)\n\n'
                 'Preserve capital and wait for momentum that aligns with the macro trend.'
                 + paper
             )
@@ -148,7 +148,7 @@ def format_signal(signal: Signal) -> str:
                 '⚪ NO TRADE — Low Market Speed\n'
                 '🛡️ Chop Defense: Capital Preserved\n\n'
                 f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
-                '🎯 Stake: 🛡️ Skip Round\n\n'
+                '🎯 Action: 🛡️ Skip Round\n\n'
                 '💡 Market momentum is too low for a high-probability trade.\n'
                 'Skipping preserves your balance until clean momentum returns.\n\n'
                 'Wait for a fresh round with active movement before scanning again.'
@@ -158,7 +158,7 @@ def format_signal(signal: Signal) -> str:
         return (
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n\n'
-            '🎯 Stake: 🛡️ Skip Round\n'
+            '🎯 Action: 🛡️ Skip Round\n'
             'No qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
             'Skip this round rather than forcing an entry, and wait for a clear directional setup.'
             + paper
@@ -195,10 +195,7 @@ def format_signal(signal: Signal) -> str:
         if prob:
             ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
 
-    if 'stake high' in stake_rec.lower():
-        stake_line = '🎯 Recommended Trade Size: 🔥 STAKE HIGH (5% of balance • Top Momentum)\n'
-    else:
-        stake_line = '🎯 Recommended Trade Size: 2%–3% of balance\n'
+    stake_line = ''
 
     action = (
         'Recorded for PAPER validation only.'
@@ -212,7 +209,6 @@ def format_signal(signal: Signal) -> str:
         + f'🔥 Strength: {quality} • {conf_tag}\n'
         + speed_line
         + entry_window
-        + stake_line
         + '\n'
         + action
         + paper

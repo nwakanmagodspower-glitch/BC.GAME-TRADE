@@ -54,24 +54,17 @@ async def _send_help(chat) -> None:
         '• $50–$100\n'
         '• $100–$200+\n\n'
         '💡 The signal works universally across ALL rooms because every room shares the exact same 5-second Bitcoin chart, Start Rate, and End Rate!\n\n'
-        '2️⃣ RECOMMENDED TRADE SIZE\n'
-        'For steady daily compounding, use this smart sizing strategy:\n'
-        '• Standard Signal: Trade 2%–3% of your balance\n'
-        '• 🔥 STAKE HIGH: Trade up to 5% of your balance\n'
-        'This strategy keeps your balance growing steadily every session!\n\n'
-        '3️⃣ WAIT FOR A FRESH ROUND\n'
+        '2️⃣ WAIT FOR A FRESH ROUND\n'
         'Watch the round timer on BC.GAME and wait for a new order countdown to begin (~15–20s).\n\n'
-        '4️⃣ SCAN FOR SIGNAL\n'
+        '3️⃣ SCAN FOR SIGNAL\n'
         'Watch the countdown on BC.GAME. Tap ⚡ BTC 5s Signal when the countdown is between 8s to 12s remaining for maximum comfort and accuracy.\n\n'
-        '5️⃣ READ THE SIGNAL GUIDE\n'
+        '4️⃣ READ THE SIGNAL GUIDE\n'
         '🟢 UP — Strong upward move\n'
         '🔴 DOWN — Strong downward move\n'
-        '⚪ NO TRADE — Flat or sideways market (skip round)\n'
-        '🔥 STAKE HIGH — Highest confidence setup (best win rate)\n'
-        '🛡️ Skip Round — Market moving sideways without clear direction\n\n'
-        '6️⃣ PLACE THE TRADE\n'
+        '⚪ NO TRADE — Flat or sideways market (skip round)\n\n'
+        '5️⃣ PLACE THE TRADE\n'
         'If you receive UP or DOWN, return to BC.GAME and tap that direction immediately before the countdown reaches 0:00.\n\n'
-        '7️⃣ RESULT\n'
+        '6️⃣ RESULT\n'
         'At 0:00, BCGAME records the Start Rate. Five seconds later it records the End Rate.\n\n'
         'End Rate > Start Rate → UP wins\n'
         'End Rate ≤ Start Rate → DOWN wins'
@@ -128,8 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 '⚡ BCGAME AI SIGNALS — VIP ACCESS\n\n'
                 f'👋 Welcome {tg_user.first_name or "Trader"}!\n'
                 '✅ Access active! Choose what you want to do below.\n\n'
-                '🎯 Universal Signals: Works on ALL rooms ($1–$50, $50–$100, $100–$200+).\n'
-                '💡 Recommended Trade Size: 2%–3% of balance for steady daily compounding.'
+                '🎯 Universal Signals: Works on ALL rooms ($1–$50, $50–$100, $100–$200+).'
             )
             await update.effective_chat.send_message(welcome_text, reply_markup=_approved_menu())
             return
@@ -235,7 +227,6 @@ TIER_INFO = {
         'name': '🥉 7-Day Access (₦15,000)',
         'amount': '₦15,000',
         'trial': '7-Day Free Trial',
-        'stake': '₦3,000 – ₦3,500 / trade',
         'scans': '3 to 4 Scans Daily',
         'daily_profit': '₦6,000 – ₦8,000+',
         'trial_profit': '₦40,000 – ₦50,000+',
@@ -244,7 +235,6 @@ TIER_INFO = {
         'name': '🥈 14-Day Access (₦25,000) ⭐',
         'amount': '₦25,000 or more',
         'trial': '14-Day Free Trial (⭐ Most Popular)',
-        'stake': '₦3,500 – ₦5,000 / trade',
         'scans': '5 to 8 Scans Daily',
         'daily_profit': '₦15,000 – ₦25,000+',
         'trial_profit': '₦150,000 – ₦250,000+',
@@ -253,7 +243,6 @@ TIER_INFO = {
         'name': '🥇 30-Day VIP Access (₦50,000+)',
         'amount': '₦50,000 or more',
         'trial': '30-Day Full VIP Trial',
-        'stake': '₦7,500 – ₦10,000 / trade',
         'scans': 'Unlimited Scans Daily',
         'daily_profit': '₦35,000 – ₦50,000+',
         'trial_profit': '₦500,000+',
@@ -286,7 +275,6 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
             f'🎯 SELECTED: {info["name"]}\n\n'
             '📊 PROFIT PROJECTION:\n'
             f'• Capital: {info["amount"]}\n'
-            f'• Recommended Stake: {info["stake"]}\n'
             f'• Signals: {info["scans"]}\n'
             f'• Target Daily Profit: {info["daily_profit"]}\n'
             f'• Expected Trial Profit: {info["trial_profit"]} (covers future renewal from profit!)\n\n'

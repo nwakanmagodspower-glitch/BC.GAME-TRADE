@@ -150,7 +150,13 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
         },
     )
     text_prime = signal_views.format_signal(signal_prime)
-    assert 'STAKE HIGH' in text_prime
+    assert '🟢 UP SIGNAL' in text_prime
+    assert 'STRONG' in text_prime
+    # Verify no trade amount or percentage is recommended on any signal
+    assert 'Recommended Trade Size' not in text_prime
+    assert 'Recommended Stake' not in text_prime
+    assert '2%' not in text_prime
+    assert '5%' not in text_prime
 
     signal_std = Signal(
         direction=SignalDirection.DOWN,
