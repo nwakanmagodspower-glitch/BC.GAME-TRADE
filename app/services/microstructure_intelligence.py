@@ -290,6 +290,7 @@ class MicrostructureIntelligenceService:
             'projected_expiry_drift_usd': features.projected_expiry_drift_usd,
             'stake_tier': decision.stake_tier,
             'stake_recommendation': decision.stake_recommendation,
+            'ai_result': decision.ai_result.to_dict() if getattr(decision, 'ai_result', None) and hasattr(decision.ai_result, 'to_dict') else None,
         }
 
         return MicrostructureIntelligenceResult(

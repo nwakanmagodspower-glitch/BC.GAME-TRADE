@@ -71,6 +71,14 @@ def _entry_window_text(signal: Signal) -> str:
 
 
 def _format_confidence_tag(decision: dict) -> str:
+    ai_pred = decision.get('ai_prediction')
+    if ai_pred and isinstance(ai_pred, dict):
+        conf = ai_pred.get('confidence_pct')
+        regime = ai_pred.get('ai_regime', '')
+        regime_label = regime.replace('_', ' ').title()
+        if conf:
+            return f'{conf}% ({regime_label})'
+
     bull = decision.get('bull_score', 0)
     bear = decision.get('bear_score', 0)
     peak = max(bull, bear)
@@ -162,6 +170,14 @@ def format_signal(signal: Signal) -> str:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
 
+    ai_pred = decision.get('ai_prediction')
+    ai_line = ''
+    if ai_pred and isinstance(ai_pred, dict):
+        prob = ai_pred.get('up_probability' if signal.direction == SignalDirection.UP else 'down_probability')
+        regime = ai_pred.get('ai_regime', '').replace('_', ' ').title()
+        if prob:
+            ai_line = f'🤖 AI Probability: {int(round(float(prob) * 100))}% {signal.direction.value} • {regime}\n'
+
     if 'stake high' in stake_rec.lower():
         stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Maximum Conviction)\n'
     else:
@@ -175,7 +191,8 @@ def format_signal(signal: Signal) -> str:
     return (
         f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
         f'{icon} {signal.direction.value} SIGNAL\n\n'
-        f'🔥 Strength: {quality} • {conf_tag}\n'
+        + ai_line
+        + f'🔥 Strength: {quality} • {conf_tag}\n'
         + speed_line
         + entry_window
         + stake_line

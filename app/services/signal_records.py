@@ -81,6 +81,7 @@ class SignalRecordService:
                 'reason': result.decision.reason,
                 'stake_tier': result.decision.stake_tier,
                 'stake_recommendation': result.decision.stake_recommendation,
+                'ai_prediction': result.decision.ai_result.to_dict() if getattr(result.decision, 'ai_result', None) and hasattr(result.decision.ai_result, 'to_dict') else None,
             }
         if result.engine_details is not None:
             feature_data['_engine'] = result.engine_details

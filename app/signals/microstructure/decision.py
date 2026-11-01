@@ -17,6 +17,7 @@ class MicrostructureDecision:
     reason: str
     stake_tier: str = 'DEFENSIVE'
     stake_recommendation: str = '🛡️ PRESERVE CAPITAL (Skip round — wait for Prime)'
+    ai_result: Any | None = None
 
 
 def decide_microstructure(
@@ -40,6 +41,12 @@ def decide_microstructure(
     bear = score.bear_score
     margin = abs(bull - bear)
 
+    try:
+        from app.services.ai_intelligence import ai_microstructure_predictor
+        ai_pred = ai_microstructure_predictor.predict(features, is_synthetic=is_synthetic)
+    except Exception:
+        ai_pred = None
+
     def _make(dir_val: SignalDirection, qual_val: str, reason_val: str) -> MicrostructureDecision:
         if dir_val != SignalDirection.NO_TRADE:
             peak = max(bull, bear)
@@ -61,6 +68,7 @@ def decide_microstructure(
             reason=reason_val,
             stake_tier=tier,
             stake_recommendation=rec,
+            ai_result=ai_pred,
         )
 
     # Execution countdown gate: only veto if the round has already started (<= 0.0s)
@@ -145,7 +153,14 @@ def decide_microstructure(
 
     # Parabolic Pre-Start Impulse / Exhaustion Gate (Synthetic OTC Defense)
     if is_synthetic:
-        if features.delta_5s_usd > 8.0 or features.bar_5s_return > 7.0:
+        cum_up = max(features.delta_5s_usd, features.bar_5s_return, features.delta_10s_usd * 0.70)
+        cum_down = min(features.delta_5s_usd, features.bar_5s_return, features.delta_10s_usd * 0.70)
+        has_exhaustion_top = (
+            features.delta_5s_usd > 8.0
+            or features.bar_5s_return > 7.0
+            or (cum_up >= 5.0 and (features.internal_acceleration_usd < -0.10 or features.pullback_from_extremum >= 0.35 or features.delta_1s_usd < 0.10))
+        )
+        if has_exhaustion_top:
             if not allow_lean_fallback:
                 return _make(
                     SignalDirection.NO_TRADE,
@@ -157,7 +172,12 @@ def decide_microstructure(
                 'VALID',
                 'Exhaustion top on pre-start 5s impulse; mean-reversion favors DOWN.',
             )
-        if features.delta_5s_usd < -8.0 or features.bar_5s_return < -7.0:
+        has_exhaustion_bottom = (
+            features.delta_5s_usd < -8.0
+            or features.bar_5s_return < -7.0
+            or (cum_down <= -5.0 and (features.internal_acceleration_usd > 0.10 or features.delta_1s_usd > -0.10))
+        )
+        if has_exhaustion_bottom:
             if not allow_lean_fallback:
                 return _make(
                     SignalDirection.NO_TRADE,
@@ -424,25 +444,39 @@ def decide_microstructure(
                 'CONFIRMED',
                 f'Bearish momentum bias (Bear {bear} vs Bull {bull}, ${features.bar_5s_return:.2f}) leading order flow.',
             )
-        elif bear > bull:
+        elif bear > bull and features.bar_5s_return <= 0:
             return _make(
                 SignalDirection.DOWN,
                 'CONFIRMED',
                 f'Bearish order flow bias (Bear {bear} vs Bull {bull}) leading order flow.',
             )
-        elif bull > bear and features.bar_5s_return > 0:
+        elif bull > bear and features.bar_5s_return >= 0:
             return _make(
                 SignalDirection.UP,
                 'CONFIRMED',
                 f'Bullish order flow bias (Bull {bull} vs Bear {bear}) leading order flow.',
             )
         else:
-            # Under flat chop or weak momentum, house tie rule awards neutral rounds to DOWN
-            return _make(
-                SignalDirection.DOWN,
-                'CONFIRMED',
-                'Flat chop / low velocity; BC.Game house tie-rule awards neutral rounds to DOWN.',
-            )
+            # Under flat chop or weak momentum, never guess against micro-flow!
+            if features.bar_5s_return >= 0.10 or features.delta_1s_usd >= 0.10:
+                return _make(
+                    SignalDirection.UP,
+                    'CONFIRMED',
+                    f'Micro-tick upward momentum (+${features.bar_5s_return:.2f}) leading order flow.',
+                )
+            elif features.bar_5s_return <= -0.10 or features.delta_1s_usd <= -0.10:
+                return _make(
+                    SignalDirection.DOWN,
+                    'CONFIRMED',
+                    f'Micro-tick downward momentum (${features.bar_5s_return:.2f}) leading order flow.',
+                )
+            else:
+                # Flat market consolidation where return is practically zero (< $0.10)
+                return _make(
+                    SignalDirection.DOWN,
+                    'CONFIRMED',
+                    'Flat chop / low velocity; BC.Game house tie-rule awards neutral rounds to DOWN.',
+                )
 
     return _make(
         SignalDirection.NO_TRADE,
