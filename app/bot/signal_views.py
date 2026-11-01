@@ -40,17 +40,17 @@ def format_scan_context() -> str:
         'Pair: BTC/USD\n'
         'Duration: 5 Seconds\n'
         f'Room: {room}\n\n'
-        '🎯 SIGNAL GUIDANCE:\n'
-        '• 🔥 STAKE HIGH — Rare 10/10 Institutional Prime Setup (Maximum Conviction)\n'
-        '• Standard Signal — Market Momentum Direction (Normal Execution)\n'
-        '• 🛡️ Skip Round — Choppy Market or Counter-Trend\n\n'
+        '🎯 SIGNAL GUIDE:\n'
+        '• 🔥 STAKE HIGH — Highest Confidence Setup (Best Win Rate)\n'
+        '• Standard Signal — Strong Market Movement (Normal Trade)\n'
+        '• 🛡️ Skip Round — Flat Market or Sideways Movement\n\n'
         f'1️⃣ Open BCGAME Up/Down and select {room}. Do not choose UP or DOWN yet.\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
         '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.\n\n'
-        '🟢 UP — qualified upward setup (exhaustion filtered)\n'
-        '🔴 DOWN — qualified downward setup\n'
-        '⚪ NO TRADE — no qualified setup (flat chop or counter-trend)\n'
-        '⚠️ UNAVAILABLE — round already started or data syncing'
+        '🟢 UP — Clear upward move\n'
+        '🔴 DOWN — Clear downward move\n'
+        '⚪ NO TRADE — Flat market or sideways move (skip round)\n'
+        '⚠️ UNAVAILABLE — Round already started or updating'
     )
 
 
@@ -61,13 +61,31 @@ def _entry_window_text(signal: Signal) -> str:
     if round_meta.get('source') == 'DETRADE_SYNC':
         remaining = round_meta.get('remaining_seconds_at_scan')
         if isinstance(remaining, (int, float)):
-            lines.append(f'⏱️ Entry window: ~{float(remaining):.1f}s (Start Rate in {float(remaining):.1f}s • 5.0s Game)\n')
+            lines.append(f'⏱️ Entry window: ~{float(remaining):.1f}s\n')
 
     projected = data.get('projected_expiry_drift_usd')
     if isinstance(projected, (int, float)) and abs(projected) >= 0.15:
         sign = '+' if projected > 0 else ''
-        lines.append(f'🎯 Expiry Target: {sign}${float(projected):.2f} projected at finish\n')
+        lines.append(f'🎯 Expected Target: {sign}${float(projected):.2f}\n')
     return ''.join(lines)
+
+
+REGIME_HUMAN_NAMES = {
+    'LAMINAR_THRUST': 'Strong Trend',
+    'MOMENTUM_EXPANSION': 'Fast Momentum',
+    'EXHAUSTION_TOP': 'Reversal Down',
+    'EXHAUSTION_BOTTOM': 'Reversal Up',
+    'BOUNDED_REBOUND': 'Support Bounce',
+    'MODERATE_LEAN': 'Steady Move',
+    'MICRO_CHOP': 'Flat Market',
+}
+
+
+def _human_regime_label(raw: str) -> str:
+    if not raw:
+        return 'Confirmed Move'
+    upper = raw.upper()
+    return REGIME_HUMAN_NAMES.get(upper, upper.replace('_', ' ').title())
 
 
 def _format_confidence_tag(decision: dict) -> str:
@@ -75,17 +93,17 @@ def _format_confidence_tag(decision: dict) -> str:
     if ai_pred and isinstance(ai_pred, dict):
         conf = ai_pred.get('confidence_pct')
         regime = ai_pred.get('ai_regime', '')
-        regime_label = regime.replace('_', ' ').title()
+        human_regime = _human_regime_label(regime)
         if conf:
-            return f'{conf}% ({regime_label})'
+            return f'{conf}% ({human_regime})'
 
     bull = decision.get('bull_score', 0)
     bear = decision.get('bear_score', 0)
     peak = max(bull, bear)
     if peak >= 7:
-        return '94% (High Conviction)'
+        return '94% (Very High Confidence)'
     elif peak >= 5:
-        return '85% (Triple Confluence)'
+        return '85% (High Confidence)'
     return '75% (Confirmed)'
 
 
@@ -174,12 +192,13 @@ def format_signal(signal: Signal) -> str:
     ai_line = ''
     if ai_pred and isinstance(ai_pred, dict):
         prob = ai_pred.get('up_probability' if signal.direction == SignalDirection.UP else 'down_probability')
-        regime = ai_pred.get('ai_regime', '').replace('_', ' ').title()
+        regime = ai_pred.get('ai_regime', '')
+        human_regime = _human_regime_label(regime)
         if prob:
-            ai_line = f'🤖 AI Probability: {int(round(float(prob) * 100))}% {signal.direction.value} • {regime}\n'
+            ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
 
     if 'stake high' in stake_rec.lower():
-        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Maximum Conviction)\n'
+        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (Best Win Rate)\n'
     else:
         stake_line = ''
 

@@ -97,3 +97,4 @@ def test_ai_filters_micro_chop_defense():
     assert res.predicted_direction == "NO_TRADE"
     assert res.ai_regime == "MICRO_CHOP"
     assert "micro-chop" in res.reasoning.lower()
+

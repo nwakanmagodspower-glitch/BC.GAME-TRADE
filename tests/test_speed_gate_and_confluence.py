@@ -137,6 +137,6 @@ def test_telegram_formatting_active_signal_displays_momentum_range():
 
     rendered = format_signal(signal)
     assert '🟢 UP SIGNAL' in rendered
-    assert '🔥 Strength: STRONG • 85% (Triple Confluence)' in rendered
+    assert '🔥 Strength: STRONG • 85% (High Confidence)' in rendered
     assert '📊 Momentum Range: $3.45 expansion' in rendered
     assert '⏱️ Entry window: ~9.2s' in rendered

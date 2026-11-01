@@ -151,9 +151,9 @@ services:
       - key: TELEGRAM_USER_UPDATE_WINDOW_SECONDS
         value: "10"
       - key: TEMPORARY_RETENTION_DAYS
-        value: "10"
+        value: "3"
       - key: CLEANUP_INTERVAL_SECONDS
-        value: "86400"
+        value: "21600"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET

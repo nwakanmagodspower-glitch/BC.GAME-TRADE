@@ -220,42 +220,24 @@ def decide_microstructure(
     # Decision logic
     if bull >= min_score and bull - bear >= effective_up_margin:
         if (slow_bearish and has_bearish_conflict) or trend_strongly_bearish:
-            if not allow_lean_fallback:
-                return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
-                )
             return _make(
-                SignalDirection.DOWN,
-                'VALID',
-                'Trend conflict against bull; broader macro flow favors DOWN.',
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
             )
 
         if is_synthetic:
             if features.regime_classification == 'BOUNDED_BOUNCE' and features.station_nearest_barrier_type == 'UPPER':
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
-                    )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; barrier resistance favors DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Station ceiling barrier (${features.station_barrier_upper:.0f}) rejection; bounded bounce vetoes UP.',
                 )
             if features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.20:
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
-                    )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling; rejection favors DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Price is within ${features.station_barrier_dist_upper:.2f} of $50 station ceiling. Skipping UP to avoid barrier rejection.',
                 )
             if features.bar_5s_return < 0.60 and features.delta_30s_usd < 2.5:
                 if not allow_lean_fallback:
@@ -274,9 +256,9 @@ def decide_microstructure(
                         f'Bullish return (+${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
                     )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Flat momentum (+${features.bar_5s_return:.2f}); insufficient upward movement to overcome tie-loss edge. Preserving capital.',
                 )
             if (
                 features.delta_1s_usd < -0.35
@@ -284,16 +266,10 @@ def decide_microstructure(
                 or features.velocity_1s_bps < -0.45
                 or features.internal_velocity_usd < -0.45
             ):
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        'Price is actively ticking down; entering UP risks immediate adverse movement.',
-                    )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Price actively ticking down into start; micro-momentum favors DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Price is actively ticking down; entering UP risks immediate adverse movement.',
                 )
 
             if (
@@ -323,42 +299,24 @@ def decide_microstructure(
 
     if bear >= min_score and bear - bull >= min_margin:
         if (slow_bullish and has_bullish_conflict) or trend_strongly_bullish:
-            if not allow_lean_fallback:
-                return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
-                )
             return _make(
-                SignalDirection.UP,
-                'VALID',
-                'Trend conflict against bear; broader macro trend favors UP.',
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
             )
 
         if is_synthetic:
             if features.regime_classification == 'BOUNDED_BOUNCE' and features.station_nearest_barrier_type == 'LOWER':
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
-                    )
                 return _make(
-                    SignalDirection.UP,
-                    'VALID',
-                    f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; barrier support favors UP.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Station floor barrier (${features.station_barrier_lower:.0f}) rejection; bounded bounce vetoes DOWN.',
                 )
             if features.station_barrier_lower > 0 and features.station_barrier_dist_lower < 1.20:
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
-                    )
                 return _make(
-                    SignalDirection.UP,
-                    'VALID',
-                    f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor; bounce favors UP.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Price is within ${features.station_barrier_dist_lower:.2f} of $50 station floor. Skipping DOWN to avoid barrier bounce.',
                 )
             if features.bar_5s_return > -0.35 and features.delta_30s_usd > -1.5:
                 if not allow_lean_fallback:
@@ -377,9 +335,9 @@ def decide_microstructure(
                         f'Bearish return (${features.bar_5s_return:.2f}) confirmed by micro-momentum and order flow.',
                     )
                 return _make(
-                    SignalDirection.DOWN,
-                    'VALID',
-                    'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Flat momentum (${features.bar_5s_return:.2f}); insufficient downward movement to confirm trade. Preserving capital.',
                 )
             if (
                 features.delta_1s_usd > 0.35
@@ -387,16 +345,10 @@ def decide_microstructure(
                 or features.velocity_1s_bps > 0.45
                 or features.internal_velocity_usd > 0.45
             ):
-                if not allow_lean_fallback:
-                    return _make(
-                        SignalDirection.NO_TRADE,
-                        'NO_TRADE',
-                        'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
-                    )
                 return _make(
-                    SignalDirection.UP,
-                    'VALID',
-                    'Price actively ticking up into start; micro-momentum favors UP.',
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
                 )
 
             if (

@@ -121,8 +121,8 @@ class Settings(BaseSettings):
     verification_min_evidence_interval_seconds: float = 0.5
     verification_delivery_max_attempts: int = 5
 
-    temporary_retention_days: int = 10
-    cleanup_interval_seconds: int = 86400
+    temporary_retention_days: int = 3
+    cleanup_interval_seconds: int = 21600
 
 
 @lru_cache
