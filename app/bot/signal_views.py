@@ -34,9 +34,9 @@ def format_scan_context() -> str:
     return (
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
         '🎯 ALL STAKE ROOMS SUPPORTED:\n'
-        '• $1–$50 (Standard)\n'
-        '• $50–$100 (High Staker)\n'
-        '• $100–$200+ (VIP)\n\n'
+        '• $1–$50\n'
+        '• $50–$100\n'
+        '• $100–$200+\n\n'
         '💡 The signal works universally across all rooms (same BTC chart & round timing).\n\n'
         '🎯 SIGNAL GUIDE:\n'
         '• 🔥 STAKE HIGH — Highest Confidence Setup (Best Win Rate)\n'
@@ -196,9 +196,9 @@ def format_signal(signal: Signal) -> str:
             ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
 
     if 'stake high' in stake_rec.lower():
-        stake_line = '🎯 VIP Stake: 🔥 STAKE HIGH (5% Allocation • Best Win Rate)\n'
+        stake_line = '🎯 Recommended Trade Size: 🔥 STAKE HIGH (5% of balance • Top Momentum)\n'
     else:
-        stake_line = '🎯 Recommended Stake: 2%–3% Allocation (Protect Capital)\n'
+        stake_line = '🎯 Recommended Trade Size: 2%–3% of balance\n'
 
     action = (
         'Recorded for PAPER validation only.'

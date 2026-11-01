@@ -50,15 +50,15 @@ async def _send_help(chat) -> None:
         '⚡ BCGAME BTC/USD — 5 SECOND UP/DOWN\n\n'
         '1️⃣ CHOOSE YOUR STAKE ROOM\n'
         'Open BCGAME Up/Down and select any room of your choice:\n'
-        '• $1–$50 (Starter / Regular)\n'
-        '• $50–$100 (Medium Staker)\n'
-        '• $100–$200+ (VIP High Staker)\n\n'
+        '• $1–$50\n'
+        '• $50–$100\n'
+        '• $100–$200+\n\n'
         '💡 The signal works universally across ALL rooms because every room shares the exact same 5-second Bitcoin chart, Start Rate, and End Rate!\n\n'
-        '2️⃣ BANKROLL MANAGEMENT (CRITICAL)\n'
-        'Because one loss can take away profit, NEVER risk your whole balance on one trade! Follow the 2%–5% bankroll rule:\n'
-        '• Standard Signal: Stake 2%–3% of your wallet balance\n'
-        '• 🔥 STAKE HIGH: Stake up to 5% of your wallet balance\n'
-        'This ensures you always stay in profit even during natural market variations!\n\n'
+        '2️⃣ RECOMMENDED TRADE SIZE\n'
+        'For steady daily compounding, use this smart sizing strategy:\n'
+        '• Standard Signal: Trade 2%–3% of your balance\n'
+        '• 🔥 STAKE HIGH: Trade up to 5% of your balance\n'
+        'This strategy keeps your balance growing steadily every session!\n\n'
         '3️⃣ WAIT FOR A FRESH ROUND\n'
         'Watch the round timer on BC.GAME and wait for a new order countdown to begin (~15–20s).\n\n'
         '4️⃣ SCAN FOR SIGNAL\n'
@@ -129,7 +129,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f'👋 Welcome {tg_user.first_name or "Trader"}!\n'
                 '✅ Access active! Choose what you want to do below.\n\n'
                 '🎯 Universal Signals: Works on ALL rooms ($1–$50, $50–$100, $100–$200+).\n'
-                '💡 Bankroll Rule: Risk only 2%–3% of your balance per trade (5% on VIP).'
+                '💡 Recommended Trade Size: 2%–3% of balance for steady daily compounding.'
             )
             await update.effective_chat.send_message(welcome_text, reply_markup=_approved_menu())
             return
@@ -232,7 +232,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 TIER_INFO = {
     'starter': {
-        'name': '🥉 Starter (₦15,000) • 7-Day Trial',
+        'name': '🥉 7-Day Access (₦15,000)',
         'amount': '₦15,000',
         'trial': '7-Day Free Trial',
         'stake': '₦3,000 – ₦3,500 / trade',
@@ -241,7 +241,7 @@ TIER_INFO = {
         'trial_profit': '₦40,000 – ₦50,000+',
     },
     'pro': {
-        'name': '🥈 Pro Trader (₦25,000) • 14-Day Trial ⭐',
+        'name': '🥈 14-Day Access (₦25,000) ⭐',
         'amount': '₦25,000 or more',
         'trial': '14-Day Free Trial (⭐ Most Popular)',
         'stake': '₦3,500 – ₦5,000 / trade',
@@ -250,7 +250,7 @@ TIER_INFO = {
         'trial_profit': '₦150,000 – ₦250,000+',
     },
     'vip': {
-        'name': '🥇 VIP Elite (₦50,000+) • 30-Day Trial',
+        'name': '🥇 30-Day VIP Access (₦50,000+)',
         'amount': '₦50,000 or more',
         'trial': '30-Day Full VIP Trial',
         'stake': '₦7,500 – ₦10,000 / trade',
@@ -263,9 +263,9 @@ TIER_INFO = {
 
 def _deposit_tiers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('🥉 Starter (₦15,000) • 7-Day Trial', callback_data='onboard:tier:starter')],
-        [InlineKeyboardButton('🥈 Pro Trader (₦25,000) • 14-Day Trial ⭐', callback_data='onboard:tier:pro')],
-        [InlineKeyboardButton('🥇 VIP Elite (₦50,000+) • 30-Day Trial', callback_data='onboard:tier:vip')],
+        [InlineKeyboardButton('🥉 7-Day Access (₦15,000)', callback_data='onboard:tier:starter')],
+        [InlineKeyboardButton('🥈 14-Day Access (₦25,000) ⭐', callback_data='onboard:tier:pro')],
+        [InlineKeyboardButton('🥇 30-Day VIP Access (₦50,000+)', callback_data='onboard:tier:vip')],
     ])
 
 
@@ -358,7 +358,7 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 '⏳ Reservation: Expires in 1 Hour\n\n'
                 '⚡ HOW BCGAME AI WORKS:\n'
                 '• BCGAME’s Bitcoin Up/Down gives you 5 seconds to predict price direction.\n'
-                '• Manual guessing is risky. BCGAME AI tracks millisecond momentum to deliver high-accuracy 🟢 UP or 🔴 DOWN signals.\n\n'
+                '• Manual guessing is inconsistent. BCGAME AI tracks millisecond momentum to deliver high-accuracy 🟢 UP or 🔴 DOWN signals.\n\n'
                 '🔒 100% ACCOUNT SECURITY:\n'
                 'We NEVER ask for your password, email, or login details. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw anytime.\n\n'
                 '━━━━━━━━━━━━━━━━━━━━━\n'
