@@ -26,7 +26,7 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
 
 
 def _room_label() -> str:
-    return 'All Rooms ($1–$50, $50–$100, $100+)'
+    return 'All Rooms ($1–$50, $50–$100, $100–$200+)'
 
 
 def format_scan_context() -> str:
