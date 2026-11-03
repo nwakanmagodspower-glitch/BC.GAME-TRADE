@@ -119,7 +119,7 @@ def test_telegram_formatting_low_speed_educates_user():
 
     rendered = format_signal(signal)
     assert '⚪ NO TRADE — Low Market Speed' in rendered
-    assert '📊 BTC Speed: $0.65 range (Flat Chop)' in rendered
+    assert '📊 Market Movement: Flat Sideways Chop' in rendered
     assert 'Skipping preserves your balance until clean momentum returns.' in rendered
 
 
@@ -138,5 +138,6 @@ def test_telegram_formatting_active_signal_displays_momentum_range():
     rendered = format_signal(signal)
     assert '🟢 UP SIGNAL' in rendered
     assert '🔥 Strength: STRONG • 85% (High Confidence)' in rendered
-    assert '📊 Momentum Range: $3.45 expansion' in rendered
+    # Verify no confusing dollar amounts appear in signal body
+    assert '$3.45' not in rendered
     assert '⏱️ Entry window: ~9.2s' in rendered

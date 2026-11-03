@@ -61,10 +61,7 @@ def _entry_window_text(signal: Signal) -> str:
         if isinstance(remaining, (int, float)):
             lines.append(f'⏱️ Entry window: ~{float(remaining):.1f}s\n')
 
-    projected = data.get('projected_expiry_drift_usd')
-    if isinstance(projected, (int, float)) and abs(projected) >= 0.15:
-        sign = '+' if projected > 0 else ''
-        lines.append(f'🎯 Expected Target: {sign}${float(projected):.2f}\n')
+    pass
     return ''.join(lines)
 
 
@@ -147,7 +144,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Low Market Speed\n'
                 '🛡️ Chop Defense: Capital Preserved\n\n'
-                f'📊 BTC Speed: {range_str} range (Flat Chop)\n'
+                '📊 Market Movement: Flat Sideways Chop\n'
                 '🎯 Action: 🛡️ Skip Round\n\n'
                 '💡 Market momentum is too low for a high-probability trade.\n'
                 'Skipping preserves your balance until clean momentum returns.\n\n'
@@ -184,7 +181,7 @@ def format_signal(signal: Signal) -> str:
     lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
     if lead_range is None:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
-    speed_line = f'📊 Momentum Range: ${float(lead_range):.2f} expansion\n' if isinstance(lead_range, (int, float)) and lead_range > 0 else ''
+    speed_line = ''
 
     ai_pred = decision.get('ai_prediction')
     ai_line = ''
