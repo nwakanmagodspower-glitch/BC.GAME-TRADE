@@ -138,6 +138,14 @@ def decide_microstructure(
                 'STRONG',
                 f'High-volatility expansion breakout (${eff_range:.2f} 20s range); momentum favors {direction.value}.',
             )
+
+        # AI Kinematic Predictor: filter micro-chop consolidation where noise dominates
+        if ai_pred is not None and ai_pred.ai_regime == 'MICRO_CHOP' and not allow_lean_fallback:
+            return _make(
+                SignalDirection.NO_TRADE,
+                'NO_TRADE',
+                f'AI momentum predictor detected micro-chop consolidation ({ai_pred.confidence_pct}% confidence); edge is insufficient.',
+            )
     elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
             return _make(
@@ -262,18 +270,6 @@ def decide_microstructure(
                     'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
-                features.delta_1s_usd < -0.35
-                or features.delta_2s_usd < -0.50
-                or features.velocity_1s_bps < -0.45
-                or features.internal_velocity_usd < -0.45
-            ):
-                return _make(
-                    SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    'Price is actively ticking down; entering UP risks immediate adverse movement.',
-                )
-
-            if (
                 features.bar_5s_return >= 1.50
                 and features.pullback_from_extremum >= 0.50 * features.bar_5s_return
                 and features.delta_1s_usd < -0.15
@@ -284,7 +280,40 @@ def decide_microstructure(
                     f'Upward impulse peaked and pulled back (${features.pullback_from_extremum:.2f} wick); skipping UP to prevent buying top.',
                 )
 
-            if features.projected_expiry_drift_usd < -0.40:
+            if (
+                features.delta_1s_usd < -0.20
+                or features.delta_2s_usd < -0.40
+                or features.velocity_1s_bps < -0.35
+                or features.internal_velocity_usd < -0.35
+            ):
+                return _make(
+                    SignalDirection.NO_TRADE,
+                    'NO_TRADE',
+                    f'Price is actively ticking down (-${abs(features.delta_1s_usd):.2f}); entering UP risks adverse movement.',
+                )
+
+            # AI Kinematic Predictor Confluence for UP
+            if ai_pred is not None:
+                if ai_pred.ai_regime == 'EXHAUSTION_TOP':
+                    if not allow_lean_fallback:
+                        return _make(
+                            SignalDirection.NO_TRADE,
+                            'NO_TRADE',
+                            'AI detected overextended exhaustion top; buying UP risks retracement loss.',
+                        )
+                    return _make(
+                        SignalDirection.DOWN,
+                        'VALID',
+                        'Exhaustion top on pre-start impulse; mean-reversion favors DOWN.',
+                    )
+                if ai_pred.up_probability < 0.55 and not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'AI upward probability ({int(round(ai_pred.up_probability*100))}%) is below edge threshold.',
+                    )
+
+            if features.projected_expiry_drift_usd < -0.20:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
@@ -341,16 +370,37 @@ def decide_microstructure(
                     'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
-                features.delta_1s_usd > 0.35
-                or features.delta_2s_usd > 0.50
-                or features.velocity_1s_bps > 0.45
-                or features.internal_velocity_usd > 0.45
+                features.delta_1s_usd > 0.20
+                or features.delta_2s_usd > 0.40
+                or features.velocity_1s_bps > 0.35
+                or features.internal_velocity_usd > 0.35
             ):
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    'Price is actively ticking up; entering DOWN risks adverse upward breakout.',
+                    f'Price is actively ticking up (+${features.delta_1s_usd:.2f}); entering DOWN risks adverse upward breakout.',
                 )
+
+            # AI Kinematic Predictor Confluence for DOWN
+            if ai_pred is not None:
+                if ai_pred.ai_regime == 'EXHAUSTION_BOTTOM':
+                    if not allow_lean_fallback:
+                        return _make(
+                            SignalDirection.NO_TRADE,
+                            'NO_TRADE',
+                            'AI detected oversold exhaustion bottom; selling DOWN risks bounce loss.',
+                        )
+                    return _make(
+                        SignalDirection.UP,
+                        'VALID',
+                        'Exhaustion bottom on pre-start impulse; bounce favors UP.',
+                    )
+                if ai_pred.down_probability < 0.55 and not allow_lean_fallback:
+                    return _make(
+                        SignalDirection.NO_TRADE,
+                        'NO_TRADE',
+                        f'AI downward probability ({int(round(ai_pred.down_probability*100))}%) is below edge threshold.',
+                    )
 
             if (
                 features.bar_5s_return <= -1.50
@@ -369,7 +419,7 @@ def decide_microstructure(
                     'Downward impulse bottomed and bounced; mean-reversion bounce favors UP.',
                 )
 
-            if features.projected_expiry_drift_usd > 0.40:
+            if features.projected_expiry_drift_usd > 0.20:
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',

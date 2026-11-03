@@ -72,7 +72,7 @@ class AIMicrostructurePredictor:
                 is_exhaustion_bottom = True
 
         # 3. Micro-Chop Detection
-        is_flat_chop = (eff_range < 0.40 and abs(features.bar_5s_return) < 0.15 and abs(features.delta_10s_usd) < 0.25)
+        is_flat_chop = (eff_range < 0.65 and abs(features.bar_5s_return) < 0.35 and abs(features.delta_10s_usd) < 0.50)
 
         # 4. Station Barrier Dynamics ($50 rounds)
         near_upper = features.station_barrier_upper > 0 and features.station_barrier_dist_upper < 1.20
@@ -135,13 +135,13 @@ class AIMicrostructurePredictor:
             confidence = 50
             risk = 8
             reason = f"Micro-chop consolidation (${eff_range:.2f} range); momentum too flat for safe edge."
-        elif p_up >= min_probability_threshold and v_1s >= 0.05 and features.bar_5s_return >= 0.15:
+        elif p_up >= min_probability_threshold and v_1s >= 0.08 and features.bar_5s_return >= 0.30:
             direction = "UP"
             regime = "LAMINAR_THRUST" if eff >= 0.55 else "MOMENTUM_EXPANSION"
             confidence = int(round(p_up * 100))
             risk = 2 if confidence >= 85 else 4
             reason = f"AI Kinematic momentum confirmed ({confidence}% UP probability, +${features.bar_5s_return:.2f} return, {eff*100:.0f}% efficiency)."
-        elif p_down >= min_probability_threshold and v_1s <= -0.05 and features.bar_5s_return <= -0.15:
+        elif p_down >= min_probability_threshold and v_1s <= -0.08 and features.bar_5s_return <= -0.30:
             direction = "DOWN"
             regime = "LAMINAR_THRUST" if eff >= 0.55 else "MOMENTUM_EXPANSION"
             confidence = int(round(p_down * 100))
