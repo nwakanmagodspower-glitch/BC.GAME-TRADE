@@ -125,7 +125,8 @@ def test_no_trade_macro_trend_conflict():
     text = signal_views.format_signal(signal)
     assert '⚪ NO TRADE — Trend Conflict' in text
     assert 'Short-term tick contradicts macro 1-minute trend' in text
-    assert 'Preserve capital' in text
+    assert 'Wait for clear momentum that aligns with the broader trend.' in text
+    assert 'Preserve capital' not in text
 
 
 def test_directional_signal_dynamic_stake_guidance(monkeypatch):

@@ -55,7 +55,7 @@ def decide(
             margin=margin,
             reason=(
                 f'{target_prefix}Market speed is low (BTC range ${features.lead_range_dollars:.2f} < ${min_lead_range:.2f}). '
-                'Preserving balance from flat chop losses.'
+                'Waiting for active momentum expansion.'
             ),
         )
 

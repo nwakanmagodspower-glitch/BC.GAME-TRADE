@@ -16,7 +16,7 @@ class MicrostructureDecision:
     margin: int
     reason: str
     stake_tier: str = 'DEFENSIVE'
-    stake_recommendation: str = '🛡️ PRESERVE CAPITAL (Skip round — wait for Prime)'
+    stake_recommendation: str = '🛡️ Skip Round'
     ai_result: Any | None = None
 
 
@@ -130,7 +130,7 @@ def decide_microstructure(
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    f'20-second range is anomalous (${eff_range:.2f} > $35.00); extreme volatility risk.',
+                    f'20-second range is anomalous (${eff_range:.2f} > $35.00); extreme volatility.',
                 )
             direction = SignalDirection.UP if (features.bar_5s_return >= 0 or bull >= bear) else SignalDirection.DOWN
             return _make(
@@ -151,13 +151,13 @@ def decide_microstructure(
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); high tie/noise risk (DeTrade awards ties to DOWN).',
+                f'5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); high tie/noise probability (DeTrade awards ties to DOWN).',
             )
         if features.bar_5s_range > max_5s_range:
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                f'5-second bar range is overextended (${features.bar_5s_range:.2f} > ${max_5s_range:.2f}); high retracement risk.',
+                f'5-second bar range is overextended (${features.bar_5s_range:.2f} > ${max_5s_range:.2f}); high retracement probability.',
             )
 
     # Parabolic Pre-Start Impulse / Exhaustion Gate (Synthetic OTC Defense)
@@ -232,7 +232,7 @@ def decide_microstructure(
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                'Bullish fast microstructure conflicts strongly with broader bearish trend. Preserving capital against trend cascade.',
+                'Bullish fast microstructure conflicts strongly with broader bearish trend. Skipping entry against trend cascade.',
             )
 
         if is_synthetic:
@@ -317,7 +317,7 @@ def decide_microstructure(
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    f'Temporal horizon projection (${features.projected_expiry_drift_usd:.2f}) indicates price will finish negative at expiry; skipping UP to protect capital.',
+                    f'Temporal horizon projection (${features.projected_expiry_drift_usd:.2f}) indicates price will finish negative at expiry; skipping UP.',
                 )
 
         quality = 'STRONG' if (bull >= 6 and margin >= 3 and features.bar_5s_return >= 0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'
@@ -332,7 +332,7 @@ def decide_microstructure(
             return _make(
                 SignalDirection.NO_TRADE,
                 'NO_TRADE',
-                'Bearish fast microstructure conflicts strongly with broader bullish trend. Preserving capital against trend continuation.',
+                'Bearish fast microstructure conflicts strongly with broader bullish trend. Skipping entry against trend continuation.',
             )
 
         if is_synthetic:
@@ -423,7 +423,7 @@ def decide_microstructure(
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    f'Temporal horizon projection (+${features.projected_expiry_drift_usd:.2f}) indicates price will finish positive at expiry; skipping DOWN to protect capital.',
+                    f'Temporal horizon projection (+${features.projected_expiry_drift_usd:.2f}) indicates price will finish positive at expiry; skipping DOWN.',
                 )
 
         quality = 'STRONG' if (bear >= 6 and margin >= 3 and features.bar_5s_return <= -0.80) or features.regime_classification == 'SURGE_BREAKOUT' else 'VALID'

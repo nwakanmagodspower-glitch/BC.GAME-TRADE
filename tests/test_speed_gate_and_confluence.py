@@ -56,7 +56,7 @@ def test_low_speed_veto_blocks_trade_during_quiet_chop():
     assert decision.direction == SignalDirection.NO_TRADE
     assert decision.quality == 'LOW_SPEED'
     assert 'BTC range $0.75 < $1.50' in decision.reason
-    assert 'Preserving balance from flat chop losses' in decision.reason
+    assert 'Waiting for active momentum expansion' in decision.reason
 
 
 def test_active_speed_allows_trade_when_confluent():
@@ -120,7 +120,7 @@ def test_telegram_formatting_low_speed_educates_user():
     rendered = format_signal(signal)
     assert '⚪ NO TRADE — Low Market Speed' in rendered
     assert '📊 Market Movement: Flat Sideways Chop' in rendered
-    assert 'Skipping preserves your balance until clean momentum returns.' in rendered
+    assert 'Wait for a fresh round with clear directional movement before scanning again.' in rendered
 
 
 def test_telegram_formatting_active_signal_displays_momentum_range():

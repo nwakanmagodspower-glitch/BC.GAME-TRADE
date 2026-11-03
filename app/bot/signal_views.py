@@ -44,11 +44,7 @@ def format_scan_context() -> str:
         '• ⚪ NO TRADE — Flat market or sideways move (skip round)\n\n'
         '1️⃣ Open BCGAME Up/Down and choose any room of your choice ($1–$50, $50–$100, $100–$200+).\n\n'
         '2️⃣ Watch the round timer on BC.GAME.\n\n'
-        '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.\n\n'
-        '🟢 UP — Clear upward move\n'
-        '🔴 DOWN — Clear downward move\n'
-        '⚪ NO TRADE — Flat market or sideways move (skip round)\n'
-        '⚠️ UNAVAILABLE — Round already started or updating'
+        '3️⃣ Best Timing: Tap ⚡ Scan Market when the countdown is around 8s to 12s remaining. This gives you a comfortable 5–7 seconds to switch to BC.Game and place your trade with zero rush.'
     )
 
 
@@ -133,7 +129,7 @@ def format_signal(signal: Signal) -> str:
                 '⚪ NO TRADE — Trend Conflict\n\n'
                 '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
                 '🎯 Action: 🛡️ Skip Round (Wait for trend alignment)\n\n'
-                'Preserve capital and wait for momentum that aligns with the macro trend.'
+                'Wait for clear momentum that aligns with the broader trend.'
                 + paper
             )
 
@@ -142,13 +138,11 @@ def format_signal(signal: Signal) -> str:
             range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else f'<${min_range:.2f}'
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
-                '⚪ NO TRADE — Low Market Speed\n'
-                '🛡️ Chop Defense: Capital Preserved\n\n'
+                '⚪ NO TRADE — Low Market Speed\n\n'
                 '📊 Market Movement: Flat Sideways Chop\n'
                 '🎯 Action: 🛡️ Skip Round\n\n'
-                '💡 Market momentum is too low for a high-probability trade.\n'
-                'Skipping preserves your balance until clean momentum returns.\n\n'
-                'Wait for a fresh round with active movement before scanning again.'
+                '💡 Market momentum is too low for a high-probability trade.\n\n'
+                'Wait for a fresh round with clear directional movement before scanning again.'
                 + paper
             )
 
@@ -162,17 +156,6 @@ def format_signal(signal: Signal) -> str:
         )
 
     icon = '🟢' if signal.direction == SignalDirection.UP else '🔴'
-    stake_rec = decision.get('stake_recommendation') or ''
-    if not stake_rec or 'allocation' in stake_rec.lower() or 'setup' in stake_rec.lower():
-        bull = decision.get('bull_score', 0)
-        bear = decision.get('bear_score', 0)
-        peak = max(bull, bear)
-        margin = decision.get('margin', abs(bull - bear))
-        if peak >= 8 or (peak >= 6 and margin >= 4 and (signal.features_snapshot or {}).get('bar_5s_return', 0) >= 0.80):
-            stake_rec = '🔥 Stake High'
-        else:
-            stake_rec = ''
-
     quality = decision.get('quality', 'CONFIRMED')
     if quality == 'VALID':
         quality = 'CONFIRMED'
@@ -191,8 +174,6 @@ def format_signal(signal: Signal) -> str:
         human_regime = _human_regime_label(regime)
         if prob:
             ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
-
-    stake_line = ''
 
     action = (
         'Recorded for PAPER validation only.'

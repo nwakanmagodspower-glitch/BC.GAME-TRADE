@@ -96,13 +96,13 @@ def score_features(features: FeatureSnapshot) -> ScoreResult:
             if features.rsi_14 >= 74.0 or features.taker_buy_ratio >= 0.75:
                 bull = max(0, bull - 3)
                 reasons.append(
-                    f'bullish impulse risk of exhaustion across {features.target_lead_time_seconds:.1f}s '
+                    f'bullish impulse exhaustion across {features.target_lead_time_seconds:.1f}s '
                     'lead gap before contract window [T1, T2]'
                 )
             if features.rsi_14 <= 26.0 or features.taker_buy_ratio <= 0.25:
                 bear = max(0, bear - 3)
                 reasons.append(
-                    f'bearish impulse risk of exhaustion across {features.target_lead_time_seconds:.1f}s '
+                    f'bearish impulse exhaustion across {features.target_lead_time_seconds:.1f}s '
                     'lead gap before contract window [T1, T2]'
                 )
         elif features.trend_persistence_score == 2:

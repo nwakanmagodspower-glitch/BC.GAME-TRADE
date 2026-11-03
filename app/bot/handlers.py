@@ -274,7 +274,7 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
         text = (
             f'🎯 SELECTED: {info["name"]}\n\n'
             '📊 PROFIT PROJECTION:\n'
-            f'• Capital: {info["amount"]}\n'
+            f'• Deposit: {info["amount"]}\n'
             f'• Signals: {info["scans"]}\n'
             f'• Target Daily Profit: {info["daily_profit"]}\n'
             f'• Expected Trial Profit: {info["trial_profit"]} (covers future renewal from profit!)\n\n'
@@ -287,7 +287,7 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
     else:
         text = (
             '2️⃣ CHOOSE YOUR TRIAL LEVEL 💳\n\n'
-            'Select your capital level below to activate your signals and see your profit projection:\n\n'
+            'Select your access level below to activate your signals and see your profit projection:\n\n'
             '🔒 100% Secure: We NEVER ask for your password, email, or login details.'
         )
         markup = _deposit_tiers_keyboard()
