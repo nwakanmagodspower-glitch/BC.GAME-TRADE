@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     detrade_up_min_margin: int = 3
     detrade_allow_lean_fallback: bool = False
     detrade_latency_safety_margin_ms: int = 0
-    detrade_dispatch_min_remaining_ms: int = 3500
+    detrade_dispatch_min_remaining_ms: int = 0
     detrade_stale_after_ms: int = 8000
     detrade_probe_timeout_seconds: float = 2.5
     # User scans should not spend most of a short entry window waiting for a
