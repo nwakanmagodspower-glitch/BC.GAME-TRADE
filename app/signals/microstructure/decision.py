@@ -174,7 +174,7 @@ def decide_microstructure(
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    'Pre-start 5s impulse is overextended (exhaustion top). Buying UP risks an immediate retracement loss.',
+                    'Pre-start 5s impulse is overextended (exhaustion top). Skipping UP due to retracement.',
                 )
             return _make(
                 SignalDirection.DOWN,
@@ -191,7 +191,7 @@ def decide_microstructure(
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    'Pre-start 5s impulse is deeply oversold (exhaustion bottom). Selling DOWN risks an immediate bounce.',
+                    'Pre-start 5s impulse is deeply oversold (exhaustion bottom). Skipping DOWN due to bounce.',
                 )
             return _make(
                 SignalDirection.UP,
@@ -281,15 +281,15 @@ def decide_microstructure(
                 )
 
             if (
-                features.delta_1s_usd < -0.20
-                or features.delta_2s_usd < -0.40
-                or features.velocity_1s_bps < -0.35
-                or features.internal_velocity_usd < -0.35
+                features.delta_1s_usd < -0.15
+                or features.delta_2s_usd < -0.30
+                or features.velocity_1s_bps < -0.25
+                or features.internal_velocity_usd < -0.25
             ):
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    f'Price is actively ticking down (-${abs(features.delta_1s_usd):.2f}); entering UP risks adverse movement.',
+                    f'Price is actively ticking down (-${abs(features.delta_1s_usd):.2f}); skipping UP due to adverse counter-momentum.',
                 )
 
             # AI Kinematic Predictor Confluence for UP
@@ -299,14 +299,14 @@ def decide_microstructure(
                         return _make(
                             SignalDirection.NO_TRADE,
                             'NO_TRADE',
-                            'AI detected overextended exhaustion top; buying UP risks retracement loss.',
+                            'AI detected overextended exhaustion top; skipping UP due to retracement.',
                         )
                     return _make(
                         SignalDirection.DOWN,
                         'VALID',
                         'Exhaustion top on pre-start impulse; mean-reversion favors DOWN.',
                     )
-                if ai_pred.up_probability < 0.55 and not allow_lean_fallback:
+                if ai_pred.up_probability < 0.65 and not allow_lean_fallback:
                     return _make(
                         SignalDirection.NO_TRADE,
                         'NO_TRADE',
@@ -370,15 +370,15 @@ def decide_microstructure(
                     'Flat momentum; BC.Game house tie-rule awards neutral round to DOWN.',
                 )
             if (
-                features.delta_1s_usd > 0.20
-                or features.delta_2s_usd > 0.40
-                or features.velocity_1s_bps > 0.35
-                or features.internal_velocity_usd > 0.35
+                features.delta_1s_usd > 0.15
+                or features.delta_2s_usd > 0.30
+                or features.velocity_1s_bps > 0.25
+                or features.internal_velocity_usd > 0.25
             ):
                 return _make(
                     SignalDirection.NO_TRADE,
                     'NO_TRADE',
-                    f'Price is actively ticking up (+${features.delta_1s_usd:.2f}); entering DOWN risks adverse upward breakout.',
+                    f'Price is actively ticking up (+${features.delta_1s_usd:.2f}); skipping DOWN due to adverse counter-momentum.',
                 )
 
             # AI Kinematic Predictor Confluence for DOWN
@@ -388,14 +388,14 @@ def decide_microstructure(
                         return _make(
                             SignalDirection.NO_TRADE,
                             'NO_TRADE',
-                            'AI detected oversold exhaustion bottom; selling DOWN risks bounce loss.',
+                            'AI detected oversold exhaustion bottom; skipping DOWN due to bounce.',
                         )
                     return _make(
                         SignalDirection.UP,
                         'VALID',
                         'Exhaustion bottom on pre-start impulse; bounce favors UP.',
                     )
-                if ai_pred.down_probability < 0.55 and not allow_lean_fallback:
+                if ai_pred.down_probability < 0.65 and not allow_lean_fallback:
                     return _make(
                         SignalDirection.NO_TRADE,
                         'NO_TRADE',
