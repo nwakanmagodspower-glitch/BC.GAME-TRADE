@@ -122,12 +122,16 @@ class AIMicrostructurePredictor:
             regime = "EXHAUSTION_TOP"
             confidence = 85
             risk = 4
+            p_down = 0.85
+            p_up = 0.15
             reason = f"Exhaustion top detected (+${cum_up:.2f} pump decelerating); mean-reversion favors DOWN."
         elif is_exhaustion_bottom:
             direction = "UP"
             regime = "EXHAUSTION_BOTTOM"
             confidence = 85
             risk = 4
+            p_up = 0.85
+            p_down = 0.15
             reason = f"Exhaustion bottom detected (${cum_down:.2f} dump decelerating); bounce favors UP."
         elif is_flat_chop:
             direction = "NO_TRADE"

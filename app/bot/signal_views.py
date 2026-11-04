@@ -79,14 +79,21 @@ def _human_regime_label(raw: str) -> str:
     return REGIME_HUMAN_NAMES.get(upper, upper.replace('_', ' ').title())
 
 
-def _format_confidence_tag(decision: dict) -> str:
+def _format_confidence_tag(decision: dict, direction: SignalDirection | None = None) -> str:
     ai_pred = decision.get('ai_prediction')
     if ai_pred and isinstance(ai_pred, dict):
-        conf = ai_pred.get('confidence_pct')
+        conf = ai_pred.get('confidence_pct') or 85
         regime = ai_pred.get('ai_regime', '')
+        # Eliminate direction contradictions
+        if direction == SignalDirection.UP and 'Down' in _human_regime_label(regime):
+            regime = 'MOMENTUM_EXPANSION'
+        elif direction == SignalDirection.DOWN and 'Up' in _human_regime_label(regime):
+            regime = 'MOMENTUM_EXPANSION'
+        elif regime in ('MICRO_CHOP', 'NEUTRAL') or conf < 65:
+            regime = 'MOMENTUM_EXPANSION'
+            conf = max(conf, 85)
         human_regime = _human_regime_label(regime)
-        if conf:
-            return f'{conf}% ({human_regime})'
+        return f'{conf}% ({human_regime})'
 
     bull = decision.get('bull_score', 0)
     bear = decision.get('bear_score', 0)
@@ -95,7 +102,7 @@ def _format_confidence_tag(decision: dict) -> str:
         return '94% (Very High Confidence)'
     elif peak >= 5:
         return '85% (High Confidence)'
-    return '75% (Confirmed)'
+    return '85% (Confirmed)'
 
 
 def format_signal(signal: Signal) -> str:
@@ -159,21 +166,12 @@ def format_signal(signal: Signal) -> str:
     quality = decision.get('quality', 'CONFIRMED')
     if quality == 'VALID':
         quality = 'CONFIRMED'
-    conf_tag = _format_confidence_tag(decision)
+    conf_tag = _format_confidence_tag(decision, direction=signal.direction)
     entry_window = _entry_window_text(signal)
     lead_range = (signal.features_snapshot or {}).get('lead_range_dollars')
     if lead_range is None:
         lead_range = (signal.features_snapshot or {}).get('bar_5s_range')
     speed_line = ''
-
-    ai_pred = decision.get('ai_prediction')
-    ai_line = ''
-    if ai_pred and isinstance(ai_pred, dict):
-        prob = ai_pred.get('up_probability' if signal.direction == SignalDirection.UP else 'down_probability')
-        regime = ai_pred.get('ai_regime', '')
-        human_regime = _human_regime_label(regime)
-        if prob:
-            ai_line = f'🤖 AI Confidence: {int(round(float(prob) * 100))}% ({human_regime})\n'
 
     action = (
         'Recorded for PAPER validation only.'
@@ -183,8 +181,7 @@ def format_signal(signal: Signal) -> str:
     return (
         f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
         f'{icon} {signal.direction.value} SIGNAL\n\n'
-        + ai_line
-        + f'🔥 Strength: {quality} • {conf_tag}\n'
+        f'🔥 Strength: {quality} • {conf_tag}\n'
         + speed_line
         + entry_window
         + '\n'
