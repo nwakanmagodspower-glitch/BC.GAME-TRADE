@@ -1,10 +1,11 @@
+from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.bot.signal_views import build_scan_prompt_keyboard, build_signal_keyboard, format_signal
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-from app.models.entities import OnboardingStep, UserStatus
+from app.models.entities import OnboardingStep, User, UserStatus
 from app.services.admin_ops import AdminOpsService
 from app.services.onboarding import OnboardingService
 from app.services.user_signals import UserSignalService
@@ -14,6 +15,79 @@ settings = get_settings()
 SIGNAL_BUTTON = '⚡ BTC 5s Signal'
 HELP_BUTTON = 'ℹ️ How It Works'
 SUPPORT_BUTTON = '🆘 Support'
+
+LOCKED_TERMINAL_TEXT = (
+    '🔒 Terminal Locked — Join Official Verification Channel\n\n'
+    'To unlock the Agentic AI scanner and verify your terminal access, '
+    'you must first join our official VIP channel below.\n\n'
+    'Once you join, tap "🔄 Verify Channel Access" to unlock your terminal.'
+)
+
+
+def _channel_locked_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    invite_link = settings.telegram_channel_invite_link
+    if not invite_link and settings.telegram_channel_id:
+        ch = str(settings.telegram_channel_id)
+        if ch.startswith('@'):
+            invite_link = f"https://t.me/{ch[1:]}"
+    if invite_link:
+        rows.append([InlineKeyboardButton('📢 Join Official Channel', url=invite_link)])
+    rows.append([InlineKeyboardButton('🔄 Verify Channel Access', callback_data='gate:check')])
+    return InlineKeyboardMarkup(rows)
+
+
+async def check_channel_membership(bot, user_id: int) -> bool:
+    """Verify if the user is a member, administrator, or creator of CHANNEL_ID.
+
+    Returns True if channel_id is unconfigured, bot is None, or user is owner.
+    """
+    if not settings.telegram_channel_id or bot is None:
+        return True
+    if settings.owner_telegram_id and user_id == settings.owner_telegram_id:
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id=settings.telegram_channel_id, user_id=user_id)
+        status = getattr(member, 'status', None)
+        if status in ('member', 'administrator', 'creator'):
+            return True
+        if status == 'restricted' and getattr(member, 'is_member', False):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+async def send_onboarding_welcome(bot, chat_id: int, user, db):
+    welcome_video = (
+        AdminOpsService(db).get_setting(AdminOpsService.WELCOME_VIDEO_KEY, settings.welcome_video_file_id)
+        or settings.welcome_video_url
+    )
+    if welcome_video:
+        try:
+            await bot.send_video(
+                chat_id=chat_id,
+                video=welcome_video,
+                caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades!',
+            )
+        except Exception:
+            pass
+
+    first_name = user.first_name or 'Trader'
+    text = (
+        f'👋 Welcome {first_name}! 🇳🇬\n\n'
+        'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal bot.\n\n'
+        'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
+        '💡 100% FREE ACCESS:\n'
+        'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
+        '🎯 What is your daily profit target?'
+    )
+    keyboard = [
+        [InlineKeyboardButton('🎯 ₦10,000 / day', callback_data='onboard:goal:10k')],
+        [InlineKeyboardButton('🎯 ₦25,000 / day', callback_data='onboard:goal:25k')],
+        [InlineKeyboardButton('🎯 ₦50,000+ / day', callback_data='onboard:goal:50k')],
+    ]
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 def _button(label: str, data: str) -> InlineKeyboardMarkup:
@@ -84,14 +158,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not tg_user or not update.effective_chat:
         return
     args = getattr(context, 'args', None) or []
-    start_arg = args[0].lower() if args else ''
+    raw_start_arg = args[0] if args else ''
+    start_arg = raw_start_arg.lower()
     is_vip = start_arg in {'vip', 'direct', 'fasttrack'}
+
+    fbclid = None
+    if raw_start_arg:
+        if start_arg.startswith('fbclid_'):
+            fbclid = raw_start_arg[7:]
+        elif 'fbclid=' in start_arg:
+            parts = raw_start_arg.split('fbclid=')
+            fbclid = parts[1].split('&')[0]
+        elif start_arg.startswith('fb_'):
+            fbclid = raw_start_arg
+        elif len(raw_start_arg) > 10 and not is_vip:
+            fbclid = raw_start_arg
+
     with SessionLocal() as db:
         service = OnboardingService(db)
-        user = service.get_or_create_user(tg_user)
+        user = service.get_or_create_user(tg_user, fbclid=fbclid)
         if user.is_blocked:
             await update.effective_chat.send_message('Your access is blocked. Please contact support.')
             return
+
+        is_channel_ok = await check_channel_membership(getattr(context, 'bot', None), tg_user.id)
+        if not is_channel_ok:
+            await update.effective_chat.send_message(
+                LOCKED_TERMINAL_TEXT,
+                reply_markup=_channel_locked_keyboard(),
+            )
+            return
+
+        if user.funnel_step in ('1_STARTED', None):
+            service.set_funnel_step(user, '2_CHANNEL_JOINED')
 
         # Direct VIP fast-track for leads registered via the owner (?start=vip)
         if is_vip and user.status != UserStatus.APPROVED:
@@ -99,6 +198,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             now = datetime.now(timezone.utc)
             user.status = UserStatus.APPROVED
             user.onboarding_step = OnboardingStep.APPROVED
+            user.funnel_step = '4_VIP_APPROVED'
+            user.step_updated_at = now
             user.approved_at = now
             user.approved_by = settings.owner_telegram_id
             db.commit()
@@ -302,6 +403,13 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     if not query or not query.from_user:
         return
+    if not await check_channel_membership(getattr(context, 'bot', None), query.from_user.id):
+        await query.answer('Channel membership required.', show_alert=True)
+        await query.message.reply_text(
+            LOCKED_TERMINAL_TEXT,
+            reply_markup=_channel_locked_keyboard(),
+        )
+        return
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(query.from_user)
@@ -405,6 +513,12 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text or not update.effective_user:
         return
+    if not await check_channel_membership(getattr(context, 'bot', None), update.effective_user.id):
+        await update.message.reply_text(
+            LOCKED_TERMINAL_TEXT,
+            reply_markup=_channel_locked_keyboard(),
+        )
+        return
     with SessionLocal() as db:
         service = OnboardingService(db)
         user = service.get_or_create_user(update.effective_user)
@@ -430,6 +544,12 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.photo or not update.effective_user:
+        return
+    if not await check_channel_membership(getattr(context, 'bot', None), update.effective_user.id):
+        await update.message.reply_text(
+            LOCKED_TERMINAL_TEXT,
+            reply_markup=_channel_locked_keyboard(),
+        )
         return
     photo = update.message.photo[-1]
     file_id = photo.file_id
@@ -507,6 +627,13 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
+    if not await check_channel_membership(getattr(context, 'bot', None), query.from_user.id):
+        await query.answer('Channel membership required.', show_alert=True)
+        await query.message.reply_text(
+            LOCKED_TERMINAL_TEXT,
+            reply_markup=_channel_locked_keyboard(),
+        )
+        return
     with SessionLocal() as db:
         onboarding = OnboardingService(db)
         user = onboarding.get_or_create_user(query.from_user)
@@ -530,3 +657,94 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _send_support(query.message.chat)
             return
     await query.answer()
+
+
+async def channel_gate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    is_member = await check_channel_membership(getattr(context, 'bot', None), query.from_user.id)
+    if not is_member:
+        await query.answer(
+            '❌ You have not joined the channel yet. Please tap "Join Official Channel" above, join, then tap verify!',
+            show_alert=True,
+        )
+        return
+    await query.answer('✅ Channel membership verified!')
+    with SessionLocal() as db:
+        service = OnboardingService(db)
+        user = service.get_or_create_user(query.from_user)
+        if user.funnel_step in ('1_STARTED', None):
+            service.set_funnel_step(user, '2_CHANNEL_JOINED')
+        if user.status == UserStatus.APPROVED:
+            await query.edit_message_text(
+                '⚡ BCGAME AI SIGNALS — VIP ACCESS\n\n'
+                f'👋 Welcome back {query.from_user.first_name or "Trader"}!\n'
+                '✅ Access active! Choose what you want to do below.',
+                reply_markup=_approved_menu(),
+            )
+            return
+        await query.edit_message_text('🔓 Terminal Unlocked! Channel membership confirmed.')
+        await send_onboarding_welcome(context.bot, query.from_user.id, query.from_user, db)
+
+
+async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_member = update.chat_member
+    if not chat_member or not chat_member.new_chat_member:
+        return
+    if settings.telegram_channel_id:
+        expected = str(settings.telegram_channel_id)
+        current_id = str(chat_member.chat.id)
+        current_username = f"@{chat_member.chat.username}" if chat_member.chat.username else ""
+        if current_id != expected and current_username.lower() != expected.lower():
+            return
+    old_status = chat_member.old_chat_member.status if chat_member.old_chat_member else None
+    new_status = chat_member.new_chat_member.status
+    was_member = old_status in ('member', 'administrator', 'creator')
+    is_member = new_status in ('member', 'administrator', 'creator')
+    if not was_member and is_member:
+        tg_user = chat_member.new_chat_member.user
+        if not tg_user or tg_user.is_bot:
+            return
+        with SessionLocal() as db:
+            service = OnboardingService(db)
+            user = service.get_or_create_user(tg_user)
+            if user.funnel_step in ('1_STARTED', None):
+                service.set_funnel_step(user, '2_CHANNEL_JOINED')
+            if user.status != UserStatus.APPROVED and not user.is_blocked:
+                try:
+                    await send_onboarding_welcome(context.bot, tg_user.id, tg_user, db)
+                except Exception:
+                    pass
+
+
+async def session_discipline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.from_user or not query.data:
+        return
+    from datetime import datetime, timedelta, timezone
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_user_id == query.from_user.id))
+        if not user:
+            await query.answer('User record not found.', show_alert=True)
+            return
+        user.consecutive_wins = (user.consecutive_wins or 0) + 1
+        now = datetime.now(timezone.utc)
+        threshold = settings.session_discipline_win_threshold
+        if user.consecutive_wins >= threshold:
+            cooldown_mins = settings.session_discipline_cooldown_minutes
+            user.session_cooldown_until = now + timedelta(minutes=cooldown_mins)
+            user.consecutive_wins = 0
+            db.commit()
+            await query.answer('🏆 3-WIN TARGET HIT! Locking in profits! 🔥', show_alert=True)
+            await query.message.reply_text(
+                '🏆 3 CONSECUTIVE WINS ACHIEVED! 🔥🔥🔥\n\n'
+                'Outstanding trading session! You hit the 3-Win Target.\n\n'
+                f'AI Discipline Protection enforces a {cooldown_mins}-minute cooldown to lock in 100% of your profits '
+                'and protect your capital from over-trading.\n\n'
+                'Take a well-deserved break and return when the session reopens to keep your win streak sharp!'
+            )
+        else:
+            db.commit()
+            await query.answer(f'✅ Win recorded! Session streak: {user.consecutive_wins}/{threshold} wins 🔥', show_alert=True)
+

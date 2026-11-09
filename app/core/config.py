@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_webhook_secret: str | None = None
     owner_telegram_id: int | None = None
+    telegram_channel_id: int | str | None = None
+    telegram_channel_invite_link: str | None = None
+    channel_broadcast_enabled: bool = False
+    channel_broadcast_interval_seconds: int = 300
     telegram_webhook_max_body_bytes: int = 1_000_000
     telegram_update_processing_timeout_seconds: int = 60
     telegram_webhook_max_concurrency: int = 32
@@ -93,6 +97,9 @@ class Settings(BaseSettings):
     signal_settlement_window_seconds: int = 1
     signal_scan_coalesce_ms: int = 250
     signal_user_cooldown_seconds: float = 1.0
+    signal_chop_protection_enabled: bool = True
+    session_discipline_win_threshold: int = 3
+    session_discipline_cooldown_minutes: int = 15
     worker_heartbeat_max_age_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'

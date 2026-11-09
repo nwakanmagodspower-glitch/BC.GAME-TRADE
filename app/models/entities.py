@@ -102,6 +102,13 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_scan_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    funnel_step: Mapped[str] = mapped_column(String(32), default='1_STARTED', index=True)
+    step_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    fbclid: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    consecutive_wins: Mapped[int] = mapped_column(Integer, default=0)
+    session_cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reminded_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VerificationRequest(Base):

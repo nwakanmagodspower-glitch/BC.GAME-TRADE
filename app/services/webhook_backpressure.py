@@ -78,6 +78,11 @@ def telegram_update_user_id(payload: dict) -> int | None:
             sender = item.get('from')
             if isinstance(sender, dict) and isinstance(sender.get('id'), int):
                 return sender['id']
+            new_member = item.get('new_chat_member')
+            if isinstance(new_member, dict) and isinstance(new_member.get('user'), dict):
+                uid = new_member['user'].get('id')
+                if isinstance(uid, int):
+                    return uid
     return None
 
 

@@ -57,18 +57,42 @@ class UserSignalService:
 
     def _clear_stale_current_signal(self, signal: Signal, now: datetime) -> bool:
         expiry = self._aware(signal.expiry_at)
+        cleared = False
         if expiry is None:
             created = self._aware(signal.created_at)
             if created and (now - created).total_seconds() > 15:
                 signal.status = SignalStatus.EXPIRED
                 signal.status_reason = 'Previous round expired (timeout); cleared for new scan.'
-                return True
-            return False
-        if now <= expiry:
-            return False
-        signal.status = SignalStatus.EXPIRED
-        signal.status_reason = 'Completed round cleared for new scan.'
-        return True
+                cleared = True
+        elif now > expiry:
+            signal.status = SignalStatus.EXPIRED
+            signal.status_reason = 'Completed round cleared for new scan.'
+            cleared = True
+
+        if cleared:
+            if (
+                signal.reference_entry_price is not None
+                and signal.reference_expiry_price is not None
+                and signal.requested_by_user_id
+            ):
+                user = self.db.get(User, signal.requested_by_user_id)
+                if user:
+                    won = False
+                    if signal.direction == SignalDirection.UP:
+                        won = signal.reference_expiry_price > signal.reference_entry_price
+                    elif signal.direction == SignalDirection.DOWN:
+                        won = signal.reference_expiry_price <= signal.reference_entry_price
+                    if won:
+                        user.consecutive_wins = (user.consecutive_wins or 0) + 1
+                        if user.consecutive_wins >= settings.session_discipline_win_threshold:
+                            user.session_cooldown_until = now + timedelta(
+                                minutes=settings.session_discipline_cooldown_minutes
+                            )
+                            user.consecutive_wins = 0
+                    else:
+                        user.consecutive_wins = 0
+            return True
+        return False
 
     async def request_scan(self, user_id: int) -> UserSignalResult:
         if settings.signal_mode.upper() != 'LIVE':
@@ -91,6 +115,25 @@ class UserSignalService:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
         now = datetime.now(timezone.utc)
+        if user.session_cooldown_until:
+            cooldown_until = self._aware(user.session_cooldown_until)
+            if cooldown_until and now < cooldown_until:
+                remaining_mins = max(1, int((cooldown_until - now).total_seconds() / 60))
+                self.db.rollback()
+                return UserSignalResult(
+                    None,
+                    False,
+                    f'🛡️ 3-WIN SESSION DISCIPLINE COOLDOWN ACTIVE\n\n'
+                    f'🔥 Incredible discipline! You locked in 3 consecutive wins.\n\n'
+                    f'AI Capital Protection enforces a {settings.session_discipline_cooldown_minutes}-minute cooldown to lock in your profits and prevent over-trading.\n\n'
+                    f'⏳ Time Remaining: ~{remaining_mins} minute(s)\n\n'
+                    f'Take a break, secure your gains, and return when the session reopens!',
+                )
+            elif cooldown_until and now >= cooldown_until:
+                user.session_cooldown_until = None
+                user.consecutive_wins = 0
+                self.db.commit()
+
         if self._cooldown_active(user, now):
             self.db.rollback()
             return UserSignalResult(None, False, 'Please wait briefly before scanning again.')
@@ -196,6 +239,25 @@ class UserSignalService:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
         now = datetime.now(timezone.utc)
+        if user.session_cooldown_until:
+            cooldown_until = self._aware(user.session_cooldown_until)
+            if cooldown_until and now < cooldown_until:
+                remaining_mins = max(1, int((cooldown_until - now).total_seconds() / 60))
+                self.db.rollback()
+                return UserSignalResult(
+                    None,
+                    False,
+                    f'🛡️ 3-WIN SESSION DISCIPLINE COOLDOWN ACTIVE\n\n'
+                    f'🔥 Incredible discipline! You locked in 3 consecutive wins.\n\n'
+                    f'AI Capital Protection enforces a {settings.session_discipline_cooldown_minutes}-minute cooldown to lock in your profits and prevent over-trading.\n\n'
+                    f'⏳ Time Remaining: ~{remaining_mins} minute(s)\n\n'
+                    f'Take a break, secure your gains, and return when the session reopens!',
+                )
+            elif cooldown_until and now >= cooldown_until:
+                user.session_cooldown_until = None
+                user.consecutive_wins = 0
+                self.db.commit()
+
         if self._cooldown_active(user, now):
             self.db.rollback()
             return UserSignalResult(

@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from urllib.parse import urljoin
 
-from telegram import Bot
+from telegram import Bot, Update
 
 from app.core.config import get_settings
 from app.core.startup import validate_settings
@@ -35,7 +35,7 @@ async def main() -> None:
         ok = await bot.set_webhook(
             url=webhook_url,
             secret_token=settings.telegram_webhook_secret,
-            allowed_updates=['message', 'callback_query'],
+            allowed_updates=list(Update.ALL_TYPES),
             drop_pending_updates=False,
         )
         if not ok:

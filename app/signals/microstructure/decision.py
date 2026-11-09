@@ -115,8 +115,8 @@ def decide_microstructure(
             if not allow_lean_fallback:
                 return _make(
                     SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop risks BC.Game tie-loss.',
+                    'HOLD / CHOP DETECTED',
+                    f'HOLD / CHOP DETECTED: 20-second range is too narrow (${eff_range:.2f} < ${eff_min:.2f}); market in flat chop. AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
                 )
             direction = SignalDirection.UP if (features.bar_5s_return >= 0 or bull >= bear) else SignalDirection.DOWN
             return _make(
@@ -143,15 +143,15 @@ def decide_microstructure(
         if ai_pred is not None and ai_pred.ai_regime == 'MICRO_CHOP' and not allow_lean_fallback:
             return _make(
                 SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                f'AI momentum predictor detected micro-chop consolidation ({ai_pred.confidence_pct}% confidence); edge is insufficient.',
+                'HOLD / CHOP DETECTED',
+                f'HOLD / CHOP DETECTED: AI momentum predictor detected micro-chop consolidation ({ai_pred.confidence_pct}% confidence). AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
             )
     elif features.bar_5s_range > 0:
         if features.bar_5s_range < min_5s_range:
             return _make(
                 SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                f'5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); high tie/noise probability (DeTrade awards ties to DOWN).',
+                'HOLD / CHOP DETECTED',
+                f'HOLD / CHOP DETECTED: 5-second bar range is too narrow (${features.bar_5s_range:.2f} < ${min_5s_range:.2f}); flat chop. AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
             )
         if features.bar_5s_range > max_5s_range:
             return _make(
@@ -203,8 +203,8 @@ def decide_microstructure(
             if not allow_lean_fallback:
                 return _make(
                     SignalDirection.NO_TRADE,
-                    'NO_TRADE',
-                    f'Market in neutral consolidation (${eff_range:.2f} range); momentum is too low for a safe trade.',
+                    'HOLD / CHOP DETECTED',
+                    f'HOLD / CHOP DETECTED: Market in neutral consolidation (${eff_range:.2f} range). AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
                 )
             return _make(
                 SignalDirection.DOWN,
@@ -231,8 +231,8 @@ def decide_microstructure(
         if (slow_bearish and has_bearish_conflict) or trend_strongly_bearish:
             return _make(
                 SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Bullish fast microstructure conflicts strongly with broader bearish trend. Skipping entry against trend cascade.',
+                'HOLD / CHOP DETECTED',
+                'HOLD / CHOP DETECTED: Bullish fast microstructure conflicts strongly with broader bearish trend. AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
             )
 
         if is_synthetic:
@@ -331,8 +331,8 @@ def decide_microstructure(
         if (slow_bullish and has_bullish_conflict) or trend_strongly_bullish:
             return _make(
                 SignalDirection.NO_TRADE,
-                'NO_TRADE',
-                'Bearish fast microstructure conflicts strongly with broader bullish trend. Skipping entry against trend continuation.',
+                'HOLD / CHOP DETECTED',
+                'HOLD / CHOP DETECTED: Bearish fast microstructure conflicts strongly with broader bullish trend. AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
             )
 
         if is_synthetic:
@@ -483,6 +483,6 @@ def decide_microstructure(
 
     return _make(
         SignalDirection.NO_TRADE,
-        'NO_TRADE',
-        'Microstructure directional evidence or margin is insufficient.',
+        'HOLD / CHOP DETECTED',
+        'HOLD / CHOP DETECTED: Microstructure directional evidence or margin is insufficient. AI Capital Protection is waiting 10 seconds for a clean breakout impulse.',
     )

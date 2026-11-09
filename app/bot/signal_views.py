@@ -21,7 +21,10 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-    rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
+    rows.append([
+        InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now'),
+        InlineKeyboardButton('🏆 Won Round (+1)', callback_data=f'discipline:win:{signal_id or 0}'),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -137,6 +140,17 @@ def format_signal(signal: Signal) -> str:
                 '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
                 '🎯 Action: 🛡️ Skip Round (Wait for trend alignment)\n\n'
                 'Wait for clear momentum that aligns with the broader trend.'
+                + paper
+            )
+
+        if 'chop detected' in reason_str.lower() or 'hold' in reason_str.lower() or quality == 'HOLD / CHOP DETECTED':
+            return (
+                f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
+                '⏸️ HOLD / CHOP DETECTED\n\n'
+                '🛡️ AI Capital Protection: Active\n'
+                '📊 Market State: Flat Sideways Chop (Low Volatility / Indicator Conflict)\n'
+                '⏳ Action: AI is waiting 10 seconds for a clean breakout impulse.\n\n'
+                '💡 Do NOT force a trade during chop. Tap Scan Market in 10s for the breakout round.'
                 + paper
             )
 

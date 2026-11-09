@@ -27,6 +27,8 @@ from app.services.signal_intelligence import ENGINE_NAME, signal_intelligence_se
 from app.services.signal_worker import signal_lifecycle_worker
 from app.services.broadcast_worker import broadcast_worker
 from app.services.verification_delivery_worker import verification_delivery_worker
+from app.services.channel_broadcaster import channel_live_broadcaster
+from app.services.lead_funnel_scheduler import lead_funnel_scheduler
 from app.services.webhook_backpressure import telegram_update_user_id, webhook_backpressure
 from app.services.webhook_receipts import WebhookReceiptService
 from app.services.worker_status import get_worker_status
@@ -104,12 +106,19 @@ async def lifespan(app: FastAPI):
         worker_heartbeat_service.health_provider = _critical_worker_health
         await worker_heartbeat_service.start()
     if telegram_app is not None:
-        await telegram_app.initialize(); await telegram_app.start()
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await lead_funnel_scheduler.start(telegram_app.bot)
+        if settings.channel_broadcast_enabled or settings.broadcasts_enabled:
+            await channel_live_broadcaster.start(telegram_app.bot)
     try:
         yield
     finally:
+        await channel_live_broadcaster.stop()
+        await lead_funnel_scheduler.stop()
         if telegram_app is not None:
-            await telegram_app.stop(); await telegram_app.shutdown()
+            await telegram_app.stop()
+            await telegram_app.shutdown()
         if settings.run_background_jobs:
             from app.services.worker_heartbeat import worker_heartbeat_service
             await worker_heartbeat_service.stop()

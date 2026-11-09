@@ -26,7 +26,7 @@ class OnboardingService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_or_create_user(self, telegram_user) -> User:
+    def get_or_create_user(self, telegram_user, fbclid: str | None = None) -> User:
         user = self.db.scalar(select(User).where(User.telegram_user_id == telegram_user.id))
         is_owner = bool(settings.owner_telegram_id and telegram_user.id == settings.owner_telegram_id)
         now = utcnow()
@@ -41,12 +41,18 @@ class OnboardingService:
                 onboarding_step=OnboardingStep.APPROVED if is_owner else OnboardingStep.START,
                 approved_at=now if is_owner else None,
                 approved_by=telegram_user.id if is_owner else None,
+                funnel_step='4_VIP_APPROVED' if is_owner else '1_STARTED',
+                step_updated_at=now,
+                fbclid=fbclid,
+                consecutive_wins=0,
             )
             self.db.add(user)
         else:
             user.telegram_username = telegram_user.username
             user.first_name = telegram_user.first_name
             user.last_seen_at = now
+            if fbclid and not user.fbclid:
+                user.fbclid = fbclid
             # OWNER_TELEGRAM_ID is the trusted private-chat identity used for
             # admin review. Keep that same account permanently able to test the
             # approved-user signal journey without affiliate verification.
@@ -54,6 +60,7 @@ class OnboardingService:
                 user.role = UserRole.OWNER
                 user.status = UserStatus.APPROVED
                 user.onboarding_step = OnboardingStep.APPROVED
+                user.funnel_step = '4_VIP_APPROVED'
                 user.is_blocked = False
                 if user.approved_at is None:
                     user.approved_at = now
@@ -76,6 +83,12 @@ class OnboardingService:
             self.db.refresh(request)
         return request
 
+    def set_funnel_step(self, user: User, funnel_step: str) -> None:
+        if user.funnel_step != funnel_step:
+            user.funnel_step = funnel_step
+            user.step_updated_at = utcnow()
+            self.db.commit()
+
     def set_step(self, user: User, step: OnboardingStep) -> None:
         user.onboarding_step = step
         self.db.commit()
@@ -90,6 +103,9 @@ class OnboardingService:
         request = self.current_request(user)
         request.bcgame_user_id = value.strip()
         user.onboarding_step = OnboardingStep.PROFILE_PROOF
+        if user.funnel_step not in ('4_VIP_APPROVED',):
+            user.funnel_step = '3_UID_SUBMITTED'
+            user.step_updated_at = utcnow()
         self.db.commit()
         return request
 
@@ -212,6 +228,8 @@ class OnboardingService:
             request.status = VerificationStatus.APPROVED
             user.status = UserStatus.APPROVED
             user.onboarding_step = OnboardingStep.APPROVED
+            user.funnel_step = '4_VIP_APPROVED'
+            user.step_updated_at = utcnow()
             user.approved_at = utcnow()
             user.approved_by = admin_id
         elif action == 'reject':
