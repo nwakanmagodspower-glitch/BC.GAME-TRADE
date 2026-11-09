@@ -35,3 +35,4 @@ def downgrade() -> None:
         batch_op.drop_column('fbclid')
         batch_op.drop_column('step_updated_at')
         batch_op.drop_column('funnel_step')
+

@@ -169,3 +169,4 @@ class LeadFunnelScheduler:
 
 
 lead_funnel_scheduler = LeadFunnelScheduler()
+
