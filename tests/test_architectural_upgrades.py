@@ -119,7 +119,12 @@ async def test_channel_gate_blocks_non_members(monkeypatch):
 
     await handlers.start(update, context)
     assert len(chat.messages) == 1
-    assert '🔒 Terminal Locked — Join Official Verification Channel' in chat.messages[0]
+    assert 'Terminal Locked — Join Official VIP Channel to Unlock' in chat.messages[0]
+    # Verify only single join channel button exists (no verify button)
+    markup = chat.markups[0]
+    assert len(markup.inline_keyboard) == 1
+    assert len(markup.inline_keyboard[0]) == 1
+    assert markup.inline_keyboard[0][0].text == '📢 Join Official VIP Channel'
 
 
 @pytest.mark.asyncio
@@ -132,7 +137,7 @@ async def test_chat_member_update_auto_unlocks_on_join(monkeypatch):
     sent_messages = []
     class MockBot:
         async def send_message(self, chat_id, text, reply_markup=None, **kwargs):
-            sent_messages.append((chat_id, text))
+            sent_messages.append((chat_id, text, reply_markup))
 
     tg_user = SimpleNamespace(id=444, username='lead4', first_name='LeadFour', is_bot=False)
     update = SimpleNamespace(
@@ -150,10 +155,14 @@ async def test_chat_member_update_auto_unlocks_on_join(monkeypatch):
     saved_user = db.scalar(select(User).where(User.telegram_user_id == 444))
     assert saved_user is not None
     assert saved_user.funnel_step == '2_CHANNEL_JOINED'
-    # And onboarding welcome was sent directly to private chat
+    # And initial wonderful onboarding welcome was sent directly to private chat
     assert len(sent_messages) >= 1
     assert sent_messages[0][0] == 444
-    assert 'Welcome to BCGAME AI' in sent_messages[0][1]
+    assert 'Welcome LeadFour!' in sent_messages[0][1]
+    assert '₦10,000 to ₦20,000+' in sent_messages[0][1]
+    # Keyboards include Create Free Account and I Have Registered
+    buttons = [b.text for row in sent_messages[0][2].inline_keyboard for b in row]
+    assert '✅ I Have Registered' in buttons
 
 
 @pytest.mark.asyncio

@@ -69,13 +69,12 @@ class LeadFunnelScheduler:
                 
                 keyboard = []
                 if invite_link:
-                    keyboard.append([InlineKeyboardButton("📢 Join Verification Channel", url=invite_link)])
-                keyboard.append([InlineKeyboardButton("🔄 Verify Channel Access", callback_data="gate:check")])
+                    keyboard.append([InlineKeyboardButton("📢 Join Official VIP Channel", url=invite_link)])
 
                 text = (
                     f"👋 Quick Reminder {first_name}!\n\n"
                     "Your Agentic AI Scanner terminal setup is incomplete.\n\n"
-                    "Join our official VIP channel below to unlock universal 5-second Bitcoin signals "
+                    "Join our official VIP channel below to automatically unlock universal 5-second Bitcoin signals "
                     "and claim your 100% Free Trial today!"
                 )
                 try:

@@ -17,24 +17,30 @@ HELP_BUTTON = 'ℹ️ How It Works'
 SUPPORT_BUTTON = '🆘 Support'
 
 LOCKED_TERMINAL_TEXT = (
-    '🔒 Terminal Locked — Join Official Verification Channel\n\n'
-    'To unlock the Agentic AI scanner and verify your terminal access, '
-    'you must first join our official VIP channel below.\n\n'
-    'Once you join, tap "🔄 Verify Channel Access" to unlock your terminal.'
+    '🔒 Terminal Locked — Join Official VIP Channel to Unlock 🇳🇬\n\n'
+    'Welcome to BCGAME AI — the automated 5-Second Bitcoin Up/Down signal engine!\n\n'
+    '🔥 EXCLUSIVE VIP CHANNEL BENEFITS:\n'
+    '• 📈 Daily Live 5-Second BTC Signals (95%+ Win Rate)\n'
+    '• 💰 Real-Time Member Profit Proofs & Winning Streaks\n'
+    '• ⚡ Exact Round Timing & Breakthrough Volatility Alerts\n'
+    '• 🎁 100% Free VIP Terminal Access & On-Demand AI Scanner\n\n'
+    '⚡ AUTOMATIC INSTANT UNLOCK:\n'
+    'Tap the button below to join our official VIP channel. The second you join, your AI Scanner Terminal will automatically unlock inside this chat with zero wait time!\n\n'
+    '👇 Tap below now to claim your VIP access:'
 )
 
 
 def _channel_locked_keyboard() -> InlineKeyboardMarkup:
-    rows = []
     invite_link = settings.telegram_channel_invite_link
     if not invite_link and settings.telegram_channel_id:
         ch = str(settings.telegram_channel_id)
         if ch.startswith('@'):
             invite_link = f"https://t.me/{ch[1:]}"
-    if invite_link:
-        rows.append([InlineKeyboardButton('📢 Join Official Channel', url=invite_link)])
-    rows.append([InlineKeyboardButton('🔄 Verify Channel Access', callback_data='gate:check')])
-    return InlineKeyboardMarkup(rows)
+    if not invite_link:
+        invite_link = "https://t.me"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('📢 Join Official VIP Channel', url=invite_link)]
+    ])
 
 
 async def check_channel_membership(bot, user_id: int) -> bool:
@@ -63,31 +69,48 @@ async def send_onboarding_welcome(bot, chat_id: int, user, db):
         AdminOpsService(db).get_setting(AdminOpsService.WELCOME_VIDEO_KEY, settings.welcome_video_file_id)
         or settings.welcome_video_url
     )
-    if welcome_video:
+    if welcome_video and hasattr(bot, 'send_video'):
         try:
-            await bot.send_video(
-                chat_id=chat_id,
-                video=welcome_video,
-                caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades!',
-            )
+            try:
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=welcome_video,
+                    caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades with 95%+ accuracy!',
+                )
+            except TypeError:
+                await bot.send_video(
+                    video=welcome_video,
+                    caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades with 95%+ accuracy!',
+                )
         except Exception:
             pass
 
-    first_name = user.first_name or 'Trader'
+    first_name = getattr(user, 'first_name', None) or 'Trader'
+    keyboard = []
+    if settings.bcgame_registration_url:
+        keyboard.append([InlineKeyboardButton('🔗 Create Free BCGAME Account', url=settings.bcgame_registration_url)])
+    keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
+
     text = (
         f'👋 Welcome {first_name}! 🇳🇬\n\n'
-        'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal bot.\n\n'
-        'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
+        'You are here to start making at least ₦10,000 to ₦20,000+ every day depending on how consistent you are.\n\n'
+        '💎 $200 SYSTEM — 100% FREE TODAY:\n'
+        'This is an institutional AI trading system that is normally sold for $200 (over ₦300,000) to serious traders. Today, you get complete access 100% FREE.\n\n'
+        '⚡ HOW THIS ALGORITHM WORKS:\n'
+        'This software connects directly to the BCGAME 5-second BTC/USD price feed. It tracks micro-ticks and algorithmic momentum before candles close, giving you high-conviction 🟢 UP or 🔴 DOWN signals so you can trade with an unfair mathematical edge.\n\n'
         '💡 100% FREE ACCESS:\n'
-        'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-        '🎯 What is your daily profit target?'
+        'You do NOT pay any subscription or bot fees. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '👇 GET STARTED IN 2 SIMPLE STEPS:\n\n'
+        '1️⃣ Tap “🔗 Create Free BCGAME Account” below to register.\n'
+        '2️⃣ Return here and tap “✅ I Have Registered” to unlock your signal dashboard!'
     )
-    keyboard = [
-        [InlineKeyboardButton('🎯 ₦10,000 / day', callback_data='onboard:goal:10k')],
-        [InlineKeyboardButton('🎯 ₦25,000 / day', callback_data='onboard:goal:25k')],
-        [InlineKeyboardButton('🎯 ₦50,000+ / day', callback_data='onboard:goal:50k')],
-    ]
-    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+    markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(bot, 'send_message'):
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+        except TypeError:
+            await bot.send_message(text=text, reply_markup=markup)
 
 
 def _button(label: str, data: str) -> InlineKeyboardMarkup:
@@ -239,34 +262,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             step = OnboardingStep.REGISTRATION
 
         if step == OnboardingStep.REGISTRATION:
-            welcome_video = (
-                AdminOpsService(db).get_setting(AdminOpsService.WELCOME_VIDEO_KEY, settings.welcome_video_file_id)
-                or settings.welcome_video_url
-            )
-            if welcome_video:
-                try:
-                    await update.effective_chat.send_video(
-                        video=welcome_video,
-                        caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades!',
-                    )
-                except Exception:
-                    pass
-
-            first_name = tg_user.first_name or 'Trader'
-            text = (
-                f'👋 Welcome {first_name}! 🇳🇬\n\n'
-                'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal bot.\n\n'
-                'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
-                '💡 100% FREE ACCESS:\n'
-                'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-                '🎯 What is your daily profit target?'
-            )
-            keyboard = [
-                [InlineKeyboardButton('🎯 ₦10,000 / day', callback_data='onboard:goal:10k')],
-                [InlineKeyboardButton('🎯 ₦25,000 / day', callback_data='onboard:goal:25k')],
-                [InlineKeyboardButton('🎯 ₦50,000+ / day', callback_data='onboard:goal:50k')],
-            ]
-            await update.effective_chat.send_message(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            target_chat_id = getattr(update.effective_chat, 'id', getattr(tg_user, 'id', 0))
+            await send_onboarding_welcome(getattr(context, 'bot', None) or update.effective_chat, target_chat_id, tg_user, db)
             return
         if step == OnboardingStep.DEPOSIT:
             request = service.current_request(user)
