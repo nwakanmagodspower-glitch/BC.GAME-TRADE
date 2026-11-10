@@ -86,24 +86,19 @@ async def send_onboarding_welcome(bot, chat_id: int, user, db):
             pass
 
     first_name = getattr(user, 'first_name', None) or 'Trader'
-    keyboard = []
-    if settings.bcgame_registration_url:
-        keyboard.append([InlineKeyboardButton('🔗 Create Free BCGAME Account', url=settings.bcgame_registration_url)])
-    keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
+    keyboard = [
+        [InlineKeyboardButton('🎯 ₦10,000 / day', callback_data='onboard:goal:10k')],
+        [InlineKeyboardButton('🎯 ₦25,000 / day', callback_data='onboard:goal:25k')],
+        [InlineKeyboardButton('🎯 ₦50,000+ / day', callback_data='onboard:goal:50k')],
+    ]
 
     text = (
         f'👋 Welcome {first_name}! 🇳🇬\n\n'
-        'You are here to start making at least ₦10,000 to ₦20,000+ every day depending on how consistent you are.\n\n'
-        '💎 $200 SYSTEM — 100% FREE TODAY:\n'
-        'This is an institutional AI trading system that is normally sold for $200 (over ₦300,000) to serious traders. Today, you get complete access 100% FREE.\n\n'
-        '⚡ HOW THIS ALGORITHM WORKS:\n'
-        'This software connects directly to the BCGAME 5-second BTC/USD price feed. It tracks micro-ticks and algorithmic momentum before candles close, giving you high-conviction 🟢 UP or 🔴 DOWN signals so you can trade with an unfair mathematical edge.\n\n'
+        'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal engine.\n\n'
+        'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
         '💡 100% FREE ACCESS:\n'
-        'You do NOT pay any subscription or bot fees. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-        '━━━━━━━━━━━━━━━━━━━━━\n'
-        '👇 GET STARTED IN 2 SIMPLE STEPS:\n\n'
-        '1️⃣ Tap “🔗 Create Free BCGAME Account” below to register.\n'
-        '2️⃣ Return here and tap “✅ I Have Registered” to unlock your signal dashboard!'
+        'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
+        '🎯 What is your daily profit target?'
     )
     markup = InlineKeyboardMarkup(keyboard)
     if hasattr(bot, 'send_message'):

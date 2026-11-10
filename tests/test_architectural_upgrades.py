@@ -155,14 +155,14 @@ async def test_chat_member_update_auto_unlocks_on_join(monkeypatch):
     saved_user = db.scalar(select(User).where(User.telegram_user_id == 444))
     assert saved_user is not None
     assert saved_user.funnel_step == '2_CHANNEL_JOINED'
-    # And initial wonderful onboarding welcome was sent directly to private chat
+    # And onboarding welcome was sent directly to private chat
     assert len(sent_messages) >= 1
     assert sent_messages[0][0] == 444
     assert 'Welcome LeadFour!' in sent_messages[0][1]
-    assert '₦10,000 to ₦20,000+' in sent_messages[0][1]
-    # Keyboards include Create Free Account and I Have Registered
+    assert 'daily profit target' in sent_messages[0][1].lower()
+    # Keyboards include profit target choices
     buttons = [b.text for row in sent_messages[0][2].inline_keyboard for b in row]
-    assert '✅ I Have Registered' in buttons
+    assert '🎯 ₦10,000 / day' in buttons
 
 
 @pytest.mark.asyncio
