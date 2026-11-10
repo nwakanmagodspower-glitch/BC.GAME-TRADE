@@ -168,6 +168,22 @@ services:
         sync: false
       - key: SUPPORT_URL
         sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_CAPI_ACCESS_TOKEN
+        sync: false
+      - key: META_TEST_EVENT_CODE
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: BRIDGE_URL
+        sync: false
+
+  - type: static_site
+    name: bcgame-trade-bridge
+    buildCommand: echo "Static site ready"
+    staticPublishPath: static_lander
+    pullRequestPreviewsEnabled: false
 
 databases:
   - name: bcgame-trade-db

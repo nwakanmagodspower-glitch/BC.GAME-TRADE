@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BCGAME AI — 5-Second BTC Signals (VIP Access)</title>
+  
+  <!-- Meta / Social Sharing -->
+  <meta name="description" content="Access the institutional 5-Second Bitcoin Up/Down AI Signal Engine for BCGAME. 95%+ accuracy, zero subscription fees.">
+  <meta property="og:title" content="BCGAME AI — VIP 5-Second Signals">
+  <meta property="og:description" content="Institutional Microstructure Edge for 5-Second BTC Trading. Claim your free VIP trial now.">
+  <meta property="og:type" content="website">
+
+  <style>
+    :root {
+      --bg-dark: #080b11;
+      --card-bg: #111726;
+      --card-border: #1e293b;
+      --accent-green: #00e676;
+      --accent-green-glow: rgba(0, 230, 118, 0.4);
+      --accent-gold: #f59e0b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Glow */
+    .glow-sphere {
+      position: fixed;
+      top: 10%;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(0, 230, 118, 0.15) 0%, rgba(8, 11, 17, 0) 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 28px 22px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 230, 118, 0.08);
+      text-align: center;
+      backdrop-filter: blur(12px);
+    }
+
+    /* VIP Badge */
+    .badge-bar {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 230, 118, 0.12);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--accent-green);
+      margin-bottom: 18px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      animation: pulse 1.6s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(0, 230, 118, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 230, 118, 0); }
+    }
+
+    h1 {
+      font-size: 1.65rem;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 10px;
+      background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    p.subtext {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+      margin-bottom: 22px;
+    }
+
+    /* Live Signal Demo Card */
+    .signal-preview {
+      background: #090e17;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      text-align: left;
+    }
+
+    .signal-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+
+    .signal-label {
+      color: var(--text-muted);
+    }
+
+    .signal-value {
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .signal-call {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px;
+      background: rgba(0, 230, 118, 0.1);
+      border: 1px dashed var(--accent-green);
+      border-radius: 10px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--accent-green);
+    }
+
+    /* Feature Pills */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .feature-pill {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 10px 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    /* Big Glowing CTA Button */
+    .cta-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      background: linear-gradient(135deg, #00e676 0%, #00b0ff 100%);
+      color: #050b14;
+      font-size: 1.1rem;
+      font-weight: 800;
+      text-decoration: none;
+      padding: 18px 24px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px var(--accent-green-glow);
+      transition: all 0.25s ease;
+      cursor: pointer;
+      border: none;
+    }
+
+    .cta-button:active, .cta-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 40px rgba(0, 230, 118, 0.6);
+    }
+
+    .countdown-text {
+      margin-top: 14px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .countdown-highlight {
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+
+    .footer-note {
+      margin-top: 20px;
+      font-size: 0.75rem;
+      color: #64748b;
+      line-height: 1.4;
+    }
+  </style>
+
+  <!-- Dynamic Meta Pixel Injection -->
+  <script>
+    (function() {
+      // Extract query parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const pixelFromQuery = urlParams.get('pixel');
+      
+      // Default Pixel ID (User can replace with their Meta Pixel ID or pass in URL)
+      const META_PIXEL_ID = pixelFromQuery || window.DEFAULT_PIXEL_ID || null;
+
+      if (META_PIXEL_ID) {
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        
+        fbq('init', META_PIXEL_ID);
+        fbq('track', 'PageView');
+        fbq('track', 'ViewContent', { content_name: 'BCGAME VIP Signal Pre-Lander' });
+      }
+    })();
+  </script>
+</head>
+<body>
+
+  <div class="glow-sphere"></div>
+
+  <div class="container">
+    <div class="badge-bar">
+      <span class="pulse-dot"></span>
+      <span>🇳🇬 VIP TRADING TERMINAL</span>
+    </div>
+
+    <h1>BCGAME 5-Second BTC Signals</h1>
+    <p class="subtext">
+      Automated institutional AI engine tracking micro-ticks before candles close. 100% Free VIP Access today.
+    </p>
+
+    <!-- Signal Live Demo Box -->
+    <div class="signal-preview">
+      <div class="signal-row">
+        <span class="signal-label">Market:</span>
+        <span class="signal-value">Bitcoin (BTC/USD) 5-Second</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-label">Engine Status:</span>
+        <span class="signal-value" style="color: var(--accent-green);">🟢 ONLINE (95%+ Edge)</span>
+      </div>
+      <div class="signal-call">
+        <span>⚡ PREDICTION: 🟢 UP (BUY)</span>
+      </div>
+    </div>
+
+    <!-- Feature Grid -->
+    <div class="feature-grid">
+      <div class="feature-pill">🎯 ₦10k–₦50k/day Target</div>
+      <div class="feature-pill">⚡ 5s Micro-Momentum</div>
+      <div class="feature-pill">💰 100% Your Personal Funds</div>
+      <div class="feature-pill">🚫 Zero Bot Subscriptions</div>
+    </div>
+
+    <!-- Main Telegram Deep Link CTA -->
+    <a id="telegram-cta" class="cta-button" href="https://t.me/bcgame_trade_bot?start=welcome">
+      <span>🚀 Open VIP AI on Telegram</span>
+    </a>
+
+    <div class="countdown-text" id="countdown-banner">
+      Redirecting to Telegram in <span class="countdown-highlight" id="timer-val">2</span>s…
+    </div>
+
+    <div class="footer-note">
+      🔒 Secure Telegram Verification. Funds remain in your personal BCGAME account at all times.
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // 1. Parse parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const fbclid = urlParams.get('fbclid');
+      const customBot = urlParams.get('bot');
+      
+      // Bot username configuration
+      const botUsername = customBot || window.TELEGRAM_BOT_USERNAME || 'bcgame_trade_bot';
+
+      // 2. Build deep link target
+      let targetUrl;
+      if (fbclid && fbclid.trim().length > 0) {
+        targetUrl = 'https://t.me/' + encodeURIComponent(botUsername) + '?start=fbclid_' + encodeURIComponent(fbclid.trim());
+      } else {
+        targetUrl = 'https://t.me/' + encodeURIComponent(botUsername) + '?start=welcome';
+      }
+
+      // 3. Update the CTA button href
+      const ctaBtn = document.getElementById('telegram-cta');
+      if (ctaBtn) {
+        ctaBtn.href = targetUrl;
+      }
+
+      // 4. Auto-redirect timer countdown
+      let remainingSeconds = 2;
+      const timerElement = document.getElementById('timer-val');
+
+      const countdownInterval = setInterval(function() {
+        remainingSeconds -= 1;
+        if (timerElement) {
+          timerElement.textContent = remainingSeconds;
+        }
+        if (remainingSeconds <= 0) {
+          clearInterval(countdownInterval);
+          // Redirect to Telegram
+          window.location.href = targetUrl;
+        }
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>

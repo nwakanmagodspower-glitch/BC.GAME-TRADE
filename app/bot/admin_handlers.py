@@ -11,6 +11,7 @@ from app.models.entities import Broadcast, Signal, SignalStatus, User, UserStatu
 from app.services.admin_ops import AdminOpsService
 from app.services.broadcasts import BroadcastService
 from app.services.market_data import market_data_service
+from app.services.meta_capi import meta_capi_service
 from app.services.paper_validation import PaperValidationService
 from app.services.worker_status import get_worker_status
 
@@ -216,6 +217,7 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with SessionLocal() as db:
         try:
             user = AdminOpsService(db).approve_user(target, update.effective_user.id)
+            await meta_capi_service.send_purchase_event(user, amount_ngn=25000.0, tier_name='Admin Manual Approval')
         except ValueError as exc:
             await update.message.reply_text(f'❌ {exc}')
             return

@@ -9,6 +9,7 @@ import json
 import time
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from telegram import Update
 
@@ -299,6 +300,20 @@ async def market_status():
         'fresh': snapshot.fresh,
         'external_reference_only': True,
     }
+
+
+@app.get('/bridge')
+@app.get('/lander')
+async def bridge_redirect(fbclid: str | None = None, bot: str | None = None):
+    """Server-side bridge redirect to Telegram bot.
+    Preserves fbclid attribution parameter when present; falls back to ?start=welcome.
+    """
+    bot_username = bot or settings.telegram_bot_username or 'bcgame_trade_bot'
+    if fbclid and fbclid.strip():
+        target = f'https://t.me/{bot_username}?start=fbclid_{fbclid.strip()}'
+    else:
+        target = f'https://t.me/{bot_username}?start=welcome'
+    return RedirectResponse(url=target, status_code=307)
 
 
 @app.post('/telegram/webhook')

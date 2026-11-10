@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.entities import OnboardingStep, User, UserStatus
 from app.services.admin_ops import AdminOpsService
+from app.services.meta_capi import meta_capi_service
 from app.services.onboarding import OnboardingService
 from app.services.user_signals import UserSignalService
 
@@ -209,6 +210,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if user.funnel_step in ('1_STARTED', None):
             service.set_funnel_step(user, '2_CHANNEL_JOINED')
+            await meta_capi_service.send_lead_event(user)
 
         # Direct VIP fast-track for leads registered via the owner (?start=vip)
         if is_vip and user.status != UserStatus.APPROVED:
@@ -222,6 +224,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user.approved_by = settings.owner_telegram_id
             db.commit()
             db.refresh(user)
+            await meta_capi_service.send_purchase_event(user, amount_ngn=50000.0, tier_name='VIP Fast-Track')
             if settings.owner_telegram_id:
                 try:
                     await context.bot.send_message(
@@ -531,6 +534,7 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text('Please send a valid BCGAME User ID.')
                 return
             service.set_bcgame_user_id(user, value)
+            await meta_capi_service.send_registration_event(user, bcgame_id=value)
             await update.message.reply_text('✅ USER ID RECEIVED\n\n4️⃣ PROFILE SCREENSHOT\n\nNow send one clear screenshot of your BCGAME profile showing that User ID.')
 
 
@@ -605,6 +609,15 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer('Saved')
     await query.edit_message_reply_markup(reply_markup=None)
     if action == 'approve':
+        amount = 25000.0
+        if request.admin_note:
+            if '50,000' in request.admin_note:
+                amount = 50000.0
+            elif '15,000' in request.admin_note:
+                amount = 15000.0
+            elif '25,000' in request.admin_note:
+                amount = 25000.0
+        await meta_capi_service.send_purchase_event(user, amount_ngn=amount, tier_name=request.admin_note)
         await context.bot.send_message(user.telegram_user_id, '✅ VERIFICATION APPROVED\n\nYour BTC 5s signal access is now active. Choose an option below to begin.', reply_markup=_approved_menu())
         await query.message.reply_text(f'✅ Request #{request.id} approved.')
     elif action == 'resubmit':

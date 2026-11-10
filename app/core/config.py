@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     temporary_retention_days: int = 3
     cleanup_interval_seconds: int = 21600
 
+    # Meta Conversions API (CAPI) & Ad Attribution
+    meta_pixel_id: str | None = None
+    meta_capi_access_token: str | None = None
+    meta_test_event_code: str | None = None
+    telegram_bot_username: str = 'bcgame_trade_bot'
+    bridge_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
