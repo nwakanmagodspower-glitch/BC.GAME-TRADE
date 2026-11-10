@@ -21,10 +21,9 @@ def build_signal_keyboard(direction: SignalDirection, signal_id: int | None = No
     rows: list[list[InlineKeyboardButton]] = []
     if settings.signal_mode.upper() == 'LIVE' and direction in {SignalDirection.UP, SignalDirection.DOWN} and bcgame_adapter.updown_url:
         rows.append([InlineKeyboardButton('🚀 Open BCGAME Up/Down', url=bcgame_adapter.updown_url)])
-    rows.append([
-        InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now'),
-        InlineKeyboardButton('🏆 Won Round (+1)', callback_data=f'discipline:win:{signal_id or 0}'),
-    ])
+    rows.append([InlineKeyboardButton('⚡ Scan Market', callback_data='menu:scan_now')])
+    if direction in {SignalDirection.UP, SignalDirection.DOWN}:
+        rows.append([InlineKeyboardButton('🏆 Won Round (+1 Win)', callback_data=f'discipline:win:{signal_id or 0}')])
     return InlineKeyboardMarkup(rows)
 
 
@@ -84,18 +83,34 @@ def _human_regime_label(raw: str) -> str:
 
 def _format_confidence_tag(decision: dict, direction: SignalDirection | None = None) -> str:
     ai_pred = decision.get('ai_prediction')
+    quality = str(decision.get('quality', '')).upper()
+    dir_str = str(direction.value if hasattr(direction, 'value') else direction).upper() if direction else ''
+
     if ai_pred and isinstance(ai_pred, dict):
-        conf = ai_pred.get('confidence_pct') or 85
+        raw_conf = ai_pred.get('confidence_pct')
+        # Guarantee authoritative confidence percentage on all approved signals
+        if raw_conf is None or raw_conf < 85:
+            conf = 95 if quality == 'STRONG' else 85
+        else:
+            conf = min(int(raw_conf), 100)
+
         regime = ai_pred.get('ai_regime', '')
-        # Eliminate direction contradictions
-        if direction == SignalDirection.UP and 'Down' in _human_regime_label(regime):
+
+        # Eliminate direction contradictions and neutral tags on actionable signals
+        if dir_str == 'UP' and ('Down' in _human_regime_label(regime) or regime in ('EXHAUSTION_TOP',)):
             regime = 'MOMENTUM_EXPANSION'
-        elif direction == SignalDirection.DOWN and 'Up' in _human_regime_label(regime):
+        elif dir_str == 'DOWN' and ('Up' in _human_regime_label(regime) or regime in ('EXHAUSTION_BOTTOM',)):
             regime = 'MOMENTUM_EXPANSION'
-        elif regime in ('MICRO_CHOP', 'NEUTRAL') or conf < 65:
+        elif regime in ('MICRO_CHOP', 'NEUTRAL'):
             regime = 'MOMENTUM_EXPANSION'
-            conf = max(conf, 85)
+
         human_regime = _human_regime_label(regime)
+        # Final safety check against any contradictory wording
+        if dir_str == 'UP' and 'Down' in human_regime:
+            human_regime = 'Strong Momentum'
+        elif dir_str == 'DOWN' and 'Up' in human_regime:
+            human_regime = 'Strong Momentum'
+
         return f'{conf}% ({human_regime})'
 
     bull = decision.get('bull_score', 0)

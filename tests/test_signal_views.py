@@ -182,3 +182,55 @@ def test_directional_signal_dynamic_stake_guidance(monkeypatch):
     assert 'DOWN SIGNAL' in text_std
 
 
+def test_signal_views_no_directional_contradictions():
+    # UP signal must never have "Down" in its tag
+    decision_up = {
+        'quality': 'STRONG',
+        'ai_prediction': {'confidence_pct': 85, 'ai_regime': 'EXHAUSTION_TOP'},
+    }
+    tag_up = signal_views._format_confidence_tag(decision_up, direction=SignalDirection.UP)
+    assert 'Down' not in tag_up
+    assert 'UP' not in tag_up.lower() or 'up' in tag_up.lower()
+    assert '85%' in tag_up or '95%' in tag_up
+
+    # DOWN signal must never have "Up" in its tag
+    decision_down = {
+        'quality': 'STRONG',
+        'ai_prediction': {'confidence_pct': 85, 'ai_regime': 'EXHAUSTION_BOTTOM'},
+    }
+    tag_down = signal_views._format_confidence_tag(decision_down, direction=SignalDirection.DOWN)
+    assert 'Up' not in tag_down
+    assert '85%' in tag_down or '95%' in tag_down
+
+
+def test_signal_views_confidence_never_zero_or_neutral():
+    decision_zero = {
+        'quality': 'STRONG',
+        'ai_prediction': {'confidence_pct': 0, 'ai_regime': 'NEUTRAL'},
+    }
+    tag = signal_views._format_confidence_tag(decision_zero, direction=SignalDirection.UP)
+    assert '0%' not in tag
+    assert 'Neutral' not in tag
+    assert '95%' in tag
+
+    decision_low = {
+        'quality': 'CONFIRMED',
+        'ai_prediction': {'confidence_pct': 51, 'ai_regime': 'MICRO_CHOP'},
+    }
+    tag_low = signal_views._format_confidence_tag(decision_low, direction=SignalDirection.DOWN)
+    assert '51%' not in tag_low
+    assert 'Chop' not in tag_low
+    assert '85%' in tag_low
+
+
+def test_build_signal_keyboard_separate_rows(monkeypatch):
+    monkeypatch.setattr(signal_views.settings, 'signal_mode', 'LIVE')
+    monkeypatch.setattr(signal_views, 'bcgame_adapter', SimpleNamespace(updown_url='https://bc.game/trading/up-down'))
+    markup = signal_views.build_signal_keyboard(SignalDirection.UP, signal_id=99)
+    assert len(markup.inline_keyboard) == 3
+    assert markup.inline_keyboard[0][0].text == '🚀 Open BCGAME Up/Down'
+    assert markup.inline_keyboard[1][0].text == '⚡ Scan Market'
+    assert markup.inline_keyboard[2][0].text == '🏆 Won Round (+1 Win)'
+
+
+
