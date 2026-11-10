@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     signal_user_cooldown_seconds: float = 1.0
     signal_chop_protection_enabled: bool = True
     session_discipline_win_threshold: int = 3
-    session_discipline_cooldown_minutes: int = 15
+    session_discipline_cooldown_minutes: int = 0
     worker_heartbeat_max_age_seconds: int = 30
 
     market_data_provider: str = 'BINANCE_SPOT'

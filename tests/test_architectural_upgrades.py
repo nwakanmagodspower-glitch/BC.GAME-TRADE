@@ -290,6 +290,8 @@ async def test_3_win_session_discipline_tracker(monkeypatch):
     monkeypatch.setattr(handlers, 'SessionLocal', session_factory)
     monkeypatch.setattr('app.services.user_signals.settings.signal_mode', 'LIVE')
     monkeypatch.setattr('app.services.user_signals.settings.signals_enabled', True)
+    monkeypatch.setattr(handlers.settings, 'session_discipline_cooldown_minutes', 15)
+    monkeypatch.setattr('app.services.user_signals.settings.session_discipline_cooldown_minutes', 15)
 
     user = User(
         telegram_user_id=555,
@@ -342,3 +344,38 @@ async def test_3_win_session_discipline_tracker(monkeypatch):
     assert res.available is False
     assert '3-WIN SESSION DISCIPLINE COOLDOWN ACTIVE' in res.reason
     assert '15-minute cooldown' in res.reason
+
+
+@pytest.mark.asyncio
+async def test_no_cooldown_by_default(monkeypatch):
+    db = make_test_db()
+    session_factory = sessionmaker(bind=db.bind)
+    monkeypatch.setattr(handlers, 'SessionLocal', session_factory)
+    monkeypatch.setattr('app.services.user_signals.settings.signal_mode', 'LIVE')
+    monkeypatch.setattr('app.services.user_signals.settings.signals_enabled', True)
+
+    user = User(
+        telegram_user_id=777,
+        status=UserStatus.APPROVED,
+        funnel_step='4_VIP_APPROVED',
+        consecutive_wins=2,
+    )
+    db.add(user)
+    db.commit()
+
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=777),
+        data='discipline:win:10',
+        answer=AsyncMock(),
+        message=SimpleNamespace(reply_text=AsyncMock()),
+    )
+    await handlers.session_discipline_callback(SimpleNamespace(callback_query=query), SimpleNamespace())
+    db.refresh(user)
+    # Consecutive wins reset, but NO cooldown is set!
+    assert user.consecutive_wins == 0
+    assert user.session_cooldown_until is None
+    # User message confirms terminal remains unlocked
+    query.message.reply_text.assert_called_once()
+    msg = query.message.reply_text.call_args[0][0]
+    assert 'Your terminal remains 100% unlocked' in msg
+

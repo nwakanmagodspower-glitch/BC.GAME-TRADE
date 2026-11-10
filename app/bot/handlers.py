@@ -733,17 +733,27 @@ async def session_discipline_callback(update: Update, context: ContextTypes.DEFA
         threshold = settings.session_discipline_win_threshold
         if user.consecutive_wins >= threshold:
             cooldown_mins = settings.session_discipline_cooldown_minutes
-            user.session_cooldown_until = now + timedelta(minutes=cooldown_mins)
             user.consecutive_wins = 0
-            db.commit()
-            await query.answer('🏆 3-WIN TARGET HIT! Locking in profits! 🔥', show_alert=True)
-            await query.message.reply_text(
-                '🏆 3 CONSECUTIVE WINS ACHIEVED! 🔥🔥🔥\n\n'
-                'Outstanding trading session! You hit the 3-Win Target.\n\n'
-                f'AI Discipline Protection enforces a {cooldown_mins}-minute cooldown to lock in 100% of your profits '
-                'and protect your capital from over-trading.\n\n'
-                'Take a well-deserved break and return when the session reopens to keep your win streak sharp!'
-            )
+            if cooldown_mins > 0:
+                user.session_cooldown_until = now + timedelta(minutes=cooldown_mins)
+                db.commit()
+                await query.answer('🏆 3-WIN TARGET HIT! Locking in profits! 🔥', show_alert=True)
+                await query.message.reply_text(
+                    '🏆 3 CONSECUTIVE WINS ACHIEVED! 🔥🔥🔥\n\n'
+                    'Outstanding trading session! You hit the 3-Win Target.\n\n'
+                    f'AI Discipline Protection enforces a {cooldown_mins}-minute cooldown to lock in 100% of your profits '
+                    'and protect your capital from over-trading.\n\n'
+                    'Take a well-deserved break and return when the session reopens to keep your win streak sharp!'
+                )
+            else:
+                user.session_cooldown_until = None
+                db.commit()
+                await query.answer('🏆 3 CONSECUTIVE WINS ACHIEVED! 🔥🔥🔥', show_alert=True)
+                await query.message.reply_text(
+                    '🏆 3 CONSECUTIVE WINS ACHIEVED! 🔥🔥🔥\n\n'
+                    'Outstanding trading session! You hit 3 wins in a row.\n\n'
+                    'Your terminal remains 100% unlocked — tap ⚡ Scan Market anytime for your next round!'
+                )
         else:
             db.commit()
             await query.answer(f'✅ Win recorded! Session streak: {user.consecutive_wins}/{threshold} wins 🔥', show_alert=True)

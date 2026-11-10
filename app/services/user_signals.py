@@ -85,9 +85,10 @@ class UserSignalService:
                     if won:
                         user.consecutive_wins = (user.consecutive_wins or 0) + 1
                         if user.consecutive_wins >= settings.session_discipline_win_threshold:
-                            user.session_cooldown_until = now + timedelta(
-                                minutes=settings.session_discipline_cooldown_minutes
-                            )
+                            if settings.session_discipline_cooldown_minutes > 0:
+                                user.session_cooldown_until = now + timedelta(
+                                    minutes=settings.session_discipline_cooldown_minutes
+                                )
                             user.consecutive_wins = 0
                     else:
                         user.consecutive_wins = 0
@@ -115,7 +116,7 @@ class UserSignalService:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
         now = datetime.now(timezone.utc)
-        if user.session_cooldown_until:
+        if settings.session_discipline_cooldown_minutes > 0 and user.session_cooldown_until:
             cooldown_until = self._aware(user.session_cooldown_until)
             if cooldown_until and now < cooldown_until:
                 remaining_mins = max(1, int((cooldown_until - now).total_seconds() / 60))
@@ -133,6 +134,9 @@ class UserSignalService:
                 user.session_cooldown_until = None
                 user.consecutive_wins = 0
                 self.db.commit()
+        elif user.session_cooldown_until:
+            user.session_cooldown_until = None
+            self.db.commit()
 
         if self._cooldown_active(user, now):
             self.db.rollback()
@@ -239,7 +243,7 @@ class UserSignalService:
             return UserSignalResult(None, False, 'Signals are currently disabled.')
 
         now = datetime.now(timezone.utc)
-        if user.session_cooldown_until:
+        if settings.session_discipline_cooldown_minutes > 0 and user.session_cooldown_until:
             cooldown_until = self._aware(user.session_cooldown_until)
             if cooldown_until and now < cooldown_until:
                 remaining_mins = max(1, int((cooldown_until - now).total_seconds() / 60))
@@ -257,6 +261,9 @@ class UserSignalService:
                 user.session_cooldown_until = None
                 user.consecutive_wins = 0
                 self.db.commit()
+        elif user.session_cooldown_until:
+            user.session_cooldown_until = None
+            self.db.commit()
 
         if self._cooldown_active(user, now):
             self.db.rollback()
