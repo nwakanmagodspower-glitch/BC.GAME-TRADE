@@ -162,6 +162,10 @@ services:
         sync: false
       - key: BCGAME_REGISTRATION_URL
         sync: false
+      - key: BCGAME_REGISTRATION_URL_STARTER
+        sync: false
+      - key: BCGAME_REGISTRATION_URL_VIP
+        sync: false
       - key: BCGAME_DEPOSIT_URL
         sync: false
       - key: BCGAME_UPDOWN_URL

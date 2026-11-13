@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     telegram_user_update_window_seconds: float = 10.0
 
     bcgame_registration_url: str | None = None
+    bcgame_registration_url_starter: str | None = None
+    bcgame_registration_url_vip: str | None = None
     bcgame_deposit_url: str | None = None
     bcgame_updown_url: str | None = None
     support_url: str | None = None

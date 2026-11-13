@@ -183,3 +183,22 @@ def test_bridge_redirect_endpoints():
     resp3 = client.get('/lander?bot=my_test_bot&fbclid=abc123xyz', follow_redirects=False)
     assert resp3.status_code == 307
     assert resp3.headers['location'] == 'https://t.me/my_test_bot?start=fbclid_abc123xyz'
+
+
+def test_tier_bands_clean_no_recommended():
+    from app.bot.handlers import TIER_INFO
+    assert 'starter' in TIER_INFO
+    assert 'pro' in TIER_INFO
+    assert 'vip' in TIER_INFO
+
+    assert '₦5,000 – ₦15,000' in TIER_INFO['starter']['name']
+    assert '₦15,000 – ₦35,000' in TIER_INFO['pro']['name']
+    assert '₦35,000 – ₦100,000+' in TIER_INFO['vip']['name']
+
+    for key, info in TIER_INFO.items():
+        assert 'Recommended' not in info['name']
+        assert 'Recommended' not in info['trial']
+        assert 'Most Popular' not in info['name']
+        assert 'Most Popular' not in info['trial']
+
+

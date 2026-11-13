@@ -290,7 +290,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             request = service.current_request(user)
             proof_count = len(request.deposit_proof_file_ids or [])
             tier_line = f'⭐ Selected Tier: {request.admin_note}\n\n' if request.admin_note else ''
-            deposit_req = request.admin_note or '₦15,000 or more'
+            deposit_req = request.admin_note or '₦5,000 or more'
             if proof_count:
                 await update.effective_chat.send_message(
                     f'5️⃣ DEPOSIT PROOF 🧾\n\n'
@@ -320,27 +320,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 TIER_INFO = {
     'starter': {
-        'name': '🥉 7-Day Access (₦15,000)',
-        'amount': '₦15,000',
-        'trial': '7-Day Free Trial',
+        'name': '🥉 Starter (₦5,000 – ₦15,000)',
+        'amount': '₦5,000 – ₦15,000',
+        'trial': '7-Day Access',
         'scans': '3 to 4 Scans Daily',
-        'daily_profit': '₦6,000 – ₦8,000+',
-        'trial_profit': '₦40,000 – ₦50,000+',
+        'daily_profit': '₦6,000 – ₦12,000+',
+        'trial_profit': '₦40,000 – ₦80,000+',
     },
     'pro': {
-        'name': '🥈 14-Day Access (₦25,000) ⭐',
-        'amount': '₦25,000 or more',
-        'trial': '14-Day Free Trial (⭐ Most Popular)',
+        'name': '🥈 Pro (₦15,000 – ₦35,000)',
+        'amount': '₦15,000 – ₦35,000',
+        'trial': '14-Day Access',
         'scans': '5 to 8 Scans Daily',
-        'daily_profit': '₦15,000 – ₦25,000+',
-        'trial_profit': '₦150,000 – ₦250,000+',
+        'daily_profit': '₦15,000 – ₦30,000+',
+        'trial_profit': '₦150,000 – ₦300,000+',
     },
     'vip': {
-        'name': '🥇 30-Day VIP Access (₦50,000+)',
-        'amount': '₦50,000 or more',
-        'trial': '30-Day Full VIP Trial',
+        'name': '🥇 VIP (₦35,000 – ₦100,000+)',
+        'amount': '₦35,000 – ₦100,000+',
+        'trial': '30-Day VIP Access',
         'scans': 'Unlimited Scans Daily',
-        'daily_profit': '₦35,000 – ₦50,000+',
+        'daily_profit': '₦40,000 – ₦80,000+',
         'trial_profit': '₦500,000+',
     },
 }
@@ -348,9 +348,9 @@ TIER_INFO = {
 
 def _deposit_tiers_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('🥉 7-Day Access (₦15,000)', callback_data='onboard:tier:starter')],
-        [InlineKeyboardButton('🥈 14-Day Access (₦25,000) ⭐', callback_data='onboard:tier:pro')],
-        [InlineKeyboardButton('🥇 30-Day VIP Access (₦50,000+)', callback_data='onboard:tier:vip')],
+        [InlineKeyboardButton('🥉 Starter (₦5,000 – ₦15,000)', callback_data='onboard:tier:starter')],
+        [InlineKeyboardButton('🥈 Pro (₦15,000 – ₦35,000)', callback_data='onboard:tier:pro')],
+        [InlineKeyboardButton('🥇 VIP (₦35,000 – ₦100,000+)', callback_data='onboard:tier:vip')],
     ])
 
 
@@ -437,8 +437,14 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer()
 
             keyboard = []
-            if settings.bcgame_registration_url:
-                keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=settings.bcgame_registration_url)])
+            reg_url = settings.bcgame_registration_url
+            if goal_key == '10k' and settings.bcgame_registration_url_starter:
+                reg_url = settings.bcgame_registration_url_starter
+            elif goal_key in ('25k', '50k') and settings.bcgame_registration_url_vip:
+                reg_url = settings.bcgame_registration_url_vip
+
+            if reg_url:
+                keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=reg_url)])
             keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
 
             text = (
@@ -611,11 +617,11 @@ async def admin_review_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if action == 'approve':
         amount = 25000.0
         if request.admin_note:
-            if '50,000' in request.admin_note:
+            if 'Starter' in request.admin_note or '5,000' in request.admin_note:
+                amount = 10000.0
+            elif 'VIP' in request.admin_note or '100,000' in request.admin_note or '35,000' in request.admin_note:
                 amount = 50000.0
-            elif '15,000' in request.admin_note:
-                amount = 15000.0
-            elif '25,000' in request.admin_note:
+            elif 'Pro' in request.admin_note or '15,000' in request.admin_note:
                 amount = 25000.0
         await meta_capi_service.send_purchase_event(user, amount_ngn=amount, tier_name=request.admin_note)
         await context.bot.send_message(user.telegram_user_id, '✅ VERIFICATION APPROVED\n\nYour BTC 5s signal access is now active. Choose an option below to begin.', reply_markup=_approved_menu())
