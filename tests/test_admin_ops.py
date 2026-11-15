@@ -148,8 +148,8 @@ async def test_start_delivers_welcome_video_and_reassurance(monkeypatch):
     assert len(chat.videos) == 0
     assert len(chat.messages) == 1
     text, markup = chat.messages[0]
-    assert '100% FREE ACCESS' in text
-    assert 'Your deposit remains 100% in YOUR personal BCGAME wallet' in text
+    assert '100% Free VIP Trial' in text
+    assert 'Your deposit remains 100% in your personal BCGAME account' in text
 
     # 2. Set video in DB and test with new user
     with session_factory() as db:
@@ -161,9 +161,9 @@ async def test_start_delivers_welcome_video_and_reassurance(monkeypatch):
     await handlers.start(update2, context)
     assert len(chat2.videos) == 1
     assert chat2.videos[0][0] == 'video_file_id_999'
-    assert 'Watch this live demonstration' in chat2.videos[0][1]
+    assert 'Watch this 1-minute video' in chat2.videos[0][1]
     assert len(chat2.messages) == 1
-    assert '100% FREE ACCESS' in chat2.messages[0][0]
+    assert '100% Free VIP Trial' in chat2.messages[0][0]
 
 
 @pytest.mark.asyncio

@@ -80,6 +80,7 @@ class VerificationDeliveryWorker:
                 async with Bot(settings.telegram_bot_token) as bot:
                     username = f'@{user.telegram_username}' if user.telegram_username else 'Not set'
                     tier_line = f'⭐ Selected Tier: {request.admin_note}\n' if request.admin_note else ''
+                    deposit_requirement = request.admin_note or '₦5,000+'
                     caption = (
                         '🔐 NEW VERIFICATION\n\n'
                         f'👤 {user.first_name or "Unknown"} • {username}\n'
@@ -87,10 +88,10 @@ class VerificationDeliveryWorker:
                         f'🎮 BCGAME ID: {request.bcgame_user_id}\n'
                         f'📦 Request #{request.id}\n'
                         f'{tier_line}'
-                        '💰 Required deposit: ₦15,000+ ($10+)\n\n'
+                        f'💰 Target deposit: {deposit_requirement}\n\n'
                         'Photo 1: BCGAME profile\n'
                         'Photo 2+: Deposit proof\n\n'
-                        'Confirm registration and the ₦15,000+ ($10+) deposit in your affiliate dashboard before approving.'
+                        'Confirm registration and deposit in your affiliate dashboard before approving.'
                     )
                     proof_ids = [request.profile_proof_file_id, *(request.deposit_proof_file_ids or [])]
                     proof_ids = [file_id for file_id in proof_ids if file_id]

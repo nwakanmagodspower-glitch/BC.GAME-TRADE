@@ -51,7 +51,7 @@ class OnboardingService:
             user.telegram_username = telegram_user.username
             user.first_name = telegram_user.first_name
             user.last_seen_at = now
-            if fbclid and not user.fbclid:
+            if fbclid and (not user.fbclid or user.status != UserStatus.APPROVED):
                 user.fbclid = fbclid
             # OWNER_TELEGRAM_ID is the trusted private-chat identity used for
             # admin review. Keep that same account permanently able to test the

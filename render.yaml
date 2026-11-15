@@ -154,11 +154,29 @@ services:
         value: "3"
       - key: CLEANUP_INTERVAL_SECONDS
         value: "21600"
+      - key: CHANNEL_BROADCAST_ENABLED
+        value: "true"
+      - key: CHANNEL_BROADCAST_INTERVAL_SECONDS
+        value: "300"
+      - key: SESSION_DISCIPLINE_WIN_THRESHOLD
+        value: "3"
+      - key: SESSION_DISCIPLINE_COOLDOWN_MINUTES
+        value: "0"
+      - key: DETRADE_USE_SYNTHETIC_FEED
+        value: "true"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
       - key: OWNER_TELEGRAM_ID
+        sync: false
+      - key: TELEGRAM_CHANNEL_ID
+        sync: false
+      - key: TELEGRAM_CHANNEL_INVITE_LINK
+        sync: false
+      - key: WELCOME_VIDEO_FILE_ID
+        sync: false
+      - key: WELCOME_VIDEO_URL
         sync: false
       - key: BCGAME_REGISTRATION_URL
         sync: false
@@ -183,8 +201,9 @@ services:
       - key: BRIDGE_URL
         sync: false
 
-  - type: static_site
+  - type: web
     name: bcgame-trade-bridge
+    runtime: static
     buildCommand: echo "Static site ready"
     staticPublishPath: static_lander
     pullRequestPreviewsEnabled: false

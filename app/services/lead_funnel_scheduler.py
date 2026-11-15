@@ -69,13 +69,13 @@ class LeadFunnelScheduler:
                 
                 keyboard = []
                 if invite_link:
-                    keyboard.append([InlineKeyboardButton("📢 Join Official VIP Channel", url=invite_link)])
+                    keyboard.append([InlineKeyboardButton("📢 Enter Official VIP Community", url=invite_link)])
 
                 text = (
                     f"👋 Quick Reminder {first_name}!\n\n"
-                    "Your Agentic AI Scanner terminal setup is incomplete.\n\n"
-                    "Join our official VIP channel below to automatically unlock universal 5-second Bitcoin signals "
-                    "and claim your 100% Free Trial today!"
+                    "Your AI Scanner Terminal setup is almost complete.\n\n"
+                    "Step inside our official VIP community to see today's live results, watch real member withdrawal proofs, "
+                    "and claim your 100% Free VIP Trial today!"
                 )
                 try:
                     await bot.send_message(
@@ -107,10 +107,9 @@ class LeadFunnelScheduler:
                 first_name = user.first_name or "Trader"
                 text = (
                     f"⚡ Hey {first_name}!\n\n"
-                    "You've unlocked the channel! 🎯\n\n"
-                    "To activate your automated AI scanner terminal and receive high-accuracy 5-second signals, "
-                    "please submit your numeric BCGAME User ID here.\n\n"
-                    "📍 Find it: Open BCGAME → Tap Profile icon at top right → Copy numeric ID."
+                    "Your VIP terminal reservation is waiting! 🎯\n\n"
+                    "Select your starting deposit level and link your account to unlock your 5-second Bitcoin signals.\n\n"
+                    "Tap /start anytime to continue where you left off!"
                 )
                 try:
                     await bot.send_message(chat_id=user.telegram_user_id, text=text)
@@ -138,9 +137,9 @@ class LeadFunnelScheduler:
                 first_name = user.first_name or "Trader"
                 text = (
                     f"⏳ VIP Terminal Update {first_name}!\n\n"
-                    "We have your BCGAME User ID on file. If you haven't uploaded your deposit proof screenshot, "
-                    "please send it now so we can approve your VIP terminal access!\n\n"
-                    "Remember: your deposit stays 100% in YOUR wallet to trade with and withdraw anytime."
+                    "We have your BCGAME User ID on file. To finalize your VIP terminal activation, "
+                    "please upload your deposit proof screenshot here!\n\n"
+                    "💡 100% SECURE: Your deposit remains in your personal BCGAME account to trade with and withdraw to your bank anytime."
                 )
                 try:
                     await bot.send_message(chat_id=user.telegram_user_id, text=text)

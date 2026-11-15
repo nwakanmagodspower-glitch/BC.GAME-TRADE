@@ -119,12 +119,12 @@ async def test_channel_gate_blocks_non_members(monkeypatch):
 
     await handlers.start(update, context)
     assert len(chat.messages) == 1
-    assert 'Terminal Locked — Join Official VIP Channel to Unlock' in chat.messages[0]
+    assert 'See Today’s Live Profits Before You Trade' in chat.messages[0]
     # Verify only single join channel button exists (no verify button)
     markup = chat.markups[0]
     assert len(markup.inline_keyboard) == 1
     assert len(markup.inline_keyboard[0]) == 1
-    assert markup.inline_keyboard[0][0].text == '📢 Join Official VIP Channel'
+    assert markup.inline_keyboard[0][0].text == '📢 Enter Official VIP Community'
 
 
 @pytest.mark.asyncio
@@ -159,7 +159,7 @@ async def test_chat_member_update_auto_unlocks_on_join(monkeypatch):
     assert len(sent_messages) >= 1
     assert sent_messages[0][0] == 444
     assert 'Welcome LeadFour!' in sent_messages[0][1]
-    assert 'daily profit target' in sent_messages[0][1].lower()
+    assert 'daily profit goal' in sent_messages[0][1].lower()
     # Keyboards include profit target choices
     buttons = [b.text for row in sent_messages[0][2].inline_keyboard for b in row]
     assert '🎯 ₦10,000 / day' in buttons
@@ -387,4 +387,74 @@ async def test_no_cooldown_by_default(monkeypatch):
     query.message.reply_text.assert_called_once()
     msg = query.message.reply_text.call_args[0][0]
     assert 'Your terminal remains 100% unlocked' in msg
+
+
+# ==========================================
+# TASK 5: Full Architectural Integrity Tests
+# ==========================================
+
+@pytest.mark.asyncio
+async def test_chat_member_update_dispatches_meta_lead_event(monkeypatch):
+    db = make_test_db()
+    session_factory = sessionmaker(bind=db.bind)
+    monkeypatch.setattr(handlers, 'SessionLocal', session_factory)
+    monkeypatch.setattr(handlers.settings, 'telegram_channel_id', -1001234567890)
+
+    capi_events = []
+    async def mock_send_lead_event(user, **kwargs):
+        capi_events.append(('Lead', user.telegram_user_id))
+        return {'status': 'success'}
+    monkeypatch.setattr(handlers.meta_capi_service, 'send_lead_event', mock_send_lead_event)
+
+    user = User(
+        telegram_user_id=888111,
+        first_name='LeadTester',
+        funnel_step='1_STARTED',
+        status=UserStatus.PENDING,
+    )
+    db.add(user)
+    db.commit()
+
+    update = SimpleNamespace(
+        chat_member=SimpleNamespace(
+            chat=SimpleNamespace(id=-1001234567890, username=None),
+            old_chat_member=SimpleNamespace(status='left'),
+            new_chat_member=SimpleNamespace(
+                status='member',
+                user=SimpleNamespace(id=888111, first_name='LeadTester', username='lead_test', is_bot=False),
+            ),
+        )
+    )
+
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock(), send_video=AsyncMock()))
+    await handlers.chat_member_update(update, context)
+
+    db.refresh(user)
+    assert user.funnel_step == '2_CHANNEL_JOINED'
+    assert len(capi_events) == 1
+    assert capi_events[0] == ('Lead', 888111)
+
+
+@pytest.mark.asyncio
+async def test_last_touch_fbclid_attribution():
+    from app.services.onboarding import OnboardingService
+    db = make_test_db()
+    service = OnboardingService(db)
+
+    tg_user = SimpleNamespace(id=999222, username='ad_user', first_name='AdTrader')
+    # Day 1: User visits from ad campaign 1
+    user = service.get_or_create_user(tg_user, fbclid='fbclid_campaign_1')
+    assert user.fbclid == 'fbclid_campaign_1'
+
+    # Day 2: User returns via retargeting campaign 2 before approval
+    user2 = service.get_or_create_user(tg_user, fbclid='fbclid_retargeting_2')
+    assert user2.fbclid == 'fbclid_retargeting_2'
+
+    # Once approved, fbclid is locked
+    user2.status = UserStatus.APPROVED
+    db.commit()
+
+    user3 = service.get_or_create_user(tg_user, fbclid='fbclid_third_touch')
+    assert user3.fbclid == 'fbclid_retargeting_2'
+
 

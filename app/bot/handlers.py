@@ -18,16 +18,13 @@ HELP_BUTTON = 'ℹ️ How It Works'
 SUPPORT_BUTTON = '🆘 Support'
 
 LOCKED_TERMINAL_TEXT = (
-    '🔒 Terminal Locked — Join Official VIP Channel to Unlock 🇳🇬\n\n'
-    'Welcome to BCGAME AI — the automated 5-Second Bitcoin Up/Down signal engine!\n\n'
-    '🔥 EXCLUSIVE VIP CHANNEL BENEFITS:\n'
-    '• 📈 Daily Live 5-Second BTC Signals (95%+ Win Rate)\n'
-    '• 💰 Real-Time Member Profit Proofs & Winning Streaks\n'
-    '• ⚡ Exact Round Timing & Breakthrough Volatility Alerts\n'
-    '• 🎁 100% Free VIP Terminal Access & On-Demand AI Scanner\n\n'
-    '⚡ AUTOMATIC INSTANT UNLOCK:\n'
-    'Tap the button below to join our official VIP channel. The second you join, your AI Scanner Terminal will automatically unlock inside this chat with zero wait time!\n\n'
-    '👇 Tap below now to claim your VIP access:'
+    'See Today’s Live Profits Before You Trade 🇳🇬\n\n'
+    'Before you risk a single kobo or touch the bot, step inside our official VIP community.\n\n'
+    'Here is what is happening inside right now:\n'
+    '• 💰 Live Results & Payouts — Real screenshots of daily winning trades, bank withdrawal alerts, and member testimonials.\n'
+    '• 📈 Today’s 5-Second Signals — See the exact winning trades our AI predicted this morning (95%+ accuracy).\n'
+    '• 🎥 Live Video Demonstrations — Watch how members take 5-second trades step-by-step.\n\n'
+    '👇 Tap below to step inside. Your AI Scanner Terminal will automatically activate the second you join!'
 )
 
 
@@ -40,7 +37,7 @@ def _channel_locked_keyboard() -> InlineKeyboardMarkup:
     if not invite_link:
         invite_link = "https://t.me"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('📢 Join Official VIP Channel', url=invite_link)]
+        [InlineKeyboardButton('📢 Enter Official VIP Community', url=invite_link)]
     ])
 
 
@@ -76,12 +73,12 @@ async def send_onboarding_welcome(bot, chat_id: int, user, db):
                 await bot.send_video(
                     chat_id=chat_id,
                     video=welcome_video,
-                    caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades with 95%+ accuracy!',
+                    caption='🎥 Watch this 1-minute video to see how to start making daily profits with our 5-second Bitcoin signals on BCGAME!',
                 )
             except TypeError:
                 await bot.send_video(
                     video=welcome_video,
-                    caption='🎥 Watch this live demonstration to see how our AI predicts 5-second BTC trades with 95%+ accuracy!',
+                    caption='🎥 Watch this 1-minute video to see how to start making daily profits with our 5-second Bitcoin signals on BCGAME!',
                 )
         except Exception:
             pass
@@ -95,11 +92,12 @@ async def send_onboarding_welcome(bot, chat_id: int, user, db):
 
     text = (
         f'👋 Welcome {first_name}! 🇳🇬\n\n'
-        'Welcome to BCGAME AI — the automated 5-second Bitcoin Up/Down signal engine.\n\n'
-        'Standard VIP is ₦50,000/month, but first-time traders can claim a Free Trial today.\n\n'
-        '💡 100% FREE ACCESS:\n'
-        'Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw to your bank account anytime.\n\n'
-        '🎯 What is your daily profit target?'
+        'Standard VIP access costs ₦50,000/month, but you can claim a 100% Free VIP Trial today.\n\n'
+        '💡 YOUR MONEY STAYS IN YOUR CONTROL:\n'
+        'You do NOT pay any bot subscription fees until you test and confirm its profitability for yourself. '
+        'Your deposit remains 100% in your personal BCGAME account — trade with it and withdraw your profits to your Nigerian bank account anytime.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '🎯 Step 1: What is your daily profit goal?'
     )
     markup = InlineKeyboardMarkup(keyboard)
     if hasattr(bot, 'send_message'):
@@ -322,7 +320,7 @@ TIER_INFO = {
     'starter': {
         'name': '🥉 Starter (₦5,000 – ₦15,000)',
         'amount': '₦5,000 – ₦15,000',
-        'trial': '7-Day Access',
+        'trial': '7 Days',
         'scans': '3 to 4 Scans Daily',
         'daily_profit': '₦6,000 – ₦12,000+',
         'trial_profit': '₦40,000 – ₦80,000+',
@@ -330,7 +328,7 @@ TIER_INFO = {
     'pro': {
         'name': '🥈 Pro (₦15,000 – ₦35,000)',
         'amount': '₦15,000 – ₦35,000',
-        'trial': '14-Day Access',
+        'trial': '14 Days',
         'scans': '5 to 8 Scans Daily',
         'daily_profit': '₦15,000 – ₦30,000+',
         'trial_profit': '₦150,000 – ₦300,000+',
@@ -338,7 +336,7 @@ TIER_INFO = {
     'vip': {
         'name': '🥇 VIP (₦35,000 – ₦100,000+)',
         'amount': '₦35,000 – ₦100,000+',
-        'trial': '30-Day VIP Access',
+        'trial': '30 Days',
         'scans': 'Unlimited Scans Daily',
         'daily_profit': '₦40,000 – ₦80,000+',
         'trial_profit': '₦500,000+',
@@ -358,7 +356,7 @@ def _tier_deposit_keyboard() -> InlineKeyboardMarkup:
     keyboard = []
     if settings.bcgame_deposit_url:
         keyboard.append([InlineKeyboardButton('💳 Open BCGAME Deposit', url=settings.bcgame_deposit_url)])
-    keyboard.append([InlineKeyboardButton('✅ I Have Deposited', callback_data='onboard:deposited')])
+    keyboard.append([InlineKeyboardButton('✅ I Have Registered & Deposited', callback_data='onboard:deposited')])
     keyboard.append([InlineKeyboardButton('🔄 Choose Different Level', callback_data='onboard:tier:choose')])
     return InlineKeyboardMarkup(keyboard)
 
@@ -367,24 +365,40 @@ async def _send_deposit_step(update: Update, tier_key: str | None = None, edit: 
     chat = update.effective_chat
     if tier_key and tier_key in TIER_INFO:
         info = TIER_INFO[tier_key]
+        first_name = (update.effective_user.first_name if update.effective_user else None) or 'Trader'
+        reg_url = settings.bcgame_registration_url
+        if tier_key == 'starter' and settings.bcgame_registration_url_starter:
+            reg_url = settings.bcgame_registration_url_starter
+        elif tier_key in ('pro', 'vip') and settings.bcgame_registration_url_vip:
+            reg_url = settings.bcgame_registration_url_vip
+
+        keyboard = []
+        if reg_url:
+            keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=reg_url)])
+        if settings.bcgame_deposit_url:
+            keyboard.append([InlineKeyboardButton('💳 Open BCGAME Deposit', url=settings.bcgame_deposit_url)])
+        keyboard.append([InlineKeyboardButton('✅ I Have Registered & Deposited', callback_data='onboard:deposited')])
+        keyboard.append([InlineKeyboardButton('🔄 Choose Different Level', callback_data='onboard:tier:choose')])
+
         text = (
-            f'🎯 SELECTED: {info["name"]}\n\n'
-            '📊 PROFIT PROJECTION:\n'
-            f'• Deposit: {info["amount"]}\n'
-            f'• Signals: {info["scans"]}\n'
-            f'• Target Daily Profit: {info["daily_profit"]}\n'
-            f'• Expected Trial Profit: {info["trial_profit"]} (covers future renewal from profit!)\n\n'
-            '💳 NEXT STEPS:\n'
-            f'1. Tap "💳 Open BCGAME Deposit" and fund {info["amount"]}.\n'
-            '2. Save a screenshot of your successful transaction receipt.\n'
-            '3. Tap “✅ I Have Deposited” below to submit.'
+            '🎟️ VIP ACCESS RESERVATION APPROVED!\n\n'
+            f'👤 Trader: {first_name}\n'
+            f'⭐ Selected Level: {info["name"]}\n'
+            f'💰 Recommended Deposit: {info["amount"]}\n'
+            f'⏱️ Trial Access: {info["trial"]}\n'
+            f'⚡ Signals Included: {info["scans"]}\n'
+            f'📈 Target Profit: {info["trial_profit"]} (covers future renewals from profit!)\n\n'
+            '━━━━━━━━━━━━━━━━━━━━━\n'
+            '👇 ACTIVATE IN 2 SIMPLE STEPS:\n\n'
+            '1️⃣ Tap “🔗 Create BCGAME Account” below to register and automatically link your account.\n'
+            f'2️⃣ Fund your balance ({info["amount"]}), then tap “✅ I Have Registered & Deposited” below to submit your User ID.'
         )
-        markup = _tier_deposit_keyboard()
+        markup = InlineKeyboardMarkup(keyboard)
     else:
         text = (
-            '2️⃣ CHOOSE YOUR TRIAL LEVEL 💳\n\n'
-            'Select your access level below to activate your signals and see your profit projection:\n\n'
-            '🔒 100% Secure: We NEVER ask for your password, email, or login details.'
+            '💳 Step 3: Choose your starting deposit level:\n\n'
+            'Select the amount you want to start with to fund your BCGAME account, activate your trial signals, and start profiting today:\n\n'
+            '🔒 100% Secure: We never ask for passwords or account access. Your deposit stays in your wallet for trading and withdrawals.'
         )
         markup = _deposit_tiers_keyboard()
 
@@ -419,7 +433,7 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer()
             await query.edit_message_text(
                 f'🎯 Target Set: {chosen_goal}\n\n'
-                '📊 What is your trading experience level?',
+                '📊 Step 2: What is your trading experience level?',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('🟢 Beginner', callback_data=f'onboard:exp:beg:{goal_key}')],
                     [InlineKeyboardButton('🟡 Intermediate', callback_data=f'onboard:exp:int:{goal_key}')],
@@ -429,41 +443,13 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         if query.data.startswith('onboard:exp:'):
-            parts = query.data.split(':')
-            goal_key = parts[3] if len(parts) > 3 else '10k'
-            goal_labels = {'10k': '₦10,000 / day', '25k': '₦25,000 / day', '50k': '₦50,000+ / day'}
-            chosen_goal = goal_labels.get(goal_key, '₦10,000 / day')
-            first_name = query.from_user.first_name or 'Trader'
             await query.answer()
-
-            keyboard = []
-            reg_url = settings.bcgame_registration_url
-            if goal_key == '10k' and settings.bcgame_registration_url_starter:
-                reg_url = settings.bcgame_registration_url_starter
-            elif goal_key in ('25k', '50k') and settings.bcgame_registration_url_vip:
-                reg_url = settings.bcgame_registration_url_vip
-
-            if reg_url:
-                keyboard.append([InlineKeyboardButton('🔗 Create BCGAME Account', url=reg_url)])
-            keyboard.append([InlineKeyboardButton('✅ I Have Registered', callback_data='onboard:registered')])
-
             text = (
-                '🎟️ VIP TRIAL APPROVED!\n\n'
-                f'👤 Trader: {first_name}\n'
-                f'🎯 Daily Target: {chosen_goal}\n'
-                '💎 Value: ₦50,000/Month (Active Free Trial)\n'
-                '⏳ Reservation: Expires in 1 Hour\n\n'
-                '⚡ HOW BCGAME AI WORKS:\n'
-                '• BCGAME’s Bitcoin Up/Down gives you 5 seconds to predict price direction.\n'
-                '• Manual guessing is inconsistent. BCGAME AI tracks millisecond momentum to deliver high-accuracy 🟢 UP or 🔴 DOWN signals.\n\n'
-                '🔒 100% ACCOUNT SECURITY:\n'
-                'We NEVER ask for your password, email, or login details. Your deposit remains 100% in YOUR personal BCGAME wallet to trade with and withdraw anytime.\n\n'
-                '━━━━━━━━━━━━━━━━━━━━━\n'
-                '👇 CLAIM YOUR TRIAL (2 STEPS):\n\n'
-                '1️⃣ Tap “🔗 Create BCGAME Account” below to register.\n'
-                '2️⃣ Return here and tap “✅ I Have Registered”.'
+                '💳 Step 3: Choose your starting deposit level:\n\n'
+                'Select the amount you want to start with to fund your BCGAME account, activate your trial signals, and start profiting today:\n\n'
+                '🔒 100% Secure: We never ask for passwords or account access. Your deposit stays in your wallet for trading and withdrawals.'
             )
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(text, reply_markup=_deposit_tiers_keyboard())
             return
 
         if query.data.startswith('onboard:tier:'):
@@ -475,19 +461,14 @@ async def onboarding_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             if tier_action in TIER_INFO:
                 await query.answer(f'Selected {TIER_INFO[tier_action]["name"]}')
                 service.set_selected_tier(user, TIER_INFO[tier_action]['name'])
+                service.set_step(user, OnboardingStep.DEPOSIT)
                 await _send_deposit_step(update, tier_key=tier_action, edit=True)
                 return
-        if query.data == 'onboard:registered' and user.onboarding_step == OnboardingStep.REGISTRATION:
-            await query.answer()
-            service.set_step(user, OnboardingStep.DEPOSIT)
-            await query.edit_message_text('✅ Registration step complete.')
-            await _send_deposit_step(update, edit=False)
-            return
-        if query.data == 'onboard:deposited' and user.onboarding_step == OnboardingStep.DEPOSIT:
+        if query.data in ('onboard:registered', 'onboard:deposited') and user.onboarding_step in (OnboardingStep.REGISTRATION, OnboardingStep.DEPOSIT):
             await query.answer()
             service.set_step(user, OnboardingStep.BC_ID)
             await query.edit_message_text(
-                '✅ Deposit step completed.\n\n'
+                '✅ Account setup completed.\n\n'
                 '3️⃣ SEND YOUR BCGAME USER ID 🆔\n\n'
                 '📍 Where to find it:\n'
                 '1. Open BCGAME\n'
@@ -687,6 +668,7 @@ async def channel_gate_callback(update: Update, context: ContextTypes.DEFAULT_TY
         user = service.get_or_create_user(query.from_user)
         if user.funnel_step in ('1_STARTED', None):
             service.set_funnel_step(user, '2_CHANNEL_JOINED')
+            await meta_capi_service.send_lead_event(user)
         if user.status == UserStatus.APPROVED:
             await query.edit_message_text(
                 '⚡ BCGAME AI SIGNALS — VIP ACCESS\n\n'
@@ -722,6 +704,7 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
             user = service.get_or_create_user(tg_user)
             if user.funnel_step in ('1_STARTED', None):
                 service.set_funnel_step(user, '2_CHANNEL_JOINED')
+                await meta_capi_service.send_lead_event(user)
             if user.status != UserStatus.APPROVED and not user.is_blocked:
                 try:
                     await send_onboarding_welcome(context.bot, tg_user.id, tg_user, db)
