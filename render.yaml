@@ -204,7 +204,6 @@ services:
   - type: web
     name: bcgame-trade-bridge
     runtime: static
-    buildCommand: echo "Static site ready"
     staticPublishPath: static_lander
     pullRequestPreviewsEnabled: false
 
