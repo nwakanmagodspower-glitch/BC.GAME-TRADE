@@ -9,7 +9,8 @@ import json
 import time
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from pathlib import Path
 from sqlalchemy import text
 from telegram import Update
 
@@ -300,6 +301,18 @@ async def market_status():
         'fresh': snapshot.fresh,
         'external_reference_only': True,
     }
+
+
+_STATIC_LANDER_INDEX = Path(__file__).resolve().parent.parent / 'static_lander' / 'index.html'
+
+
+@app.get('/')
+@app.get('/lander.html')
+@app.get('/bridge.html')
+async def lander_page():
+    if _STATIC_LANDER_INDEX.is_file():
+        return FileResponse(_STATIC_LANDER_INDEX, media_type='text/html')
+    return RedirectResponse(url='/lander')
 
 
 @app.get('/bridge')

@@ -201,12 +201,6 @@ services:
       - key: BRIDGE_URL
         sync: false
 
-  - type: web
-    name: bcgame-ai-bridge
-    runtime: static
-    staticPublishPath: static_lander
-    pullRequestPreviewsEnabled: false
-
 databases:
   - name: bcgame-trade-db
     region: frankfurt
