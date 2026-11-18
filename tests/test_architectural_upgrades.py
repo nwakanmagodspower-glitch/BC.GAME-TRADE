@@ -249,7 +249,7 @@ async def test_channel_live_broadcaster_sequence(monkeypatch):
     assert success is True
     # Initial signal and winning threaded reply sent
     assert len(messages) == 2
-    assert '📡 BCGAME AI — LIVE 5S SIGNAL' in messages[0]
+    assert '📡 BC.GAME AI — LIVE 5S SIGNAL' in messages[0]
     assert 'Entry: $95,000.00' in messages[0]
     assert '✅ ROUND FINISHED — UP WON!' in messages[1]
     assert 'Session Streak: 1 WINS' in messages[1]
