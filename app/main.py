@@ -43,7 +43,8 @@ telegram_app = build_telegram_application()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not startup_check.ok:
-        raise RuntimeError('Invalid application configuration: ' + '; '.join(startup_check.errors))
+        import logging
+        logging.getLogger('app.main').error('Pending environment configuration: %s', '; '.join(startup_check.errors))
     await market_data_service.start(settings.analysis_pair)
     # Wire database token getter so tokens set via /set_token survive Render restarts.
     if hasattr(detrade_token_provider, 'set_db_token_getter'):
@@ -107,7 +108,7 @@ async def lifespan(app: FastAPI):
         from app.worker import _critical_worker_health
         worker_heartbeat_service.health_provider = _critical_worker_health
         await worker_heartbeat_service.start()
-    if telegram_app is not None:
+    if telegram_app is not None and startup_check.ok:
         await telegram_app.initialize()
         await telegram_app.start()
         await lead_funnel_scheduler.start(telegram_app.bot)
@@ -116,9 +117,11 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await channel_live_broadcaster.stop()
-        await lead_funnel_scheduler.stop()
-        if telegram_app is not None:
+        if getattr(channel_live_broadcaster, '_running', False):
+            await channel_live_broadcaster.stop()
+        if getattr(lead_funnel_scheduler, '_running', False):
+            await lead_funnel_scheduler.stop()
+        if telegram_app is not None and getattr(telegram_app, 'running', False):
             await telegram_app.stop()
             await telegram_app.shutdown()
         if settings.run_background_jobs:
