@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bcgame-trade-api
+    name: bcgame-ai-bot
     runtime: docker
     branch: main
     autoDeployTrigger: commit
@@ -202,7 +202,7 @@ services:
         sync: false
 
   - type: web
-    name: bcgame-trade-bridge
+    name: bcgame-ai-bridge
     runtime: static
     staticPublishPath: static_lander
     pullRequestPreviewsEnabled: false
