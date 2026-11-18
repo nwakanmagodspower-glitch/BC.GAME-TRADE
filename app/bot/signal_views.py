@@ -186,8 +186,7 @@ def format_signal(signal: Signal) -> str:
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n\n'
             '🎯 Action: 🛡️ Skip Round\n'
-            'No qualified setup right now (momentum is neutral, choppy, or edge is insufficient).\n'
-            'Skip this round rather than forcing an entry, and wait for a clear directional setup.'
+            'No qualified setup right now. Please scan again for the next round.'
             + paper
         )
 
