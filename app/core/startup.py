@@ -189,16 +189,23 @@ def validate_settings(settings: Settings) -> StartupCheck:
             errors.append('Production requires TELEGRAM_WEBHOOK_SECRET')
         if not settings.owner_telegram_id:
             errors.append('Production requires OWNER_TELEGRAM_ID')
-        if not _valid_https_url(settings.bcgame_registration_url):
-            errors.append('Production requires a valid HTTPS BCGAME_REGISTRATION_URL')
-        if not _valid_https_url(settings.bcgame_deposit_url):
-            errors.append('Production requires a valid HTTPS BCGAME_DEPOSIT_URL')
+        has_reg_url = bool(
+            _valid_https_url(settings.bcgame_registration_url)
+            or (
+                _valid_https_url(settings.bcgame_registration_url_starter)
+                and _valid_https_url(settings.bcgame_registration_url_vip)
+            )
+        )
+        if not has_reg_url:
+            errors.append('Production requires valid HTTPS BCGAME_REGISTRATION_URL (or both STARTER and VIP URLs)')
+        if settings.bcgame_deposit_url and not _valid_https_url(settings.bcgame_deposit_url):
+            errors.append('BCGAME_DEPOSIT_URL must be a valid HTTPS URL when provided')
         if not _valid_https_url(settings.bcgame_updown_url):
             errors.append('Production requires a valid HTTPS BCGAME_UPDOWN_URL')
         elif urlparse(settings.bcgame_updown_url).hostname != 'bc.game' or urlparse(settings.bcgame_updown_url).path.rstrip('/') != '/trading/up-down':
             errors.append('BCGAME_UPDOWN_URL must target https://bc.game/trading/up-down')
-        if not _valid_https_url(settings.support_url):
-            errors.append('Production requires a valid HTTPS SUPPORT_URL')
+        if settings.support_url and not _valid_https_url(settings.support_url):
+            errors.append('SUPPORT_URL must be a valid HTTPS URL when provided')
         if len(settings.telegram_webhook_secret or '') < 16:
             errors.append('TELEGRAM_WEBHOOK_SECRET must be at least 16 characters')
 

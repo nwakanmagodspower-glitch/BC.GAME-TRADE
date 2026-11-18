@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     bcgame_registration_url_starter: str | None = None
     bcgame_registration_url_vip: str | None = None
     bcgame_deposit_url: str | None = None
-    bcgame_updown_url: str | None = None
+    bcgame_updown_url: str = 'https://bc.game/trading/up-down'
     support_url: str | None = None
     welcome_video_file_id: str | None = None
     welcome_video_url: str | None = None
