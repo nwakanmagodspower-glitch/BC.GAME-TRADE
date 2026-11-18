@@ -157,7 +157,7 @@ services:
       - key: CHANNEL_BROADCAST_ENABLED
         value: "true"
       - key: CHANNEL_BROADCAST_INTERVAL_SECONDS
-        value: "300"
+        value: "900"
       - key: SESSION_DISCIPLINE_WIN_THRESHOLD
         value: "3"
       - key: SESSION_DISCIPLINE_COOLDOWN_MINUTES

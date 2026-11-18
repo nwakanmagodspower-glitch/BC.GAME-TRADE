@@ -92,6 +92,13 @@ async def send_onboarding_welcome(bot, chat_id: int, user, db):
 
     text = (
         f'👋 Welcome {first_name}! 🇳🇬\n\n'
+        '🤖 WHAT IS THIS SYSTEM?\n'
+        'This is an AI-powered intelligence scanner built specifically for BCGAME’s Bitcoin (BTC/USD) 5-Second Up/Down trading arena.\n\n'
+        '⚡ HOW IT WORKS:\n'
+        '1️⃣ The AI scans live Bitcoin order flow & price momentum every second.\n'
+        '2️⃣ It predicts high-probability 5-second rounds (🟢 UP or 🔴 DOWN) before each round starts.\n'
+        '3️⃣ You place the signal on your BCGAME account and collect your profit in 5 seconds!\n\n'
+        '💎 100% FREE VIP TRIAL:\n'
         'Standard VIP access costs ₦50,000/month, but you can claim a 100% Free VIP Trial today.\n\n'
         '💡 YOUR MONEY STAYS IN YOUR CONTROL:\n'
         'You do NOT pay any bot subscription fees until you test and confirm its profitability for yourself. '
