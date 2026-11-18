@@ -223,7 +223,8 @@ async def test_channel_live_broadcaster_sequence(monkeypatch):
     monkeypatch.setattr('app.services.market_data.market_data_service.cache.get_snapshot', mock_get_snapshot)
 
     messages = []
-    edits = []
+    replies = []
+    deletes = []
 
     class MockBot:
         async def get_me(self):
@@ -231,9 +232,11 @@ async def test_channel_live_broadcaster_sequence(monkeypatch):
         async def send_message(self, chat_id, text, **kwargs):
             msg = SimpleNamespace(message_id=999, text=text)
             messages.append(text)
+            if 'reply_to_message_id' in kwargs:
+                replies.append((kwargs['reply_to_message_id'], text))
             return msg
-        async def edit_message_text(self, chat_id, message_id, text, **kwargs):
-            edits.append(text)
+        async def delete_message(self, chat_id, message_id, **kwargs):
+            deletes.append(message_id)
 
     broadcaster = ChannelLiveBroadcaster()
     success = await broadcaster.broadcast_live_round(
@@ -244,18 +247,15 @@ async def test_channel_live_broadcaster_sequence(monkeypatch):
     )
 
     assert success is True
-    # 1 initial message sent
-    assert len(messages) == 1
-    assert '📡 AGENTIC AI — LIVE ROUND' in messages[0]
-    assert 'Countdown: 15s' in messages[0]
+    # Initial signal and winning threaded reply sent
+    assert len(messages) == 2
+    assert '📡 AGENTIC AI — LIVE 5S SIGNAL' in messages[0]
     assert 'Entry: $95,000.00' in messages[0]
-
-    # 2 edits performed (5s countdown and final round finish)
-    assert len(edits) == 2
-    assert 'Locking Result In: 5 Seconds...' in edits[0]
-    assert '✅ ROUND FINISHED — UP WON!' in edits[1]
-    assert 'Session Streak: 1 WINS' in edits[1]
+    assert '✅ ROUND FINISHED — UP WON!' in messages[1]
+    assert 'Session Streak: 1 WINS' in messages[1]
     assert broadcaster.session_streak == 1
+    assert len(replies) == 1
+    assert replies[0][0] == 999
 
 
 # ==========================================

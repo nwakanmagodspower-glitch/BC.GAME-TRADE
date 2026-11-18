@@ -68,10 +68,10 @@ class ChannelLiveBroadcaster:
             dir_str = direction.value
             icon = "🟢" if direction == SignalDirection.UP else "🔴"
 
-            # 1. Send initial 15s countdown message
+            # 1. Send initial signal broadcast message
             initial_text = (
-                "📡 AGENTIC AI — LIVE ROUND\n\n"
-                "⏱️ Countdown: 15s\n"
+                "📡 AGENTIC AI — LIVE 5S SIGNAL 🇳🇬\n\n"
+                "⏱️ Round Duration: 5 Seconds\n"
                 f"🎯 Signal: {icon} {dir_str}\n"
                 f"💰 Entry: ${entry_price:,.2f}\n\n"
                 "⚡ Universal Round ($1–$50, $50–$100, $100–$200+)"
@@ -79,26 +79,8 @@ class ChannelLiveBroadcaster:
             msg = await bot.send_message(chat_id=channel_id, text=initial_text)
             self._last_broadcast_at = datetime.now(timezone.utc)
 
-            # 2. Wait 10 seconds -> Update countdown to 5 seconds
-            await asyncio.sleep(10)
-            update_5s_text = (
-                "📡 AGENTIC AI — LIVE ROUND\n\n"
-                "🔥 Locking Result In: 5 Seconds...\n"
-                f"🎯 Signal: {icon} {dir_str}\n"
-                f"💰 Entry: ${entry_price:,.2f}\n\n"
-                "⚡ Universal Round — Result locking at 0:00..."
-            )
-            try:
-                await bot.edit_message_text(
-                    chat_id=channel_id,
-                    message_id=msg.message_id,
-                    text=update_5s_text,
-                )
-            except Exception as exc:
-                logger.debug(f"Failed to edit 5s countdown: {exc}")
-
-            # 3. Wait 5 seconds -> Fetch closing price & evaluate result
-            await asyncio.sleep(5)
+            # 2. Wait 8 seconds for the 5-second round to finish & settle
+            await asyncio.sleep(8)
             snapshot = await market_data_service.cache.get_snapshot(
                 settings.analysis_pair,
                 settings.market_data_max_age_seconds,
@@ -124,7 +106,7 @@ class ChannelLiveBroadcaster:
                     [InlineKeyboardButton("⚡ Launch On-Demand AI Scanner", url=bot_link)]
                 ])
 
-                final_text = (
+                reply_text = (
                     f"{result_header}\n\n"
                     f"🎯 Signal: {icon} {dir_str}\n"
                     f"💰 Entry: ${entry_price:,.2f}\n"
@@ -133,17 +115,19 @@ class ChannelLiveBroadcaster:
                     "⚡ All rooms settled ($1–$50, $50–$100, $100–$200+)"
                 )
 
-                await bot.edit_message_text(
+                # Send winning confirmation as a threaded REPLY to the original signal message
+                await bot.send_message(
                     chat_id=channel_id,
-                    message_id=msg.message_id,
-                    text=final_text,
+                    text=reply_text,
+                    reply_to_message_id=msg.message_id,
+                    allow_sending_without_reply=True,
                     reply_markup=keyboard,
                 )
                 return True
             else:
-                # Option A: Clean Proof Feed
-                # Non-winning broadcast is silently deleted after a 5-second settlement window
-                # so the channel history remains 100% green winning rounds and streaks.
+                # Option A: Clean Proof Feed — No Losses in Channel
+                # Non-winning broadcast is silently deleted after a 5-second window
+                # so the channel history contains 100% winning signal-reply pairs and streaks.
                 self.session_streak = 0
                 await asyncio.sleep(5)
                 try:
