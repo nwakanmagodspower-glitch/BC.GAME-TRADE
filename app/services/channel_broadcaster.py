@@ -103,7 +103,7 @@ class ChannelLiveBroadcaster:
                 diff_str = f"+${diff:.2f}" if diff >= 0 else f"-${abs(diff):.2f}"
 
                 keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚡ Launch On-Demand AI Scanner", url=bot_link)]
+                    [InlineKeyboardButton("👉 How It Works & Free VIP Trial 🎁", url=bot_link)]
                 ])
 
                 reply_text = (
