@@ -70,7 +70,7 @@ class ChannelLiveBroadcaster:
 
             # 1. Send initial signal broadcast message
             initial_text = (
-                "📡 AGENTIC AI — LIVE 5S SIGNAL 🇳🇬\n\n"
+                "📡 BCGAME AI — LIVE 5S SIGNAL 🇳🇬\n\n"
                 "⏱️ Round Duration: 5 Seconds\n"
                 f"🎯 Signal: {icon} {dir_str}\n"
                 f"💰 Entry: ${entry_price:,.2f}\n\n"
