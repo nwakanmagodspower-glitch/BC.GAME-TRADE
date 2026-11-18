@@ -116,34 +116,44 @@ class ChannelLiveBroadcaster:
             signal_won = (direction == round_winner)
             if signal_won:
                 self.session_streak += 1
-                result_header = f"✅ ROUND FINISHED — {direction.value} WON!"
+                result_header = f"✅ ROUND FINISHED — {direction.value} WON! 🎯"
+                diff = close_price - entry_price
+                diff_str = f"+${diff:.2f}" if diff >= 0 else f"-${abs(diff):.2f}"
+
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Launch On-Demand AI Scanner", url=bot_link)]
+                ])
+
+                final_text = (
+                    f"{result_header}\n\n"
+                    f"🎯 Signal: {icon} {dir_str}\n"
+                    f"💰 Entry: ${entry_price:,.2f}\n"
+                    f"🏁 Close: ${close_price:,.2f} ({diff_str})\n"
+                    f"🔥 Current Session Streak: {self.session_streak} WINS\n\n"
+                    "⚡ All rooms settled ($1–$50, $50–$100, $100–$200+)"
+                )
+
+                await bot.edit_message_text(
+                    chat_id=channel_id,
+                    message_id=msg.message_id,
+                    text=final_text,
+                    reply_markup=keyboard,
+                )
+                return True
             else:
+                # Option A: Clean Proof Feed
+                # Non-winning broadcast is silently deleted after a 5-second settlement window
+                # so the channel history remains 100% green winning rounds and streaks.
                 self.session_streak = 0
-                result_header = f"🏁 ROUND FINISHED — {round_winner.value} WON"
-
-            diff = close_price - entry_price
-            diff_str = f"+${diff:.2f}" if diff >= 0 else f"-${abs(diff):.2f}"
-
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚡ Launch On-Demand AI Scanner", url=bot_link)]
-            ])
-
-            final_text = (
-                f"{result_header}\n\n"
-                f"🎯 Signal: {icon} {dir_str}\n"
-                f"💰 Entry: ${entry_price:,.2f}\n"
-                f"🏁 Close: ${close_price:,.2f} ({diff_str})\n"
-                f"🔥 Current Session Streak: {self.session_streak} WINS\n\n"
-                "⚡ All rooms settled ($1–$50, $50–$100, $100–$200+)"
-            )
-
-            await bot.edit_message_text(
-                chat_id=channel_id,
-                message_id=msg.message_id,
-                text=final_text,
-                reply_markup=keyboard,
-            )
-            return True
+                await asyncio.sleep(5)
+                try:
+                    await bot.delete_message(
+                        chat_id=channel_id,
+                        message_id=msg.message_id,
+                    )
+                except Exception as del_err:
+                    logger.debug(f"Failed to delete non-winning broadcast message: {del_err}")
+                return False
         except Exception as exc:
             logger.error(f"Error in broadcast_live_round: {exc}")
             return False
@@ -159,14 +169,17 @@ class ChannelLiveBroadcaster:
                         or (now - self._last_broadcast_at).total_seconds() >= min_interval
                     )
                     if can_broadcast:
-                        # Scan live market intelligence for high-confidence trend windows
+                        # Option C: Scan live market intelligence for ultra-high confidence trend windows
                         intel = await signal_intelligence_service.scan(settings.analysis_pair)
+                        score_diff = abs(intel.decision.bull_score - intel.decision.bear_score) if intel.decision else 0
+                        top_score = max(intel.decision.bull_score, intel.decision.bear_score) if intel.decision else 0
                         if (
                             intel.service_available
                             and intel.direction in (SignalDirection.UP, SignalDirection.DOWN)
                             and intel.decision
                             and intel.decision.quality in ('STRONG', 'CONFIRMED')
-                            and abs(intel.decision.bull_score - intel.decision.bear_score) >= 3
+                            and score_diff >= 4
+                            and top_score >= 6
                         ):
                             snapshot = await market_data_service.cache.get_snapshot(
                                 settings.analysis_pair,
