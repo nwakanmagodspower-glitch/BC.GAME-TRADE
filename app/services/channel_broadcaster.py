@@ -104,8 +104,8 @@ class ChannelLiveBroadcaster:
                     round_winner = SignalDirection.DOWN
                 else:
                     round_winner = SignalDirection.UP if close_price > entry_price else SignalDirection.DOWN
-            else:
-                # Fallback to market cache tick if round_id was unavailable or timed out
+            elif not round_id or not settings.detrade_use_synthetic_feed:
+                # Fallback to market cache tick when round_id was not provided or synthetic DeTrade feed is disabled
                 await asyncio.sleep(6)
                 snapshot = await market_data_service.cache.get_snapshot(
                     settings.analysis_pair,
@@ -118,6 +118,16 @@ class ChannelLiveBroadcaster:
                     round_winner = SignalDirection.UP
                 else:
                     round_winner = SignalDirection.DOWN
+            else:
+                # round_id was provided but DeTrade bet end price was not confirmed: do NOT broadcast an unconfirmed result
+                logger.warning(f"DeTrade bet end price not confirmed for round {round_id}. Skipping result broadcast.")
+                self.session_streak = 0
+                await asyncio.sleep(5)
+                try:
+                    await bot.delete_message(chat_id=channel_id, message_id=msg.message_id)
+                except Exception as del_err:
+                    logger.debug(f"Failed to delete unconfirmed broadcast: {del_err}")
+                return False
 
             signal_won = (direction == round_winner)
             if signal_won:
@@ -189,24 +199,35 @@ class ChannelLiveBroadcaster:
                             and score_diff >= 4
                             and top_score >= 6
                         ):
-                            snapshot = await market_data_service.cache.get_snapshot(
-                                settings.analysis_pair,
-                                settings.market_data_max_age_seconds,
-                            )
-                            if snapshot and snapshot.fresh:
-                                round_id: str | None = None
-                                if settings.detrade_use_synthetic_feed:
-                                    try:
-                                        from app.integrations.detrade_observer import detrade_observer
-                                        if detrade_observer.latest and detrade_observer.latest.round_id:
-                                            round_id = str(detrade_observer.latest.round_id)
-                                    except Exception:
-                                        pass
+                            # Strictly obtain authoritative DeTrade BTC entry price before giving signal
+                            entry_price: float | None = None
+                            round_id: str | None = None
+                            if settings.detrade_use_synthetic_feed:
+                                try:
+                                    from app.integrations.detrade_observer import detrade_observer
+                                    if detrade_observer.latest_tick and (detrade_observer.latest_tick.get('price') or 0.0) > 0:
+                                        entry_price = float(detrade_observer.latest_tick['price'])
+                                    if detrade_observer.latest and detrade_observer.latest.round_id:
+                                        round_id = str(detrade_observer.latest.round_id)
+                                        if (detrade_observer.latest.start_price or 0.0) > 0:
+                                            entry_price = float(detrade_observer.latest.start_price)
+                                except Exception:
+                                    pass
+
+                            if entry_price is None or entry_price <= 0:
+                                snapshot = await market_data_service.cache.get_snapshot(
+                                    settings.analysis_pair,
+                                    settings.market_data_max_age_seconds,
+                                )
+                                if snapshot and snapshot.fresh and snapshot.price > 0:
+                                    entry_price = snapshot.price
+
+                            if entry_price and entry_price > 0:
                                 await self.broadcast_live_round(
                                     bot=bot,
                                     channel_id=settings.telegram_channel_id,
                                     direction=intel.direction,
-                                    entry_price=snapshot.price,
+                                    entry_price=entry_price,
                                     round_id=round_id,
                                 )
             except Exception as exc:
