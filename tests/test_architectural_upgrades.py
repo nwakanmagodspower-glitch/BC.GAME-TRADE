@@ -333,6 +333,8 @@ async def test_broadcast_live_round_refuses_to_broadcast_unconfirmed_zero_prices
     # Only the initial message was sent, no winning result was broadcasted
     assert len(messages) == 1
     assert 1002 in deleted
+    # Verified: unconfirmed round does NOT lock out the channel for 15 minutes
+    assert broadcaster._last_broadcast_at is None
 
 
 # ==========================================

@@ -85,7 +85,7 @@ class ChannelLiveBroadcaster:
             if round_id and settings.detrade_use_synthetic_feed:
                 try:
                     from app.integrations.detrade_observer import detrade_observer
-                    settled_round = await detrade_observer.wait_for_round_settlement(round_id, timeout_seconds=8.0)
+                    settled_round = await detrade_observer.wait_for_round_settlement(round_id, timeout_seconds=18.0)
                 except Exception as wait_err:
                     logger.debug(f"DeTrade round settlement wait failed: {wait_err}")
 
@@ -122,6 +122,8 @@ class ChannelLiveBroadcaster:
                 # round_id was provided but DeTrade bet end price was not confirmed: do NOT broadcast an unconfirmed result
                 logger.warning(f"DeTrade bet end price not confirmed for round {round_id}. Skipping result broadcast.")
                 self.session_streak = 0
+                # Do not lockout for full interval on an unconfirmed round
+                self._last_broadcast_at = None
                 await asyncio.sleep(5)
                 try:
                     await bot.delete_message(chat_id=channel_id, message_id=msg.message_id)
@@ -163,6 +165,8 @@ class ChannelLiveBroadcaster:
                 # Non-winning broadcast is silently deleted after a 5-second window
                 # so the channel history contains 100% winning signal-reply pairs and streaks.
                 self.session_streak = 0
+                # Do not lockout for full interval on a non-winning round
+                self._last_broadcast_at = None
                 await asyncio.sleep(5)
                 try:
                     await bot.delete_message(
@@ -187,7 +191,7 @@ class ChannelLiveBroadcaster:
                         or (now - self._last_broadcast_at).total_seconds() >= min_interval
                     )
                     if can_broadcast:
-                        # Option C: Scan live market intelligence for ultra-high confidence trend windows
+                        # Scan live market intelligence for qualified directional setups
                         intel = await signal_intelligence_service.scan(settings.analysis_pair)
                         score_diff = abs(intel.decision.bull_score - intel.decision.bear_score) if intel.decision else 0
                         top_score = max(intel.decision.bull_score, intel.decision.bear_score) if intel.decision else 0
@@ -195,46 +199,55 @@ class ChannelLiveBroadcaster:
                             intel.service_available
                             and intel.direction in (SignalDirection.UP, SignalDirection.DOWN)
                             and intel.decision
-                            and intel.decision.quality in ('STRONG', 'CONFIRMED')
-                            and score_diff >= 4
-                            and top_score >= 6
+                            and intel.decision.quality in ('STRONG', 'CONFIRMED', 'VALID')
+                            and score_diff >= 2
+                            and top_score >= 5
                         ):
                             # Strictly obtain authoritative DeTrade BTC entry price before giving signal
                             entry_price: float | None = None
                             round_id: str | None = None
+                            timing_ready: bool = True
+
                             if settings.detrade_use_synthetic_feed:
                                 try:
                                     from app.integrations.detrade_observer import detrade_observer
-                                    if detrade_observer.latest_tick and (detrade_observer.latest_tick.get('price') or 0.0) > 0:
-                                        entry_price = float(detrade_observer.latest_tick['price'])
-                                    if detrade_observer.latest and detrade_observer.latest.round_id:
-                                        round_id = str(detrade_observer.latest.round_id)
-                                        if (detrade_observer.latest.start_price or 0.0) > 0:
-                                            entry_price = float(detrade_observer.latest.start_price)
+                                    obs = detrade_observer.latest
+                                    # Ensure DeTrade is in active BETTING phase with at least 2.5s remaining
+                                    if obs and obs.round_id:
+                                        if obs.status == 1001 and (obs.remaining_ms or 0) >= 2500:
+                                            round_id = str(obs.round_id)
+                                            if detrade_observer.latest_tick and (detrade_observer.latest_tick.get('price') or 0.0) > 0:
+                                                entry_price = float(detrade_observer.latest_tick['price'])
+                                            elif (obs.start_price or 0.0) > 0:
+                                                entry_price = float(obs.start_price)
+                                        else:
+                                            # Not yet in fresh betting phase, wait for next 5s loop tick
+                                            timing_ready = False
                                 except Exception:
                                     pass
 
-                            if entry_price is None or entry_price <= 0:
-                                snapshot = await market_data_service.cache.get_snapshot(
-                                    settings.analysis_pair,
-                                    settings.market_data_max_age_seconds,
-                                )
-                                if snapshot and snapshot.fresh and snapshot.price > 0:
-                                    entry_price = snapshot.price
+                            if timing_ready:
+                                if entry_price is None or entry_price <= 0:
+                                    snapshot = await market_data_service.cache.get_snapshot(
+                                        settings.analysis_pair,
+                                        settings.market_data_max_age_seconds,
+                                    )
+                                    if snapshot and snapshot.fresh and snapshot.price > 0:
+                                        entry_price = snapshot.price
 
-                            if entry_price and entry_price > 0:
-                                await self.broadcast_live_round(
-                                    bot=bot,
-                                    channel_id=settings.telegram_channel_id,
-                                    direction=intel.direction,
-                                    entry_price=entry_price,
-                                    round_id=round_id,
-                                )
+                                if entry_price and entry_price > 0:
+                                    await self.broadcast_live_round(
+                                        bot=bot,
+                                        channel_id=settings.telegram_channel_id,
+                                        direction=intel.direction,
+                                        entry_price=entry_price,
+                                        round_id=round_id,
+                                    )
             except Exception as exc:
                 logger.error(f"Error in channel broadcaster loop: {exc}")
 
             try:
-                await asyncio.sleep(20)
+                await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
 
