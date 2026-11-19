@@ -60,6 +60,7 @@ class ChannelLiveBroadcaster:
         channel_id: int | str,
         direction: SignalDirection,
         entry_price: float,
+        round_id: str | None = None,
     ) -> bool:
         """Executes the exact 15-second countdown & edit loop on CHANNEL_ID."""
         try:
@@ -79,21 +80,39 @@ class ChannelLiveBroadcaster:
             msg = await bot.send_message(chat_id=channel_id, text=initial_text)
             self._last_broadcast_at = datetime.now(timezone.utc)
 
-            # 2. Wait 8 seconds for the 5-second round to finish & settle
-            await asyncio.sleep(8)
-            snapshot = await market_data_service.cache.get_snapshot(
-                settings.analysis_pair,
-                settings.market_data_max_age_seconds,
-            )
-            close_price = snapshot.price if snapshot else entry_price
+            # 2. Wait for the 5-second round to finish & settle via authoritative DeTrade endPrice
+            settled_round = None
+            if round_id and settings.detrade_use_synthetic_feed:
+                try:
+                    from app.integrations.detrade_observer import detrade_observer
+                    settled_round = await detrade_observer.wait_for_round_settlement(round_id, timeout_seconds=8.0)
+                except Exception as wait_err:
+                    logger.debug(f"DeTrade round settlement wait failed: {wait_err}")
 
-            # Under BC.Game Up/Down rules:
-            # End Rate > Start Rate -> UP wins
-            # End Rate <= Start Rate -> DOWN wins
-            if close_price > entry_price:
-                round_winner = SignalDirection.UP
+            if settled_round and settled_round.get('end_price') is not None:
+                close_price = float(settled_round['end_price'])
+                if settled_round.get('start_price') is not None:
+                    entry_price = float(settled_round['start_price'])
+
+                win_side = settled_round.get('win_side')
+                if win_side == 1:
+                    round_winner = SignalDirection.UP
+                elif win_side == 2:
+                    round_winner = SignalDirection.DOWN
+                else:
+                    round_winner = SignalDirection.UP if close_price > entry_price else SignalDirection.DOWN
             else:
-                round_winner = SignalDirection.DOWN
+                # Fallback to market cache tick if round_id was unavailable or timed out
+                await asyncio.sleep(8)
+                snapshot = await market_data_service.cache.get_snapshot(
+                    settings.analysis_pair,
+                    settings.market_data_max_age_seconds,
+                )
+                close_price = snapshot.price if snapshot else entry_price
+                if close_price > entry_price:
+                    round_winner = SignalDirection.UP
+                else:
+                    round_winner = SignalDirection.DOWN
 
             signal_won = (direction == round_winner)
             if signal_won:
@@ -170,11 +189,20 @@ class ChannelLiveBroadcaster:
                                 settings.market_data_max_age_seconds,
                             )
                             if snapshot and snapshot.fresh:
+                                round_id: str | None = None
+                                if settings.detrade_use_synthetic_feed:
+                                    try:
+                                        from app.integrations.detrade_observer import detrade_observer
+                                        if detrade_observer.latest and detrade_observer.latest.round_id:
+                                            round_id = str(detrade_observer.latest.round_id)
+                                    except Exception:
+                                        pass
                                 await self.broadcast_live_round(
                                     bot=bot,
                                     channel_id=settings.telegram_channel_id,
                                     direction=intel.direction,
                                     entry_price=snapshot.price,
+                                    round_id=round_id,
                                 )
             except Exception as exc:
                 logger.error(f"Error in channel broadcaster loop: {exc}")

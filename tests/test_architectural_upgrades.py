@@ -258,6 +258,45 @@ async def test_channel_live_broadcaster_sequence(monkeypatch):
     assert replies[0][0] == 999
 
 
+@pytest.mark.asyncio
+async def test_broadcast_live_round_settles_from_authoritative_detrade_end_price(monkeypatch):
+    from app.integrations.detrade_observer import detrade_observer
+    detrade_observer.completed_rounds['test_round_123'] = {
+        'round_id': 'test_round_123',
+        'start_price': 95000.0,
+        'end_price': 95015.50,
+        'win_side': 1,
+    }
+
+    messages = []
+    replies = []
+    class MockBot:
+        async def get_me(self):
+            return SimpleNamespace(username='bcgame_bot')
+        async def send_message(self, chat_id, text, **kwargs):
+            msg = SimpleNamespace(message_id=1001, text=text)
+            messages.append(text)
+            if 'reply_to_message_id' in kwargs:
+                replies.append((kwargs['reply_to_message_id'], text))
+            return msg
+        async def delete_message(self, chat_id, message_id, **kwargs):
+            pass
+
+    broadcaster = ChannelLiveBroadcaster()
+    success = await broadcaster.broadcast_live_round(
+        bot=MockBot(),
+        channel_id='@testchannel',
+        direction=SignalDirection.UP,
+        entry_price=95000.0,
+        round_id='test_round_123',
+    )
+
+    assert success is True
+    assert len(messages) == 2
+    assert 'Close: $95,015.50' in messages[1]
+    assert 'UP WON!' in messages[1]
+
+
 # ==========================================
 # TASK 3: Micro-Chop Filter & Discipline
 # ==========================================

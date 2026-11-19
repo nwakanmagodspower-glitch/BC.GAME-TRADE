@@ -142,6 +142,7 @@ class DeTradeObserver:
         self._force_credential_refresh = False
         self._last_tick_price: float | None = None
         self._tick_counter: int = 0
+        self.completed_rounds: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _browser_cid() -> str:
@@ -282,6 +283,53 @@ class DeTradeObserver:
             bars_5s=bars,
             bar_metrics_5s=metrics,
         )
+
+    def _record_completed_round(
+        self,
+        round_id: str,
+        start_price: float | None,
+        end_price: float | None,
+        win_side: int | None = None,
+    ) -> None:
+        if not round_id or end_price is None:
+            return
+        if win_side is None and start_price is not None:
+            win_side = 1 if end_price > start_price else 2
+        self.completed_rounds[str(round_id)] = {
+            'round_id': str(round_id),
+            'start_price': start_price,
+            'end_price': end_price,
+            'win_side': win_side,
+            'recorded_at': time.monotonic(),
+        }
+        if len(self.completed_rounds) > 100:
+            oldest_key = next(iter(self.completed_rounds))
+            self.completed_rounds.pop(oldest_key, None)
+
+    def get_round_result(self, round_id: str | None) -> dict[str, Any] | None:
+        """Retrieve authoritative settlement result for a completed round."""
+        if not round_id:
+            return None
+        return self.completed_rounds.get(str(round_id))
+
+    async def wait_for_round_settlement(self, round_id: str | None, timeout_seconds: float = 8.0) -> dict[str, Any] | None:
+        """Wait until DeTrade delivers the official endPrice and settlement for round_id."""
+        if not round_id:
+            return None
+        start_time = time.monotonic()
+        while (time.monotonic() - start_time) < timeout_seconds:
+            result = self.get_round_result(round_id)
+            if result is not None and result.get('end_price') is not None:
+                return result
+            if self.latest and str(self.latest.round_id) == str(round_id) and self.latest.end_price is not None:
+                self._record_completed_round(
+                    round_id=str(round_id),
+                    start_price=self.latest.start_price,
+                    end_price=self.latest.end_price,
+                )
+                return self.get_round_result(round_id)
+            await asyncio.sleep(0.2)
+        return self.get_round_result(round_id)
 
     async def start(self) -> None:
         if not settings.detrade_ws_enabled:
@@ -533,6 +581,25 @@ class DeTradeObserver:
             received_monotonic=time.monotonic(),
             received_at=datetime.now(timezone.utc),
         )
+
+        # Authoritatively record completed round settlements from previousRoundResult & finished frames
+        prev_res = payload.get('previousRoundResult')
+        if isinstance(prev_res, list):
+            for pr in prev_res:
+                if isinstance(pr, dict) and 'id' in pr:
+                    self._record_completed_round(
+                        round_id=str(pr['id']),
+                        start_price=self._as_float(pr.get('startPrice')),
+                        end_price=self._as_float(pr.get('endPrice')),
+                        win_side=self._as_int(pr.get('winSide')),
+                    )
+        if self.latest.round_id and self.latest.end_price is not None:
+            self._record_completed_round(
+                round_id=self.latest.round_id,
+                start_price=self.latest.start_price,
+                end_price=self.latest.end_price,
+            )
+
         self.last_error = None
         self._observation_event.set()
         if self.on_observation is not None:

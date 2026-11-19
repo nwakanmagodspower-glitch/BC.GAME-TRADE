@@ -185,8 +185,7 @@ def format_signal(signal: Signal) -> str:
         return (
             f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
             '⚪ NO TRADE\n\n'
-            '🎯 Action: 🛡️ Skip Round\n'
-            'No qualified setup right now. Please scan again for the next round.'
+            '🎯 Action: 🛡️ Skip Round'
             + paper
         )
 

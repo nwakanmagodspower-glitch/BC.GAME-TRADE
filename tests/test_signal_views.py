@@ -76,7 +76,7 @@ def test_no_trade_message_is_simple():
     )
     text = signal_views.format_signal(signal)
     assert '⚪ NO TRADE' in text
-    assert 'No qualified setup right now' in text
+    assert '🎯 Action: 🛡️ Skip Round' in text
     assert 'Timing:' not in text
     assert 'Round:' not in text
 
