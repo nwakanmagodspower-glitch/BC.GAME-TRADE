@@ -89,10 +89,13 @@ class ChannelLiveBroadcaster:
                 except Exception as wait_err:
                     logger.debug(f"DeTrade round settlement wait failed: {wait_err}")
 
-            if settled_round and settled_round.get('end_price') is not None:
+            initial_entry = entry_price
+            if settled_round and (settled_round.get('end_price') or 0.0) > 0:
                 close_price = float(settled_round['end_price'])
-                if settled_round.get('start_price') is not None:
+                if (settled_round.get('start_price') or 0.0) > 0:
                     entry_price = float(settled_round['start_price'])
+                else:
+                    entry_price = initial_entry
 
                 win_side = settled_round.get('win_side')
                 if win_side == 1:
@@ -103,12 +106,14 @@ class ChannelLiveBroadcaster:
                     round_winner = SignalDirection.UP if close_price > entry_price else SignalDirection.DOWN
             else:
                 # Fallback to market cache tick if round_id was unavailable or timed out
-                await asyncio.sleep(8)
+                await asyncio.sleep(6)
                 snapshot = await market_data_service.cache.get_snapshot(
                     settings.analysis_pair,
                     settings.market_data_max_age_seconds,
                 )
-                close_price = snapshot.price if snapshot else entry_price
+                close_price = snapshot.price if (snapshot and snapshot.price > 0) else initial_entry
+                entry_price = initial_entry if initial_entry > 0 else close_price
+
                 if close_price > entry_price:
                     round_winner = SignalDirection.UP
                 else:

@@ -297,6 +297,60 @@ async def test_broadcast_live_round_settles_from_authoritative_detrade_end_price
     assert 'UP WON!' in messages[1]
 
 
+@pytest.mark.asyncio
+async def test_broadcast_live_round_ignores_zero_placeholder_prices(monkeypatch):
+    from app.integrations.detrade_observer import detrade_observer
+    from app.services.market_data import MarketSnapshot
+
+    # Simulate DeTrade sending placeholder 0.0 prices during betting/cutoff phase
+    detrade_observer.completed_rounds['test_zero_round'] = {
+        'round_id': 'test_zero_round',
+        'start_price': 0.0,
+        'end_price': 0.0,
+        'win_side': 2,
+    }
+
+    # Market snapshot fallback has real price
+    async def fake_get_snapshot(*args, **kwargs):
+        return MarketSnapshot(
+            symbol='BTCUSDT',
+            price=95020.0,
+            event_time=datetime.now(timezone.utc),
+            provider='DETRADE_SYNTHETIC',
+            age_seconds=0.1,
+            fresh=True,
+            last_quantity=1.0,
+            is_buyer_maker=False,
+        )
+    monkeypatch.setattr('app.services.market_data.market_data_service.cache.get_snapshot', fake_get_snapshot)
+
+    messages = []
+    class MockBot:
+        async def get_me(self):
+            return SimpleNamespace(username='bcgame_bot')
+        async def send_message(self, chat_id, text, **kwargs):
+            messages.append(text)
+            return SimpleNamespace(message_id=1002, text=text)
+        async def delete_message(self, chat_id, message_id, **kwargs):
+            pass
+
+    broadcaster = ChannelLiveBroadcaster()
+    success = await broadcaster.broadcast_live_round(
+        bot=MockBot(),
+        channel_id='@testchannel',
+        direction=SignalDirection.UP,
+        entry_price=95000.0,
+        round_id='test_zero_round',
+    )
+
+    assert success is True
+    assert len(messages) == 2
+    # Verify zero placeholder price is never printed
+    assert '$0.00' not in messages[1]
+    assert 'Entry: $95,000.00' in messages[1]
+    assert 'Close: $95,020.00' in messages[1]
+
+
 # ==========================================
 # TASK 3: Micro-Chop Filter & Discipline
 # ==========================================

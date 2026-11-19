@@ -291,9 +291,11 @@ class DeTradeObserver:
         end_price: float | None,
         win_side: int | None = None,
     ) -> None:
-        if not round_id or end_price is None:
+        if not round_id or end_price is None or end_price <= 0:
             return
-        if win_side is None and start_price is not None:
+        if start_price is not None and start_price <= 0:
+            start_price = None
+        if win_side is None and start_price is not None and start_price > 0:
             win_side = 1 if end_price > start_price else 2
         self.completed_rounds[str(round_id)] = {
             'round_id': str(round_id),
@@ -310,24 +312,34 @@ class DeTradeObserver:
         """Retrieve authoritative settlement result for a completed round."""
         if not round_id:
             return None
-        return self.completed_rounds.get(str(round_id))
+        res = self.completed_rounds.get(str(round_id))
+        if res and (res.get('end_price') or 0.0) > 0:
+            return res
+        return None
 
     async def wait_for_round_settlement(self, round_id: str | None, timeout_seconds: float = 8.0) -> dict[str, Any] | None:
-        """Wait until DeTrade delivers the official endPrice and settlement for round_id."""
+        """Wait until DeTrade delivers the official endPrice (> 0) and settlement for round_id."""
         if not round_id:
             return None
         start_time = time.monotonic()
         while (time.monotonic() - start_time) < timeout_seconds:
             result = self.get_round_result(round_id)
-            if result is not None and result.get('end_price') is not None:
+            if result is not None and (result.get('end_price') or 0.0) > 0:
                 return result
-            if self.latest and str(self.latest.round_id) == str(round_id) and self.latest.end_price is not None:
+            if (
+                self.latest
+                and str(self.latest.round_id) == str(round_id)
+                and (self.latest.end_price or 0.0) > 0
+                and self.latest.status in {1002, 1004, 1005, 1006, 1008}
+            ):
                 self._record_completed_round(
                     round_id=str(round_id),
                     start_price=self.latest.start_price,
                     end_price=self.latest.end_price,
                 )
-                return self.get_round_result(round_id)
+                res = self.get_round_result(round_id)
+                if res:
+                    return res
             await asyncio.sleep(0.2)
         return self.get_round_result(round_id)
 
@@ -593,7 +605,11 @@ class DeTradeObserver:
                         end_price=self._as_float(pr.get('endPrice')),
                         win_side=self._as_int(pr.get('winSide')),
                     )
-        if self.latest.round_id and self.latest.end_price is not None:
+        if (
+            self.latest.round_id
+            and (self.latest.end_price or 0.0) > 0
+            and self.latest.status in {1002, 1004, 1005, 1006, 1008}
+        ):
             self._record_completed_round(
                 round_id=self.latest.round_id,
                 start_price=self.latest.start_price,
