@@ -120,7 +120,8 @@ def test_telegram_formatting_low_speed_educates_user():
     rendered = format_signal(signal)
     assert '⚪ NO TRADE — Low Market Speed' in rendered
     assert '📊 Market Movement: Flat Sideways Chop' in rendered
-    assert 'Wait for a fresh round with clear directional movement before scanning again.' in rendered
+    assert '🎯 Action: 🛡️ Skip Round' in rendered
+    assert 'Wait for a fresh round with clear directional movement' not in rendered
 
 
 def test_telegram_formatting_active_signal_displays_momentum_range():

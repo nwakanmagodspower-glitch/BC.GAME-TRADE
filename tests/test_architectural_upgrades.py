@@ -368,7 +368,7 @@ def test_micro_chop_flat_market_filter_returns_hold_signal():
     formatted = signal_views.format_signal(sig)
     assert '⏸️ HOLD / CHOP DETECTED' in formatted
     assert 'AI Capital Protection: Active' in formatted
-    assert 'waiting 10 seconds for a clean breakout impulse' in formatted
+    assert '🎯 Action: 🛡️ Skip Round' in formatted
 
 
 @pytest.mark.asyncio

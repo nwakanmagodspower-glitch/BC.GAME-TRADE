@@ -143,8 +143,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Round Already Started\n\n'
                 '⏱️ Window: The round countdown has already reached 0:00\n'
-                '🎯 Action: 🛡️ Skip Round\n\n'
-                '💡 Wait for the next round countdown and tap Scan to get your signal.'
+                '🎯 Action: 🛡️ Skip Round'
                 + paper
             )
 
@@ -153,8 +152,7 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Trend Conflict\n\n'
                 '📊 Alignment: Short-term tick contradicts macro 1-minute trend\n'
-                '🎯 Action: 🛡️ Skip Round (Wait for trend alignment)\n\n'
-                'Wait for clear momentum that aligns with the broader trend.'
+                '🎯 Action: 🛡️ Skip Round'
                 + paper
             )
 
@@ -163,22 +161,18 @@ def format_signal(signal: Signal) -> str:
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⏸️ HOLD / CHOP DETECTED\n\n'
                 '🛡️ AI Capital Protection: Active\n'
-                '📊 Market State: Flat Sideways Chop (Low Volatility / Indicator Conflict)\n'
-                '⏳ Action: AI is waiting 10 seconds for a clean breakout impulse.\n\n'
-                '💡 Do NOT force a trade during chop. Tap Scan Market in 10s for the breakout round.'
+                '📊 Market Movement: Flat Sideways Chop\n'
+                '🎯 Action: 🛡️ Skip Round'
                 + paper
             )
 
         min_range = getattr(settings, 'detrade_min_5s_range_dollars', settings.signal_min_lead_range_dollars)
         if quality == 'LOW_SPEED' or 'too narrow' in reason_str.lower() or 'neutral consolidation' in reason_str.lower() or (isinstance(lead_range, (int, float)) and 0.0 < lead_range < min_range):
-            range_str = f'${float(lead_range):.2f}' if isinstance(lead_range, (int, float)) else f'<${min_range:.2f}'
             return (
                 f'⚡ BCGAME BTC/USD — 5s • {room}\n\n'
                 '⚪ NO TRADE — Low Market Speed\n\n'
                 '📊 Market Movement: Flat Sideways Chop\n'
-                '🎯 Action: 🛡️ Skip Round\n\n'
-                '💡 Market momentum is too low for a high-probability trade.\n\n'
-                'Wait for a fresh round with clear directional movement before scanning again.'
+                '🎯 Action: 🛡️ Skip Round'
                 + paper
             )
 

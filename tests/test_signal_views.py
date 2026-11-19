@@ -110,23 +110,27 @@ def test_no_trade_round_already_started():
     text = signal_views.format_signal(signal)
     assert '⚪ NO TRADE — Round Already Started' in text
     assert 'The round countdown has already reached 0:00' in text
-    assert 'Wait for the next round countdown' in text
+    assert '🎯 Action: 🛡️ Skip Round' in text
 
 
-def test_no_trade_macro_trend_conflict():
+def test_no_trade_low_speed_is_concise():
     signal = Signal(
         direction=SignalDirection.NO_TRADE,
         status=SignalStatus.NO_TRADE,
-        status_reason='Macro 1m trend conflict: Bullish 5s setup vetoed by deep 1m downward trend (EMA cascade down and RSI 38.2)',
         strategy_version='BTC_ORIGINAL_INTELLIGENCE_TIMER_V1',
         market='BTC/USD',
         product='BC_UPDOWN_5S',
+        features_snapshot={
+            '_decision': {'quality': 'LOW_SPEED'},
+            'lead_range_dollars': 0.85,
+        },
     )
     text = signal_views.format_signal(signal)
-    assert '⚪ NO TRADE — Trend Conflict' in text
-    assert 'Short-term tick contradicts macro 1-minute trend' in text
-    assert 'Wait for clear momentum that aligns with the broader trend.' in text
-    assert 'Preserve capital' not in text
+    assert '⚪ NO TRADE — Low Market Speed' in text
+    assert '📊 Market Movement: Flat Sideways Chop' in text
+    assert '🎯 Action: 🛡️ Skip Round' in text
+    assert 'Market momentum is too low' not in text
+    assert 'Wait for a fresh round' not in text
 
 
 def test_directional_signal_dynamic_stake_guidance(monkeypatch):
